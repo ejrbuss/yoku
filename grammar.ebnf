@@ -1,0 +1,108 @@
+Module 
+	= { Declaration }
+	;
+
+Declaration
+	= DeclarationPreamble DeclarationBody
+	;
+
+DeclarationPreamble
+	= [ DocComment ] { Annotation } [ "export" ]
+	;
+
+DeclarationBody
+	| VarDeclaration
+	| ConstDeclaration
+	| TypeDeclaration
+	| StructDeclaration
+	| EnumDeclaration
+	| AbstractDeclaration
+	| ProcDeclaration
+	| ImplDeclaration
+	;
+
+VarDeclaration
+	= "var" Identifier "=" Expression ";"
+	;
+
+ConstDeclaration
+	= "const" Identifier "=" Expression ";"
+	;
+
+TypeDeclaration
+	= "type" Identifier "=" TypeExpression ";"
+	;
+
+StructDeclaration
+	= "struct" Identifier [ TypeParameters ] "{" { StructMember } "}"
+	;
+
+EnumDeclaration
+	= "enum" Identifier [ TypeParameters ] "{" { EnumMember } "}"
+	;
+
+AbstractDeclaration
+	= "abstract" Identifier [ TypeParameters ] "{" { AbstractMember } "}"
+	;
+
+ProcDeclaration
+	= "proc" Identifier [ TypeParameters ] "(" ProcParamters ")" "->" [ TypeExpression ] Block
+	;
+
+Expression
+	= IfExpression
+	| MatchExpression
+	| LoopExpression
+	| WhileExpression
+	| ForExpression
+	| TryExpression
+	| Condition
+	;
+
+IfExpression
+	= "if" Condition Block [ "else" ElseBlock ]
+	;
+
+ElseBlock
+	= IfExpression
+	| Block
+	;
+
+MatchExpression
+	= "match" Condition "{" { MatchCase } "}"
+	;
+
+LoopExpression
+	= "loop" [ Identifier ] Block
+	;
+
+WhileExpression
+	= "while" Condition Block
+	;
+
+ForExpression
+	= "for" Pattern "in" Condition [ ForFilter ] Block
+	;
+
+ForFilter
+	= "if" Condition
+	;
+
+TryExpression
+	= "try" Block TryHandler
+	;
+
+TryHandler
+	= TryElse
+	| TryMatch
+	;
+
+TryElse
+	= "else" Block
+	;
+
+TryMatch
+	= "match" "{" { MatchCase } "}"
+	;
+
+try { Result.Ok(x); } match { case e => Result.Error(e); }
