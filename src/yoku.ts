@@ -2,6 +2,7 @@ import { Token, Tokenizer, TokenType } from "./tokens.ts";
 import { ParseError, Parser } from "./parser.ts";
 import { Interpreter } from "./interpreter.ts";
 import { Ast, RtValue, Span } from "./core.ts";
+import { ResolutionError, Resolver } from "./resolver.ts";
 
 class YokuError extends Error {}
 
@@ -17,16 +18,19 @@ async function main(args: string[]) {
 }
 
 async function runFile(path: string) {
-	run(Interpreter.create(), path, await Deno.readTextFile(path));
+	const resolver = Resolver.create();
+	const interpreter = Interpreter.create(resolver);
+	run(resolver, interpreter, path, await Deno.readTextFile(path));
 }
 
 function runPrompt() {
-	const interpreter = Interpreter.create();
+	const resolver = Resolver.create();
+	const interpreter = Interpreter.create(resolver);
 	for (;;) {
 		try {
 			const line = prompt(">");
 			if (line !== null) {
-				console.log(RtValue.print(run(interpreter, "repl", line)));
+				console.log(RtValue.print(run(resolver, interpreter, "repl", line)));
 			}
 		} catch (error) {
 			if (!(error instanceof YokuError)) {
@@ -37,15 +41,20 @@ function runPrompt() {
 }
 
 function run(
+	resolver: Resolver,
 	interpreter: Interpreter,
 	moduleId: string,
 	source: string
 ): RtValue {
+	// TODO: reportError does not currently understand \t
+	source = source.replaceAll("\t", "    ");
 	const tokens = Tokenizer.tokenize(source);
+	console.log();
 	console.log(`--- Tokens ---`);
 	for (const token of tokens) {
 		console.log(Token.print(token));
 	}
+	console.log();
 
 	let error = false;
 	for (const token of tokens) {
@@ -59,12 +68,17 @@ function run(
 	}
 	try {
 		const ast = Parser.parse(moduleId, tokens);
-		console.log(`--- AST ---`);
+		console.log(`\n--- AST ---`);
 		console.log(Ast.sexpr(ast));
 		console.log();
+		Resolver.resolve(resolver, ast);
 		return Interpreter.interperate(interpreter, ast);
 	} catch (error) {
 		if (error instanceof ParseError) {
+			reportError(moduleId, source, error, error.note);
+			throw new YokuError();
+		}
+		if (error instanceof ResolutionError) {
 			reportError(moduleId, source, error, error.note);
 			throw new YokuError();
 		}

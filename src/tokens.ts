@@ -47,7 +47,6 @@ const Keywords = new Set([
 	"return",
 	"try",
 	"throw",
-	"print", // TODO remove me
 	"todo",
 ]);
 
@@ -144,6 +143,7 @@ function nextToken(t: Tokenizer): Token | undefined {
 		match(t, "*") ||
 		match(t, "/") ||
 		match(t, "%") ||
+		match(t, "^") ||
 		match(t, "&") ||
 		match(t, "|") ||
 		match(t, "?") ||

@@ -27,7 +27,7 @@ function columnOf(span: Span, source: string): number {
 }
 
 function highlight(span: Span, source: string, note: string = ""): string {
-	let column = -1;
+	let column = 0;
 	let lineNumber = 1;
 	let lineContents = "";
 	for (let i = 0; i < source.length; i++) {
@@ -35,14 +35,16 @@ function highlight(span: Span, source: string, note: string = ""): string {
 			if (i >= span.end) {
 				break;
 			}
-			column = -1;
+			column = 0;
 			lineNumber++;
 			lineContents = "";
+			continue;
+		} else {
+			if (i < span.start) {
+				column++;
+			}
+			lineContents += source[i];
 		}
-		if (i < span.end) {
-			column++;
-		}
-		lineContents += source[i];
 	}
 	console.log({
 		start: span.start,
@@ -63,29 +65,30 @@ function highlight(span: Span, source: string, note: string = ""): string {
 }
 
 export enum BinaryOp {
-	Add = "Add",
-	Sub = "Sub",
-	Mul = "Mul",
-	Div = "Div",
-	Rem = "Rem",
-	And = "And",
-	Or = "Or",
-	Lt = "Lt",
-	Lte = "Lte",
-	Gt = "Gt",
-	Gte = "Gte",
-	Eq = "Eq",
-	NotEq = "NotEq",
-	Id = "Id",
-	NotId = "NotId",
-	Default = "Default",
-	Member = "Member",
+	Add = "+",
+	Sub = "-",
+	Mul = "*",
+	Div = "/",
+	Rem = "%",
+	Pow = "^",
+	And = "&",
+	Or = "|",
+	Lt = "<",
+	Lte = "<=",
+	Gt = ">",
+	Gte = ">=",
+	Eq = "==",
+	NotEq = "!=",
+	Id = "===",
+	NotId = "!==",
+	Default = "?",
+	Member = ".",
 }
 
 export enum UnaryOp {
-	Not = "Not",
-	Neg = "Neg",
-	Spread = "Spread",
+	Not = "!",
+	Neg = "-",
+	Spread = "...",
 }
 
 export type Op = BinaryOp | UnaryOp;
@@ -95,6 +98,7 @@ export enum RtType {
 	Bool = "Bool",
 	Num = "Num", // TODO split into numeric types
 	Str = "Str",
+	Proc = "Proc",
 }
 
 function unwrap<T extends { type: RtType; value: unknown }>(
@@ -163,9 +167,33 @@ export const RtStr = {
 	unwrap: unwrap<RtStr>(RtType.Str),
 };
 
-export type RtValue = RtUnit | RtBool | RtNum | RtStr;
+export type RtProc = {
+	type: RtType.Proc;
+	value: (args: RtValue[]) => RtValue;
+};
 
-export const RtValue = { Unit, True, False, bool, num, str, eq, id, print };
+function proc(value: (args: RtValue[]) => RtValue): RtProc {
+	return { type: RtType.Proc, value };
+}
+
+export const RtProc = {
+	unwrap: unwrap<RtProc>(RtType.Proc),
+};
+
+export type RtValue = RtUnit | RtBool | RtNum | RtStr | RtProc;
+
+export const RtValue = {
+	Unit,
+	True,
+	False,
+	bool,
+	num,
+	str,
+	proc,
+	eq,
+	id,
+	print,
+};
 
 function eq(a: RtValue, b: RtValue): boolean {
 	if (a.type !== b.type) {
@@ -177,6 +205,7 @@ function eq(a: RtValue, b: RtValue): boolean {
 		case RtType.Bool:
 		case RtType.Num:
 		case RtType.Str:
+		case RtType.Proc:
 			return a.value === (b as typeof a).value;
 	}
 }
@@ -194,15 +223,18 @@ function print(v: RtValue): string {
 		case RtType.Num:
 		case RtType.Str:
 			return `${v.value}`;
+		case RtType.Proc:
+			return "proc";
 	}
 }
 
 export enum AstType {
 	Module = "Module",
-	VarStmt = "VarStmt",
-	PrintStmt = "PrintStmt",
+	VarDecl = "VarDecl",
+	ProcDecl = "ProcDecl",
 	BreakStmt = "BreakStmt",
 	ContinueStmt = "ContinueStmt",
+	ReturnStmt = "ReturnStmt",
 	AssignStmt = "AssignStmt",
 	ExprStmt = "ExprStmt",
 	BlockExpr = "BlockExpr",
@@ -210,10 +242,12 @@ export enum AstType {
 	IfExpr = "IfExpr",
 	LoopExpr = "LoopExpr",
 	WhileExpr = "WhileExpr",
+	ProcExpr = "ProcExpr",
 	BinaryExpr = "BinaryExpr",
 	UnaryExpr = "UnaryExpr",
+	CallExpr = "CallExpr",
 	LitExpr = "LitExpr",
-	IdExpr = "IdExpr",
+	Id = "Id",
 }
 
 export type Module = {
@@ -222,30 +256,37 @@ export type Module = {
 	decls: Ast[];
 } & Span;
 
-export type VarStmt = {
-	type: AstType.VarStmt;
-	name: string;
+export type VarDecl = {
+	type: AstType.VarDecl;
+	isConst: boolean;
+	id: Id;
 	initializer: Ast;
 } & Span;
 
-export type PrintStmt = {
-	type: AstType.PrintStmt;
-	expr: Ast;
+export type ProcDecl = {
+	type: AstType.ProcDecl;
+	id: Id;
+	expr: ProcExpr;
 } & Span;
 
 export type BreakStmt = {
 	type: AstType.BreakStmt;
-	label?: string;
+	label?: Id;
 } & Span;
 
 export type ContinueStmt = {
 	type: AstType.ContinueStmt;
-	label?: string;
+	label?: Id;
+} & Span;
+
+export type ReturnStmt = {
+	type: AstType.ReturnStmt;
+	expr?: Ast;
 } & Span;
 
 export type AssignStmt = {
 	type: AstType.AssignStmt;
-	name: string;
+	id: Id;
 	op?: BinaryOp;
 	value: Ast;
 } & Span;
@@ -257,7 +298,7 @@ export type ExprStmt = {
 
 export type BlockExpr = {
 	type: AstType.BlockExpr;
-	label?: string;
+	label?: Id;
 	stmts: Ast[];
 } & Span;
 
@@ -275,7 +316,7 @@ export type IfExpr = {
 
 export type LoopExpr = {
 	type: AstType.LoopExpr;
-	label?: string;
+	label?: Id;
 	blockExpr: Ast;
 } & Span;
 
@@ -283,6 +324,12 @@ export type WhileExpr = {
 	type: AstType.WhileExpr;
 	testExpr: Ast;
 	blockExpr: Ast;
+} & Span;
+
+export type ProcExpr = {
+	type: AstType.ProcExpr;
+	params: Id[];
+	impl: Ast;
 } & Span;
 
 export type BinaryExpr = {
@@ -298,22 +345,30 @@ export type UnaryExpr = {
 	right: Ast;
 } & Span;
 
+export type CallExpr = {
+	type: AstType.CallExpr;
+	proc: Ast;
+	args: Ast[];
+} & Span;
+
 export type LitExpr = {
 	type: AstType.LitExpr;
 	value: RtValue;
 } & Span;
 
-export type IdExpr = {
-	type: AstType.IdExpr;
+export type Id = {
+	type: AstType.Id;
 	value: string;
+	resolvedId?: number;
 } & Span;
 
 export type Ast =
 	| Module
-	| VarStmt
-	| PrintStmt
+	| VarDecl
+	| ProcDecl
 	| BreakStmt
 	| ContinueStmt
+	| ReturnStmt
 	| AssignStmt
 	| ExprStmt
 	| BlockExpr
@@ -321,10 +376,12 @@ export type Ast =
 	| IfExpr
 	| LoopExpr
 	| WhileExpr
+	| ProcExpr
 	| BinaryExpr
 	| UnaryExpr
+	| CallExpr
 	| LitExpr
-	| IdExpr;
+	| Id;
 
 export const Ast = { sexpr };
 
@@ -340,16 +397,22 @@ function sexpr(ast: Ast): string {
 	switch (ast.type) {
 		case AstType.Module:
 			return tab(ast.type, ast.decls.map(sexpr));
-		case AstType.VarStmt:
-			return tab(ast.type, [ast.name, sexpr(ast.initializer)]);
-		case AstType.PrintStmt:
-			return tab(ast.type, [sexpr(ast.expr)]);
+		case AstType.VarDecl:
+			return tab(ast.type, [sexpr(ast.id), sexpr(ast.initializer)]);
+		case AstType.ProcDecl:
+			return tab(ast.type, [sexpr(ast.id), sexpr(ast.expr)]);
 		case AstType.BreakStmt:
-			return `(${ast.type} ${ast.label})`;
+			return `(${ast.type}${
+				ast.label === undefined ? "" : " " + sexpr(ast.label)
+			})`;
 		case AstType.ContinueStmt:
-			return `(${ast.type} ${ast.label})`;
+			return `(${ast.type}${
+				ast.label === undefined ? "" : " " + sexpr(ast.label)
+			})`;
+		case AstType.ReturnStmt:
+			return tab(ast.type, ast.expr === undefined ? [] : [sexpr(ast.expr)]);
 		case AstType.AssignStmt:
-			return tab(ast.type, [ast.name, sexpr(ast.value)]);
+			return tab(ast.type, [sexpr(ast.id), sexpr(ast.value)]);
 		case AstType.ExprStmt:
 			return tab(ast.type, [sexpr(ast.expr)]);
 		case AstType.BlockExpr:
@@ -366,13 +429,17 @@ function sexpr(ast: Ast): string {
 			return tab(ast.type, [sexpr(ast.blockExpr)]);
 		case AstType.WhileExpr:
 			return tab(ast.type, [sexpr(ast.testExpr), sexpr(ast.blockExpr)]);
+		case AstType.ProcExpr:
+			return tab(ast.type, [`(${ast.params.join(" ")})`, sexpr(ast.impl)]);
 		case AstType.BinaryExpr:
 			return tab(ast.type, [ast.op, sexpr(ast.left), sexpr(ast.right)]);
 		case AstType.UnaryExpr:
 			return tab(ast.type, [ast.op, sexpr(ast.right)]);
+		case AstType.CallExpr:
+			return tab(ast.type, [sexpr(ast.proc), ...ast.args.map(sexpr)]);
 		case AstType.LitExpr:
 			return print(ast.value);
-		case AstType.IdExpr:
+		case AstType.Id:
 			return ast.value;
 	}
 }

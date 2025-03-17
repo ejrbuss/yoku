@@ -229,4 +229,13 @@ const map: Map[Point, Int] = Map.of(
 
 const mapAlt = Map.empty[MyType, Int](myHashFn);
 
+Top 3 bits of all references could be special flags
+2 for the reference type
+ - Local
+ - Shared
+ - Raw
+ - Weak
+1 to use as a spin lock depending on the reference type
+How much of this shows up at the type level?
+
 ```

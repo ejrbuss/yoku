@@ -1,7 +1,26 @@
 import { Token, TokenType } from "./tokens.ts";
-import { Ast, AstType, BinaryOp, UnaryOp, RtValue, Op } from "./core.ts";
+import {
+	Ast,
+	AstType,
+	BinaryOp,
+	UnaryOp,
+	RtValue,
+	ProcExpr,
+	WhileExpr,
+	LoopExpr,
+	IfExpr,
+	BlockExpr,
+	GroupExpr,
+	ContinueStmt,
+	BreakStmt,
+	ProcDecl,
+	VarDecl,
+	Module,
+	ReturnStmt,
+	Id,
+} from "./core.ts";
 
-type TokenMatcher = { type?: TokenType; image?: string };
+type TokenMatcher = TokenType | string;
 
 type Parser = {
 	tokens: Token[];
@@ -21,20 +40,20 @@ export class ParseError extends Error {
 
 export const Parser = { parse };
 
-function parse(moduleId: string, tokens: Token[]): Ast {
+function parse(moduleId: string, tokens: Token[]): Module {
 	const p: Parser = { tokens, position: 0, starts: [] };
 	return parseModule(p, moduleId);
 }
 
-function parseModule(p: Parser, moduleId: string): Ast {
+function parseModule(p: Parser, moduleId: string): Module {
 	pushStart(p);
 	const decls: Ast[] = [];
 	while (hasMore(p)) {
 		decls.push(parseStmt(p));
-		if (!hasMore(p) || matches(peek(p, -1), { image: "}" })) {
-			match(p, { image: ";" });
+		if (!hasMore(p) || lookBehind(p, "}")) {
+			match(p, ";");
 		} else {
-			consume(p, { image: ";" }, 'Expected ";" following declaration!');
+			consume(p, ";", 'Expected ";" following declaration!');
 		}
 	}
 	return {
@@ -47,67 +66,91 @@ function parseModule(p: Parser, moduleId: string): Ast {
 }
 
 function parseStmt(p: Parser): Ast {
-	if (matches(peek(p), { image: "var" })) {
-		return parseVarStmt(p);
+	if (lookAhead(p, "var")) {
+		return parseVarDecl(p);
 	}
-	if (matches(peek(p), { image: "print" })) {
-		return parsePrintStmt(p);
+	if (lookAhead(p, "proc") && lookAhead(p, TokenType.Id, 1)) {
+		return parseProcDecl(p);
 	}
-	if (matches(peek(p), { image: "break" })) {
+	if (lookAhead(p, "break")) {
 		return parseBreakStmt(p);
 	}
-	if (matches(peek(p), { image: "continue" })) {
+	if (lookAhead(p, "continue")) {
 		return parseContinueStmt(p);
+	}
+	if (lookAhead(p, "return")) {
+		return parseReturnStmt(p);
 	}
 	return parseAssignStmt(p);
 }
 
-function parseVarStmt(p: Parser): Ast {
+function parseVarDecl(p: Parser): VarDecl {
 	pushStart(p);
-	consume(p, { image: "var" });
-	const identifier = consume(p, { type: TokenType.Id });
-	consume(p, { image: "=" });
+	const isConst = match(p, "const") !== undefined;
+	if (!isConst) {
+		consume(p, "var");
+	}
+	const varId = consume(p, TokenType.Id);
+	consume(p, "=");
 	const initializer = parseExpr(p);
 	return {
-		type: AstType.VarStmt,
-		name: identifier.image,
+		type: AstType.VarDecl,
+		isConst,
+		id: id(varId),
 		initializer,
 		start: popStart(p),
 		end: getEnd(p),
 	};
 }
 
-function parsePrintStmt(p: Parser): Ast {
+function parseProcDecl(p: Parser): ProcDecl {
 	pushStart(p);
-	consume(p, { image: "print" });
-	const expr = parseExpr(p);
+	consume(p, "proc");
+	const procId = consume(p, TokenType.Id);
+	const expr = parseProcExpr(p);
 	return {
-		type: AstType.PrintStmt,
+		type: AstType.ProcDecl,
+		id: id(procId),
 		expr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
 }
 
-function parseBreakStmt(p: Parser): Ast {
+function parseBreakStmt(p: Parser): BreakStmt {
 	pushStart(p);
-	consume(p, { image: "break" });
-	const label = match(p, { type: TokenType.Id });
+	consume(p, "break");
+	const label = match(p, TokenType.Id);
 	return {
 		type: AstType.BreakStmt,
-		label: label?.image,
+		label: label === undefined ? label : id(label),
 		start: popStart(p),
 		end: getEnd(p),
 	};
 }
 
-function parseContinueStmt(p: Parser): Ast {
+function parseReturnStmt(p: Parser): ReturnStmt {
 	pushStart(p);
-	consume(p, { image: "continue" });
-	const label = match(p, { type: TokenType.Id });
+	consume(p, "return");
+	let expr: Ast | undefined;
+	if (!lookAhead(p, ";") && !lookAhead(p, "}")) {
+		expr = parseExpr(p);
+	}
+	return {
+		type: AstType.ReturnStmt,
+		expr,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseContinueStmt(p: Parser): ContinueStmt {
+	pushStart(p);
+	consume(p, "continue");
+	const label = match(p, TokenType.Id);
 	return {
 		type: AstType.ContinueStmt,
-		label: label?.image,
+		label: label === undefined ? label : id(label),
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -115,12 +158,12 @@ function parseContinueStmt(p: Parser): Ast {
 
 function parseAssignStmt(p: Parser): Ast {
 	const expr = parseExpr(p);
-	if (match(p, { image: "=" })) {
+	if (match(p, "=")) {
 		const value = parseExpr(p);
-		if (expr.type === AstType.IdExpr) {
+		if (expr.type === AstType.Id) {
 			return {
 				type: AstType.AssignStmt,
-				name: expr.value,
+				id: expr,
 				value,
 				start: expr.start,
 				end: value.end,
@@ -143,7 +186,7 @@ function parseExpr(p: Parser): Ast {
 
 function parseLogicalOr(p: Parser): Ast {
 	let left = parseLogicalAnd(p);
-	while (match(p, { image: "|" })) {
+	while (match(p, "|")) {
 		const right = parseLogicalAnd(p);
 		left = {
 			type: AstType.BinaryExpr,
@@ -159,7 +202,7 @@ function parseLogicalOr(p: Parser): Ast {
 
 function parseLogicalAnd(p: Parser): Ast {
 	let left = parseEquality(p);
-	while (match(p, { image: "&" })) {
+	while (match(p, "&")) {
 		const right = parseEquality(p);
 		left = {
 			type: AstType.BinaryExpr,
@@ -173,147 +216,170 @@ function parseLogicalAnd(p: Parser): Ast {
 	return left;
 }
 
-const EqualityOps: Record<string, BinaryOp> = {
-	"==": BinaryOp.Eq,
-	"!=": BinaryOp.NotEq,
-	"===": BinaryOp.Id,
-	"!==": BinaryOp.NotId,
-};
-
 function parseEquality(p: Parser): Ast {
 	let left = parseComparison(p);
-	let op = peek(p);
-	while (matchOp(op, EqualityOps)) {
-		consume(p);
+	while (
+		match(p, BinaryOp.Eq) ||
+		match(p, BinaryOp.NotEq) ||
+		match(p, BinaryOp.Id) ||
+		match(p, BinaryOp.NotId)
+	) {
+		const op = lookBehind(p)?.image as BinaryOp;
 		const right = parseComparison(p);
 		left = {
 			type: AstType.BinaryExpr,
-			op: EqualityOps[op.image],
+			op,
 			left,
 			right,
 			start: left.start,
 			end: right.end,
 		};
-		op = peek(p);
 	}
 	return left;
 }
-
-const ComparisonOps: Record<string, BinaryOp> = {
-	">": BinaryOp.Gt,
-	"<": BinaryOp.Lt,
-	">=": BinaryOp.Gte,
-	"<=": BinaryOp.Lte,
-};
 
 function parseComparison(p: Parser): Ast {
 	let left = parseTerm(p);
-	let op = peek(p);
-	while (matchOp(op, ComparisonOps)) {
-		consume(p);
+	while (
+		match(p, BinaryOp.Gt) ||
+		match(p, BinaryOp.Lt) ||
+		match(p, BinaryOp.Gte) ||
+		match(p, BinaryOp.Lte)
+	) {
+		const op = lookBehind(p)?.image as BinaryOp;
 		const right = parseTerm(p);
 		left = {
 			type: AstType.BinaryExpr,
-			op: ComparisonOps[op.image],
+			op,
 			left,
 			right,
 			start: left.start,
 			end: right.end,
 		};
-		op = peek(p);
 	}
 	return left;
 }
-
-const TermOps: Record<string, BinaryOp> = {
-	"+": BinaryOp.Add,
-	"-": BinaryOp.Sub,
-};
 
 function parseTerm(p: Parser): Ast {
 	let left = parseFactor(p);
-	let op = peek(p);
-	while (matchOp(op, TermOps)) {
-		consume(p);
+	while (match(p, BinaryOp.Add) || match(p, BinaryOp.Sub)) {
+		const op = lookBehind(p)?.image as BinaryOp;
 		const right = parseFactor(p);
 		left = {
 			type: AstType.BinaryExpr,
-			op: TermOps[op.image],
+			op,
 			left,
 			right,
 			start: left.start,
 			end: right.end,
 		};
-		op = peek(p);
 	}
 	return left;
 }
-
-const FactorOps: Record<string, BinaryOp> = {
-	"*": BinaryOp.Mul,
-	"/": BinaryOp.Div,
-	"%": BinaryOp.Rem,
-	"?": BinaryOp.Default,
-};
 
 function parseFactor(p: Parser): Ast {
-	let left = parseUnary(p);
-	let op = peek(p);
-	while (matchOp(op, FactorOps)) {
-		consume(p);
-		const right = parseUnary(p);
+	let left = parsePower(p);
+	while (
+		match(p, BinaryOp.Mul) ||
+		match(p, BinaryOp.Div) ||
+		match(p, BinaryOp.Rem)
+	) {
+		const op = lookBehind(p)?.image as BinaryOp;
+		const right = parsePower(p);
 		left = {
 			type: AstType.BinaryExpr,
-			op: FactorOps[op.image],
+			op,
 			left,
 			right,
 			start: left.start,
 			end: right.end,
 		};
-		op = peek(p);
 	}
 	return left;
 }
 
-const UnaryOps: Record<string, UnaryOp> = {
-	"-": UnaryOp.Neg,
-	"!": UnaryOp.Not,
-	"...": UnaryOp.Spread,
-};
-
-function parseUnary(p: Parser): Ast {
-	const op = peek(p);
-	if (matchOp(op, UnaryOps)) {
-		consume(p);
-		const right = parsePrimary(p);
-		return {
-			type: AstType.UnaryExpr,
-			op: UnaryOps[op.image],
+function parsePower(p: Parser): Ast {
+	let left = parseUnary(p);
+	if (match(p, BinaryOp.Pow) || match(p, BinaryOp.Default)) {
+		const op = lookBehind(p)?.image as BinaryOp;
+		const right = parsePower(p);
+		left = {
+			type: AstType.BinaryExpr,
+			op,
+			left,
 			right,
-			start: op?.start,
+			start: left.start,
 			end: right.end,
 		};
 	}
-	return parsePrimary(p);
+	return left;
+}
+
+function parseUnary(p: Parser): Ast {
+	if (
+		match(p, UnaryOp.Neg) ||
+		match(p, UnaryOp.Not) ||
+		match(p, UnaryOp.Spread)
+	) {
+		const op = lookBehind(p);
+		const right = parseCall(p);
+		return {
+			type: AstType.UnaryExpr,
+			op: op?.image as UnaryOp,
+			right,
+			start: op?.start as number,
+			end: right.end,
+		};
+	}
+	return parseCall(p);
+}
+
+function parseCall(p: Parser): Ast {
+	let expr = parsePrimary(p);
+	while (match(p, "(")) {
+		const args: Ast[] = [];
+		while (hasMore(p) && !lookAhead(p, ")")) {
+			const arg = parseExpr(p);
+			args.push(arg);
+			if (args.length > 255) {
+				throw new ParseError("More than 255 arguments!", arg.start, arg.end);
+			}
+			if (!lookAhead(p, ")")) {
+				consume(p, ",");
+			}
+		}
+		consume(p, ")");
+		expr = {
+			type: AstType.CallExpr,
+			proc: expr,
+			args,
+			start: expr.start,
+			end: getEnd(p),
+		};
+	}
+	return expr;
 }
 
 function parsePrimary(p: Parser): Ast {
-	if (matches(peek(p), { image: "(" })) {
+	if (lookAhead(p, "(")) {
 		return parseGroupExpr(p);
 	}
-	if (matches(peek(p), { image: "do" })) {
+	if (lookAhead(p, "do")) {
 		return parseBlockExpr(p);
 	}
-	if (matches(peek(p), { image: "if" })) {
+	if (lookAhead(p, "if")) {
 		return parseIfExpr(p);
 	}
-	if (matches(peek(p), { image: "loop" })) {
+	if (lookAhead(p, "loop")) {
 		return parseLoopExpr(p);
 	}
-	if (matches(peek(p), { image: "while" })) {
+	if (lookAhead(p, "while")) {
 		return parseWhileExpr(p);
 	}
-	if (matches(peek(p), { type: TokenType.Lit })) {
+	if (lookAhead(p, "proc")) {
+		return parseProcExpr(p);
+	}
+	if (lookAhead(p, TokenType.Lit)) {
 		const lit = consume(p);
 		return {
 			type: AstType.LitExpr,
@@ -322,19 +388,14 @@ function parsePrimary(p: Parser): Ast {
 			end: lit.end,
 		};
 	}
-	const id = consume(p, { type: TokenType.Id }, "Expected expresssion!");
-	return {
-		type: AstType.IdExpr,
-		value: id.image,
-		start: id.start,
-		end: id.end,
-	};
+	return id(consume(p, TokenType.Id, "Expected expresssion!"));
 }
 
-function parseGroupExpr(p: Parser): Ast {
+function parseGroupExpr(p: Parser): GroupExpr {
 	pushStart(p);
+	consume(p, "(");
 	const expr = parseExpr(p);
-	consume(p, { image: ")" });
+	consume(p, ")");
 	return {
 		type: AstType.GroupExpr,
 		expr,
@@ -343,43 +404,40 @@ function parseGroupExpr(p: Parser): Ast {
 	};
 }
 
-function parseBlockExpr(p: Parser): Ast {
+function parseBlockExpr(p: Parser): BlockExpr {
 	pushStart(p);
 	let label: Token | undefined;
-	if (match(p, { image: "do" })) {
-		label = match(p, { type: TokenType.Id });
+	if (match(p, "do")) {
+		label = match(p, TokenType.Id);
 	}
-	consume(p, { image: "{" });
+	consume(p, "{");
 	const stmts: Ast[] = [];
-	while (hasMore(p) && !matches(peek(p), { image: "}" })) {
+	while (hasMore(p) && !lookAhead(p, "}")) {
 		stmts.push(parseStmt(p));
-		if (
-			matches(peek(p), { image: "}" }) ||
-			matches(peek(p, -1), { image: "}" })
-		) {
-			match(p, { image: ";" });
+		if (lookAhead(p, "}") || lookBehind(p, "}")) {
+			match(p, ";");
 		} else {
-			consume(p, { image: ";" }, 'Expected ";" following statement!');
+			consume(p, ";", 'Expected ";" following statement!');
 		}
 	}
-	consume(p, { image: "}" });
+	consume(p, "}");
 	return {
 		type: AstType.BlockExpr,
-		label: label?.image,
+		label: label === undefined ? label : id(label),
 		stmts,
 		start: popStart(p),
 		end: getEnd(p),
 	};
 }
 
-function parseIfExpr(p: Parser): Ast {
+function parseIfExpr(p: Parser): IfExpr {
 	pushStart(p);
-	consume(p, { image: "if" });
+	consume(p, "if");
 	const testExpr = parseExpr(p);
 	const thenExpr = parseBlockExpr(p);
 	let elseExpr: Ast | undefined;
-	if (match(p, { image: "else" })) {
-		if (matches(peek(p), { image: "if" })) {
+	if (match(p, "else")) {
+		if (lookAhead(p, "if")) {
 			elseExpr = parseIfExpr(p);
 		} else {
 			elseExpr = parseBlockExpr(p);
@@ -395,23 +453,23 @@ function parseIfExpr(p: Parser): Ast {
 	};
 }
 
-function parseLoopExpr(p: Parser): Ast {
+function parseLoopExpr(p: Parser): LoopExpr {
 	pushStart(p);
-	consume(p, { image: "loop" });
-	const label = match(p, { type: TokenType.Id });
+	consume(p, "loop");
+	const label = match(p, TokenType.Id);
 	const blockExpr = parseBlockExpr(p);
 	return {
 		type: AstType.LoopExpr,
-		label: label?.image,
+		label: label === undefined ? label : id(label),
 		blockExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
 }
 
-function parseWhileExpr(p: Parser): Ast {
+function parseWhileExpr(p: Parser): WhileExpr {
 	pushStart(p);
-	consume(p, { image: "while" });
+	consume(p, "while");
 	const testExpr = parseExpr(p);
 	const blockExpr = parseBlockExpr(p);
 	return {
@@ -423,52 +481,90 @@ function parseWhileExpr(p: Parser): Ast {
 	};
 }
 
+function parseProcExpr(p: Parser): ProcExpr {
+	pushStart(p);
+	match(p, "proc");
+	consume(p, "(");
+	const params: Id[] = [];
+	while (hasMore(p) && !lookAhead(p, ")")) {
+		const param = consume(p, TokenType.Id);
+		params.push(id(param));
+		if (params.length > 255) {
+			throw new ParseError("More than 255 parameters!", param.start, param.end);
+		}
+		if (!lookAhead(p, ")")) {
+			consume(p, ",");
+		}
+	}
+	consume(p, ")");
+	consume(p, "->");
+	const impl = parseBlockExpr(p);
+	return {
+		type: AstType.ProcExpr,
+		params,
+		impl,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
 function hasMore(p: Parser): boolean {
 	return p.position < p.tokens.length;
 }
 
-function peek(p: Parser, position: number = 0): Token | undefined {
-	return p.tokens[p.position + position];
-}
-
-function matches(t: Token | undefined, matcher: TokenMatcher): boolean {
+function matches(t: Token | undefined, m?: TokenMatcher): boolean {
 	return (
 		t !== undefined &&
-		(matcher.type === undefined || matcher.type === t.type) &&
-		(matcher.image === undefined || matcher.image === t.image)
+		(m === undefined || (m in TokenType && m === t.type) || m === t.image)
 	);
 }
 
-function match(p: Parser, matcher: TokenMatcher): Token | undefined {
-	const token = peek(p);
-	if (matches(token, matcher)) {
+function lookBehind(p: Parser, m?: TokenMatcher): Token | undefined {
+	const token = p.tokens[p.position - 1];
+	if (matches(token, m)) {
+		return token;
+	}
+	return undefined;
+}
+
+function lookAhead(
+	p: Parser,
+	m?: TokenMatcher,
+	skip: number = 0
+): Token | undefined {
+	const token = p.tokens[p.position + skip];
+	if (matches(token, m)) {
+		return token;
+	}
+	return undefined;
+}
+
+function match(p: Parser, m?: TokenMatcher): Token | undefined {
+	const token = p.tokens[p.position];
+	if (matches(token, m)) {
 		p.position++;
 		return token;
 	}
 	return undefined;
 }
 
-function consume(p: Parser, matcher: TokenMatcher = {}, note?: string): Token {
-	const token = peek(p);
-	if (matches(token, matcher)) {
+function consume(p: Parser, m?: TokenMatcher, note?: string): Token {
+	const token = p.tokens[p.position];
+	if (matches(token, m)) {
 		p.position++;
 		return token as Token;
 	}
 	if (note === undefined) {
-		if (matcher.type !== undefined) {
-			note = `Expected ${matcher.type}!`;
-		} else if (matcher.image !== undefined) {
-			note = `Expected "${matcher.image}"!`;
-		} else {
+		if (m === undefined) {
 			note = "Unexpcted end of input!";
+		} else if (m in TokenType) {
+			note = `Expected ${m}!`;
+		} else {
+			note = `Expected "${m}"!`;
 		}
 	}
 	const end = getEnd(p);
 	throw new ParseError(note, token?.start ?? end, token?.end ?? end);
-}
-
-function matchOp(t: Token | undefined, ops: Record<string, Op>): t is Token {
-	return ops[t?.image ?? ""] !== undefined;
 }
 
 function pushStart(p: Parser): void {
@@ -481,4 +577,13 @@ function popStart(p: Parser): number {
 
 function getEnd(p: Parser): number {
 	return p.tokens[p.position - 1]?.end ?? 0;
+}
+
+function id(t: Token): Id {
+	return {
+		type: AstType.Id,
+		value: t.image,
+		start: t.start,
+		end: t.end,
+	};
 }

@@ -6,25 +6,28 @@ import {
 	BinaryOp,
 	BlockExpr,
 	BreakStmt,
+	CallExpr,
 	ContinueStmt,
 	ExprStmt,
 	GroupExpr,
-	IdExpr,
+	Id,
 	IfExpr,
 	LitExpr,
 	LoopExpr,
 	Module,
-	PrintStmt,
+	ProcDecl,
+	ProcExpr,
+	ReturnStmt,
 	RtBool,
 	RtNum,
+	RtProc,
 	RtValue,
 	UnaryExpr,
 	UnaryOp,
-	VarStmt,
+	VarDecl,
 	WhileExpr,
 } from "./core.ts";
-
-type Scope = Record<string, RtValue | undefined>;
+import { Resolver } from "./resolver.ts";
 
 class Break {
 	constructor(readonly label?: string) {}
@@ -34,65 +37,51 @@ class Continue {
 	constructor(readonly label?: string) {}
 }
 
+class Return {
+	constructor(readonly value: RtValue) {}
+}
+
 export type Interpreter = {
-	scopes: Scope[];
+	inGlobalScope: boolean;
+	// TODO this should probably be soemthing like global > module > local
+	globals: RtValue[];
+	closure: RtValue[];
+	locals: RtValue[];
 };
 
-export const Interpreter = { create, interperate, define, update, get };
+export const Interpreter = { create, interperate };
 
-function create(): Interpreter {
-	return {
-		scopes: [
-			{
-				True: RtValue.True,
-				False: RtValue.False,
-			},
-		],
-	};
-}
-
-function define(i: Interpreter, name: string, value: RtValue): void {
-	if (get(i, name) !== undefined) {
-		throw new Error(`'${name}' is already defined!`);
-	}
-	const scope = i.scopes[i.scopes.length - 1];
-	scope[name] = value;
-}
-
-function update(i: Interpreter, name: string, value: RtValue): void {
-	for (let j = i.scopes.length - 1; j >= 0; j--) {
-		const scope = i.scopes[j];
-		if (scope[name] !== undefined) {
-			scope[name] = value;
-			return;
-		}
-	}
-	throw new Error(`'${name}' is undefined!`);
-}
-
-function get(i: Interpreter, name: string): RtValue | undefined {
-	for (let j = i.scopes.length - 1; j >= 0; j--) {
-		const scope = i.scopes[j];
-		const value = scope[name];
-		if (value !== undefined) {
-			return value;
-		}
-	}
-	return undefined;
+function create(r: Resolver): Interpreter {
+	const globals: RtValue[] = [];
+	globals[Resolver.declareGlobal(r, "True")] = RtValue.True;
+	globals[Resolver.declareGlobal(r, "False")] = RtValue.False;
+	globals[Resolver.declareGlobal(r, "print")] = RtValue.proc((args) => {
+		console.log(RtValue.print(args[0]));
+		return RtValue.Unit;
+	});
+	globals[Resolver.declareGlobal(r, "clock")] = RtValue.proc((_args) => {
+		return RtValue.num(Date.now() / 1000);
+	});
+	globals[Resolver.declareGlobal(r, "cat")] = RtValue.proc((args) => {
+		return RtValue.str(args.map(RtValue.print).join(""));
+	});
+	return { inGlobalScope: true, globals, locals: [], closure: [] };
 }
 
 function interperate(i: Interpreter, ast: Ast): RtValue {
 	switch (ast.type) {
 		case AstType.Module:
 			return interperateModule(i, ast);
-		case AstType.VarStmt:
-			return interperateVarStmt(i, ast);
-		case AstType.PrintStmt:
-			return interperatePrintStmt(i, ast);
+		case AstType.VarDecl:
+			return interperateVarDecl(i, ast);
+		case AstType.ProcDecl:
+			return interperateProcDecl(i, ast);
 		case AstType.BreakStmt:
 			return interperateBreakStmt(i, ast);
 		case AstType.ContinueStmt:
 			return interperateContinueStmt(i, ast);
+		case AstType.ReturnStmt:
+			return interperateReturnStmt(i, ast);
 		case AstType.AssignStmt:
 			return interperateAssignStmt(i, ast);
 		case AstType.ExprStmt:
@@ -107,47 +96,66 @@ function interperate(i: Interpreter, ast: Ast): RtValue {
 			return interperateLoopExpr(i, ast);
 		case AstType.WhileExpr:
 			return interperateWhileExpr(i, ast);
+		case AstType.ProcExpr:
+			return interperateProcExpr(i, ast);
 		case AstType.BinaryExpr:
 			return interperateBinaryExpr(i, ast);
 		case AstType.UnaryExpr:
 			return interperateUnaryExpr(i, ast);
+		case AstType.CallExpr:
+			return interperateCallExpr(i, ast);
 		case AstType.LitExpr:
 			return interperateLitExpr(i, ast);
-		case AstType.IdExpr:
-			return interperateIdExpr(i, ast);
+		case AstType.Id:
+			return interperateId(i, ast);
 	}
 }
 
 function interperateModule(i: Interpreter, m: Module): RtValue {
+	let acc: RtValue = RtValue.Unit;
 	for (const decl of m.decls) {
-		interperate(i, decl);
+		acc = interperate(i, decl);
 	}
+	return acc;
+}
+
+function interperateVarDecl(i: Interpreter, d: VarDecl): RtValue {
+	const memory = i.inGlobalScope ? i.globals : i.locals;
+	memory[resolveId(d.id)] = interperate(i, d.initializer);
 	return RtValue.Unit;
 }
 
-function interperateVarStmt(i: Interpreter, d: VarStmt): RtValue {
-	define(i, d.name, interperate(i, d.initializer));
-	return RtValue.Unit;
-}
-
-function interperatePrintStmt(i: Interpreter, p: PrintStmt): RtValue {
-	const value = interperate(i, p.expr);
-	console.log(RtValue.print(value));
+function interperateProcDecl(i: Interpreter, p: ProcDecl): RtValue {
+	const memory = i.inGlobalScope ? i.globals : i.locals;
+	memory[resolveId(p.id)] = interperateProcExpr(i, p.expr);
 	return RtValue.Unit;
 }
 
 function interperateBreakStmt(_i: Interpreter, b: BreakStmt): RtValue {
-	throw new Break(b.label);
+	throw new Break(b.label?.value);
 }
 
 function interperateContinueStmt(_i: Interpreter, c: ContinueStmt): RtValue {
-	throw new Continue(c.label);
+	throw new Continue(c.label?.value);
+}
+
+function interperateReturnStmt(i: Interpreter, r: ReturnStmt): RtValue {
+	throw new Return(
+		r.expr !== undefined ? interperate(i, r.expr) : RtValue.Unit
+	);
 }
 
 function interperateAssignStmt(i: Interpreter, a: AssignStmt): RtValue {
-	const value = interperate(i, a.value);
-	update(i, a.name, value);
-	return RtValue.Unit;
+	const resolvedId = resolveId(a.id);
+	const localValue = i.locals[resolvedId];
+	if (localValue !== undefined) {
+		return (i.locals[resolvedId] = interperate(i, a.value));
+	}
+	const closureValue = i.closure[resolvedId];
+	if (closureValue !== undefined) {
+		return (i.closure[resolvedId] = interperate(i, a.value));
+	}
+	return (i.globals[resolvedId] = interperate(i, a.value));
 }
 
 function interperateExprStmt(i: Interpreter, a: ExprStmt): RtValue {
@@ -155,7 +163,7 @@ function interperateExprStmt(i: Interpreter, a: ExprStmt): RtValue {
 }
 
 function interperateBlockExpr(i: Interpreter, a: BlockExpr): RtValue {
-	i.scopes.push({});
+	const localsLength = i.locals.length;
 	try {
 		let acc: RtValue = RtValue.Unit;
 		for (const stmt of a.stmts) {
@@ -163,7 +171,7 @@ function interperateBlockExpr(i: Interpreter, a: BlockExpr): RtValue {
 		}
 		return acc;
 	} finally {
-		i.scopes.pop();
+		i.locals.length = localsLength;
 	}
 }
 
@@ -190,13 +198,13 @@ function interperateLoopExpr(i: Interpreter, l: LoopExpr): RtValue {
 		} catch (e) {
 			if (
 				e instanceof Continue &&
-				(e.label === undefined || e.label === l.label)
+				(e.label === undefined || e.label === l.label?.value)
 			) {
 				continue;
 			}
 			if (
 				e instanceof Break &&
-				(e.label === undefined || e.label === l.label)
+				(e.label === undefined || e.label === l.label?.value)
 			) {
 				break;
 			}
@@ -222,6 +230,33 @@ function interperateWhileExpr(i: Interpreter, w: WhileExpr): RtValue {
 		}
 	}
 	return acc;
+}
+
+function interperateProcExpr(i: Interpreter, p: ProcExpr): RtValue {
+	const closure = [...i.locals];
+	return RtValue.proc((args) => {
+		const localsSave = i.locals;
+		const closureSave = i.closure;
+		const inGlobalScopeSave = i.inGlobalScope;
+		i.locals = [];
+		i.closure = closure;
+		i.inGlobalScope = false;
+		try {
+			for (let j = 0; j < p.params.length; j++) {
+				i.locals[resolveId(p.params[j])] = args[j] ?? RtValue.Unit;
+			}
+			return interperate(i, p.impl);
+		} catch (e) {
+			if (e instanceof Return) {
+				return e.value;
+			}
+			throw e;
+		} finally {
+			i.locals = localsSave;
+			i.closure = closureSave;
+			i.inGlobalScope = inGlobalScopeSave;
+		}
+	});
 }
 
 function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): RtValue {
@@ -250,6 +285,11 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): RtValue {
 			const left = interperate(i, b.left);
 			const right = interperate(i, b.right);
 			return RtValue.num(RtNum.unwrap(left) % RtNum.unwrap(right));
+		}
+		case BinaryOp.Pow: {
+			const left = interperate(i, b.left);
+			const right = interperate(i, b.right);
+			return RtValue.num(RtNum.unwrap(left) ** RtNum.unwrap(right));
 		}
 		case BinaryOp.Gt: {
 			const left = interperate(i, b.left);
@@ -330,14 +370,36 @@ function interperateUnaryExpr(i: Interpreter, u: UnaryExpr): RtValue {
 	}
 }
 
+function interperateCallExpr(i: Interpreter, c: CallExpr): RtValue {
+	const proc = interperate(i, c.proc);
+	const args: RtValue[] = [];
+	for (const arg of c.args) {
+		args.push(interperate(i, arg));
+	}
+	return RtProc.unwrap(proc)(args);
+}
+
 function interperateLitExpr(_i: Interpreter, l: LitExpr): RtValue {
 	return l.value;
 }
 
-function interperateIdExpr(i: Interpreter, id: IdExpr): RtValue {
-	const value = get(i, id.value);
-	if (value === undefined) {
-		throw new Error(`'${id.value}' is undefined!`);
+function interperateId(i: Interpreter, id: Id): RtValue {
+	// TODO the resolver could do this
+	const resolvedId = resolveId(id);
+	const localValue = i.locals[resolvedId];
+	if (localValue !== undefined) {
+		return localValue;
 	}
-	return value;
+	const closureValue = i.closure[resolvedId];
+	if (closureValue !== undefined) {
+		return closureValue;
+	}
+	return i.globals[resolvedId];
+}
+
+function resolveId(id: Id): number {
+	if (id.resolvedId === undefined) {
+		throw new Error(`Unresolved id! ${JSON.stringify(id)}`);
+	}
+	return id.resolvedId;
 }
