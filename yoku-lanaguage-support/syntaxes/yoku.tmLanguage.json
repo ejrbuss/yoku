@@ -1,0 +1,44 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "yoku",
+	"patterns": [
+		{
+			"name": "string.yoku",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.yoku",
+					"match": "\\\\."
+				}
+			]
+		},
+		{
+			"name": "constant.numeric.yoku",
+			"match": "-?(0b[01_]+|0o[01234567_]+|0x[\\dabcdefABCDEF_]+|\\d[\\d_]*(\\.[\\d_]+)?([eE][\\d_]+)?)"
+		},
+		{
+			"name": "keyword.yoku",
+			"match": "\\b(import|export|as|var|const|proc|struct|enum|type|impl|if|else|match|do|loop|break|continue|while|for|in|return|try|throw|todo)\\b"
+		},
+		{
+			"name": "comment.block",
+			"begin": "---",
+			"end": "---"
+		},
+		{
+			"name": "comment.line",
+			"begin": "--",
+			"end": "\n"
+		},
+		{
+			"name": "variable.language",
+			"match": "\\b(True|False|print|clock|cat)\\b"
+		},
+		{
+			"name": "variable",
+			"match": "\\b(\\w+)\\b"
+		}
+	],
+	"scopeName": "source.yoku"
+}

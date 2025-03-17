@@ -1,0 +1,25 @@
+{
+  "name": "yoku-lanaguage-support",
+  "displayName": "Yoku Lanaguage Support",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.98.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "yoku",
+      "aliases": ["yoku", "yoku"],
+      "extensions": [".yo"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "yoku",
+      "scopeName": "source.yoku",
+      "path": "./syntaxes/yoku.tmLanguage.json"
+    }]
+  }
+}
