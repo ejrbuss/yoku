@@ -1,4 +1,5 @@
 import {
+	Access,
 	AssignStmt,
 	Ast,
 	AstType,
@@ -9,7 +10,7 @@ import {
 	ContinueStmt,
 	ExprStmt,
 	GroupExpr,
-	Id,
+	IdExpr,
 	IfExpr,
 	LitExpr,
 	LoopExpr,
@@ -23,7 +24,7 @@ import {
 } from "./core.ts";
 
 type Decl = {
-	isConst: boolean;
+	access: Access;
 	resolvedId: number;
 };
 
@@ -59,21 +60,20 @@ function create(): Resolver {
 }
 
 function declareGlobal(r: Resolver, id: string): number {
-	const resolvedId = r.scopes[0].nextId++;
-	r.scopes[0].decls[id] = {
-		resolvedId,
-		isConst: true,
-	};
+	const globalScope = r.scopes[0];
+	const resolvedId = globalScope.nextId++;
+	globalScope.decls[id] = { resolvedId, access: Access.Const };
 	return resolvedId;
 }
 
-function declare(r: Resolver, id: Id, isConst: boolean) {
-	if (r.scopes[0].decls[id.value] !== undefined) {
+function declare(r: Resolver, id: IdExpr, access: Access) {
+	const globalScope = r.scopes[0];
+	if (globalScope.decls[id.value] !== undefined) {
 		throw new ResolutionError(`You cannot redeclare global!`, id.start, id.end);
 	}
 	const scope = r.scopes[r.scopes.length - 1];
 	id.resolvedId = scope.nextId++;
-	scope.decls[id.value] = { resolvedId: id.resolvedId, isConst };
+	scope.decls[id.value] = { resolvedId: id.resolvedId, access };
 }
 
 function pushScope(r: Resolver): void {
@@ -123,8 +123,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveCallExpr(r, ast);
 		case AstType.LitExpr:
 			return resolveLitExpr(r, ast);
-		case AstType.Id:
-			return resolveId(r, ast);
+		case AstType.IdExpr:
+			return resolveIdExpr(r, ast);
 	}
 }
 
@@ -137,13 +137,13 @@ function resolveModule(r: Resolver, m: Module): void {
 }
 
 function resolveVarDecl(r: Resolver, v: VarDecl): void {
-	resolve(r, v.initializer);
-	declare(r, v.id, v.isConst);
+	resolve(r, v.initExpr);
+	declare(r, v.id, v.access);
 }
 
 function resolveProcDecl(r: Resolver, p: ProcDecl): void {
-	declare(r, p.id, true);
-	resolveProcExpr(r, p.expr);
+	declare(r, p.id, Access.Const);
+	resolveProcExpr(r, p.initExpr);
 }
 
 function resolveBreakStmt(r: Resolver, b: BreakStmt): void {
@@ -151,11 +151,7 @@ function resolveBreakStmt(r: Resolver, b: BreakStmt): void {
 		throw new ResolutionError("Cannot break outside a loop!", b.start, b.end);
 	}
 	if (b.label !== undefined && !r.loopStack.includes(b.label.value)) {
-		throw new ResolutionError(
-			"Undeclared loop label!",
-			b.label.start,
-			b.label.end
-		);
+		throw new ResolutionError("Undeclared label!", b.label.start, b.label.end);
 	}
 }
 
@@ -168,11 +164,7 @@ function resolveContinueStmt(r: Resolver, c: ContinueStmt): void {
 		);
 	}
 	if (c.label !== undefined && !r.loopStack.includes(c.label.value)) {
-		throw new ResolutionError(
-			"Undeclared loop label!",
-			c.label.start,
-			c.label.end
-		);
+		throw new ResolutionError("Undeclared label!", c.label.start, c.label.end);
 	}
 }
 
@@ -190,7 +182,7 @@ function resolveAssignStmt(r: Resolver, a: AssignStmt): void {
 		const scope = r.scopes[j];
 		const decl = scope.decls[a.id.value];
 		if (decl !== undefined) {
-			if (decl.isConst) {
+			if (decl.access === Access.Const) {
 				throw new ResolutionError(
 					"Cannot assign to a const!",
 					a.id.start,
@@ -198,7 +190,7 @@ function resolveAssignStmt(r: Resolver, a: AssignStmt): void {
 				);
 			}
 			a.id.resolvedId = decl.resolvedId;
-			resolve(r, a.value);
+			resolve(r, a.expr);
 			return;
 		}
 	}
@@ -231,24 +223,24 @@ function resolveIfExpr(r: Resolver, i: IfExpr): void {
 
 function resolveLoopExpr(r: Resolver, l: LoopExpr): void {
 	r.loopStack.push(l.label?.value);
-	resolve(r, l.blockExpr);
+	resolve(r, l.thenExpr);
 	r.loopStack.pop();
 }
 
 function resolveWhileExpr(r: Resolver, w: WhileExpr): void {
 	resolve(r, w.testExpr);
-	resolve(r, w.blockExpr);
+	resolve(r, w.thenExpr);
 }
 
 function resolveProcExpr(r: Resolver, p: ProcExpr): void {
 	pushScope(r);
 	for (const param of p.params) {
-		declare(r, param, true);
+		declare(r, param.id, Access.Const);
 	}
 	const saveLoopStack = r.loopStack;
 	r.loopStack = [];
 	r.procStack++;
-	resolve(r, p.impl);
+	resolve(r, p.implExpr);
 	r.procStack--;
 	r.loopStack = saveLoopStack;
 	popScope(r);
@@ -272,7 +264,7 @@ function resolveCallExpr(r: Resolver, c: CallExpr): void {
 
 function resolveLitExpr(_r: Resolver, _l: LitExpr): void {}
 
-function resolveId(r: Resolver, i: Id): void {
+function resolveIdExpr(r: Resolver, i: IdExpr): void {
 	for (let j = r.scopes.length - 1; j >= 0; j--) {
 		const scope = r.scopes[j];
 		const decl = scope.decls[i.value];

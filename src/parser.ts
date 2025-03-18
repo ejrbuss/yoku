@@ -4,7 +4,6 @@ import {
 	AstType,
 	BinaryOp,
 	UnaryOp,
-	RtValue,
 	ProcExpr,
 	WhileExpr,
 	LoopExpr,
@@ -17,7 +16,10 @@ import {
 	VarDecl,
 	Module,
 	ReturnStmt,
-	Id,
+	IdExpr,
+	ProcParam,
+	Access,
+	ProcTypeExpr,
 } from "./core.ts";
 
 type TokenMatcher = TokenType | string;
@@ -66,7 +68,7 @@ function parseModule(p: Parser, moduleId: string): Module {
 }
 
 function parseStmt(p: Parser): Ast {
-	if (lookAhead(p, "var")) {
+	if (lookAhead(p, "var") || lookAhead(p, "const")) {
 		return parseVarDecl(p);
 	}
 	if (lookAhead(p, "proc") && lookAhead(p, TokenType.Id, 1)) {
@@ -86,18 +88,26 @@ function parseStmt(p: Parser): Ast {
 
 function parseVarDecl(p: Parser): VarDecl {
 	pushStart(p);
-	const isConst = match(p, "const") !== undefined;
-	if (!isConst) {
+	let access: Access;
+	if (match(p, "const")) {
+		access = Access.Const;
+	} else {
 		consume(p, "var");
+		access = Access.Var;
 	}
-	const varId = consume(p, TokenType.Id);
+	const id = parseIdExpr(p);
+	let declType: undefined | Ast;
+	if (match(p, ":")) {
+		declType = parseTypeExpr(p);
+	}
 	consume(p, "=");
-	const initializer = parseExpr(p);
+	const initExpr = parseExpr(p);
 	return {
 		type: AstType.VarDecl,
-		isConst,
-		id: id(varId),
-		initializer,
+		access,
+		declType,
+		id,
+		initExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -107,11 +117,11 @@ function parseProcDecl(p: Parser): ProcDecl {
 	pushStart(p);
 	consume(p, "proc");
 	const procId = consume(p, TokenType.Id);
-	const expr = parseProcExpr(p);
+	const initExpr = parseProcExpr(p);
 	return {
 		type: AstType.ProcDecl,
 		id: id(procId),
-		expr,
+		initExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -120,10 +130,10 @@ function parseProcDecl(p: Parser): ProcDecl {
 function parseBreakStmt(p: Parser): BreakStmt {
 	pushStart(p);
 	consume(p, "break");
-	const label = match(p, TokenType.Id);
+	const label = parseIdExpr(p);
 	return {
 		type: AstType.BreakStmt,
-		label: label === undefined ? label : id(label),
+		label,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -147,36 +157,40 @@ function parseReturnStmt(p: Parser): ReturnStmt {
 function parseContinueStmt(p: Parser): ContinueStmt {
 	pushStart(p);
 	consume(p, "continue");
-	const label = match(p, TokenType.Id);
+	const label = parseIdExpr(p);
 	return {
 		type: AstType.ContinueStmt,
-		label: label === undefined ? label : id(label),
+		label,
 		start: popStart(p),
 		end: getEnd(p),
 	};
 }
 
 function parseAssignStmt(p: Parser): Ast {
-	const expr = parseExpr(p);
+	const target = parseExpr(p);
 	if (match(p, "=")) {
-		const value = parseExpr(p);
-		if (expr.type === AstType.Id) {
+		const expr = parseExpr(p);
+		if (target.type === AstType.IdExpr) {
 			return {
 				type: AstType.AssignStmt,
-				id: expr,
-				value,
-				start: expr.start,
-				end: value.end,
+				id: target,
+				expr,
+				start: target.start,
+				end: expr.end,
 			};
 		} else {
-			throw new ParseError("Invalid assignment target!", expr.start, expr.end);
+			throw new ParseError(
+				"Invalid assignment target!",
+				target.start,
+				target.end
+			);
 		}
 	}
 	return {
 		type: AstType.ExprStmt,
-		expr,
-		start: expr.start,
-		end: expr.end,
+		expr: target,
+		start: target.start,
+		end: target.end,
 	};
 }
 
@@ -383,12 +397,12 @@ function parsePrimary(p: Parser): Ast {
 		const lit = consume(p);
 		return {
 			type: AstType.LitExpr,
-			value: lit.value as RtValue,
+			value: lit.value,
 			start: lit.start,
 			end: lit.end,
 		};
 	}
-	return id(consume(p, TokenType.Id, "Expected expresssion!"));
+	return parseIdExpr(p);
 }
 
 function parseGroupExpr(p: Parser): GroupExpr {
@@ -406,10 +420,6 @@ function parseGroupExpr(p: Parser): GroupExpr {
 
 function parseBlockExpr(p: Parser): BlockExpr {
 	pushStart(p);
-	let label: Token | undefined;
-	if (match(p, "do")) {
-		label = match(p, TokenType.Id);
-	}
 	consume(p, "{");
 	const stmts: Ast[] = [];
 	while (hasMore(p) && !lookAhead(p, "}")) {
@@ -423,7 +433,6 @@ function parseBlockExpr(p: Parser): BlockExpr {
 	consume(p, "}");
 	return {
 		type: AstType.BlockExpr,
-		label: label === undefined ? label : id(label),
 		stmts,
 		start: popStart(p),
 		end: getEnd(p),
@@ -456,12 +465,15 @@ function parseIfExpr(p: Parser): IfExpr {
 function parseLoopExpr(p: Parser): LoopExpr {
 	pushStart(p);
 	consume(p, "loop");
-	const label = match(p, TokenType.Id);
-	const blockExpr = parseBlockExpr(p);
+	let label: undefined | IdExpr;
+	if (lookAhead(p, TokenType.Id)) {
+		label = parseIdExpr(p);
+	}
+	const thenExpr = parseBlockExpr(p);
 	return {
 		type: AstType.LoopExpr,
-		label: label === undefined ? label : id(label),
-		blockExpr,
+		label,
+		thenExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -471,11 +483,11 @@ function parseWhileExpr(p: Parser): WhileExpr {
 	pushStart(p);
 	consume(p, "while");
 	const testExpr = parseExpr(p);
-	const blockExpr = parseBlockExpr(p);
+	const thenExpr = parseBlockExpr(p);
 	return {
 		type: AstType.WhileExpr,
 		testExpr,
-		blockExpr,
+		thenExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -485,10 +497,58 @@ function parseProcExpr(p: Parser): ProcExpr {
 	pushStart(p);
 	match(p, "proc");
 	consume(p, "(");
-	const params: Id[] = [];
+	const params: ProcParam[] = [];
 	while (hasMore(p) && !lookAhead(p, ")")) {
-		const param = consume(p, TokenType.Id);
-		params.push(id(param));
+		const id = parseIdExpr(p);
+		consume(p, ":");
+		const type = parseTypeExpr(p);
+		params.push({ id, type });
+		if (params.length > 255) {
+			throw new ParseError("More than 255 parameters!", id.start, id.end);
+		}
+		if (!lookAhead(p, ")")) {
+			consume(p, ",");
+		}
+	}
+	consume(p, ")");
+	consume(p, "->");
+	const returnType = parseTypeExpr(p);
+	const implExpr = parseBlockExpr(p);
+	return {
+		type: AstType.ProcExpr,
+		params,
+		implExpr,
+		returnType,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseIdExpr(p: Parser): IdExpr {
+	const id = consume(p, TokenType.Id);
+	return {
+		type: AstType.IdExpr,
+		value: id.image,
+		start: id.start,
+		end: id.end,
+	};
+}
+
+function parseTypeExpr(p: Parser): Ast {
+	if (lookAhead(p, "proc")) {
+		return parseProcTypeExpr(p);
+	}
+	return parseIdExpr(p);
+}
+
+function parseProcTypeExpr(p: Parser): ProcTypeExpr {
+	pushStart(p);
+	consume(p, "proc");
+	consume(p, "(");
+	const params: Ast[] = [];
+	while (hasMore(p) && !lookAhead(p, ")")) {
+		const param = parseTypeExpr(p);
+		params.push(param);
 		if (params.length > 255) {
 			throw new ParseError("More than 255 parameters!", param.start, param.end);
 		}
@@ -498,11 +558,11 @@ function parseProcExpr(p: Parser): ProcExpr {
 	}
 	consume(p, ")");
 	consume(p, "->");
-	const impl = parseBlockExpr(p);
+	const returnType = parseTypeExpr(p);
 	return {
-		type: AstType.ProcExpr,
+		type: AstType.ProcTypeExpr,
 		params,
-		impl,
+		returnType,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -577,13 +637,4 @@ function popStart(p: Parser): number {
 
 function getEnd(p: Parser): number {
 	return p.tokens[p.position - 1]?.end ?? 0;
-}
-
-function id(t: Token): Id {
-	return {
-		type: AstType.Id,
-		value: t.image,
-		start: t.start,
-		end: t.end,
-	};
 }

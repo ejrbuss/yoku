@@ -1,4 +1,4 @@
-import { Span, RtValue } from "./core.ts";
+import { Span } from "./utils.ts";
 
 export enum TokenType {
 	Punc = "Punc",
@@ -13,7 +13,7 @@ export enum TokenType {
 export type Token = {
 	type: TokenType;
 	image: string;
-	value?: RtValue;
+	value?: unknown;
 	note?: string;
 } & Span;
 
@@ -26,6 +26,7 @@ function print(token: Token): string {
 const Keywords = new Set([
 	"import",
 	"export",
+	"module",
 	"as",
 	"var",
 	"const",
@@ -47,7 +48,6 @@ const Keywords = new Set([
 	"return",
 	"try",
 	"throw",
-	"todo",
 ]);
 
 const Escapes: Record<string, string | undefined> = {
@@ -192,7 +192,7 @@ function nextIntLiteral(t: Tokenizer, digits: string, radix: number): Token {
 	if (image.length === 0) {
 		return errorHere(t, "Integer prefix with no integer value!");
 	}
-	return tokenHere(t, TokenType.Lit, RtValue.num(parseInt(image, radix)));
+	return tokenHere(t, TokenType.Lit, parseInt(image, radix));
 }
 
 function nextStrLiteral(t: Tokenizer): Token {
@@ -213,7 +213,7 @@ function nextStrLiteral(t: Tokenizer): Token {
 	if (!match(t, '"') || !validEscapes) {
 		return errorHere(t, "Unclosed Str literal!");
 	}
-	return tokenHere(t, TokenType.Lit, RtValue.str(image));
+	return tokenHere(t, TokenType.Lit, image);
 }
 
 function nextNumberLiteral(t: Tokenizer): Token {
@@ -254,7 +254,7 @@ function nextNumberLiteral(t: Tokenizer): Token {
 			t.end++;
 		}
 	}
-	return tokenHere(t, TokenType.Lit, RtValue.num(parseFloat(image)));
+	return tokenHere(t, TokenType.Lit, parseFloat(image));
 }
 
 function nextIdentifier(t: Tokenizer): Token {
@@ -272,7 +272,7 @@ function nextIdentifier(t: Tokenizer): Token {
 	return tokenHere(t, TokenType.Id);
 }
 
-function tokenHere(t: Tokenizer, type: TokenType, value?: RtValue): Token {
+function tokenHere(t: Tokenizer, type: TokenType, value?: unknown): Token {
 	return {
 		type,
 		image: t.source.substring(t.start, t.end),

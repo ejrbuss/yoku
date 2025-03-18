@@ -1,8 +1,9 @@
 import { Token, Tokenizer, TokenType } from "./tokens.ts";
 import { ParseError, Parser } from "./parser.ts";
 import { Interpreter } from "./interpreter.ts";
-import { Ast, RtValue, Span } from "./core.ts";
+import { Ast, print } from "./core.ts";
 import { ResolutionError, Resolver } from "./resolver.ts";
+import { Span } from "./utils.ts";
 
 class YokuError extends Error {}
 
@@ -30,7 +31,7 @@ function runPrompt() {
 		try {
 			const line = prompt(">");
 			if (line !== null) {
-				console.log(RtValue.print(run(resolver, interpreter, "repl", line)));
+				console.log(print(run(resolver, interpreter, "repl", line)));
 			}
 		} catch (error) {
 			if (!(error instanceof YokuError)) {
@@ -45,7 +46,7 @@ function run(
 	interpreter: Interpreter,
 	moduleId: string,
 	source: string
-): RtValue {
+): unknown {
 	// TODO: reportError does not currently understand \t
 	source = source.replaceAll("\t", "    ");
 	const tokens = Tokenizer.tokenize(source);
@@ -69,7 +70,7 @@ function run(
 	try {
 		const ast = Parser.parse(moduleId, tokens);
 		console.log(`\n--- AST ---`);
-		console.log(Ast.sexpr(ast));
+		console.log(Ast.print(ast));
 		console.log();
 		Resolver.resolve(resolver, ast);
 		return Interpreter.interperate(interpreter, ast);
@@ -92,10 +93,10 @@ function reportError(
 	span: Span,
 	note?: string
 ): void {
-	const line = Span.lineOf(span, source) + 1;
-	const column = Span.columnOf(span, source) + 1;
+	const line = Span.lineOf(source, span) + 1;
+	const column = Span.columnOf(source, span) + 1;
 	const headline = `--> ${moduleId}:${line}:${column}`;
-	const highlight = Span.highlight(span, source, note ?? "Unknown error!");
+	const highlight = Span.highlight(source, span, note);
 	console.error(`${headline}\n${highlight}\n`);
 }
 

@@ -1,67 +1,130 @@
-export type Span = {
-	start: number;
-	end: number;
+import { Span, Unreachable, sexpr } from "./utils.ts";
+
+export enum Kind {
+	Primitive = "Primitive",
+	Proc = "Proc",
+}
+
+export type PrimitiveType = {
+	$type: Type;
+	kind: Kind.Primitive;
+	name: string;
 };
 
-export const Span = { lineOf, columnOf, highlight };
+export type ProcType = {
+	$type: Type;
+	kind: Kind.Proc;
+	params: Type[];
+	returns: Type;
+};
 
-function lineOf(span: Span, source: string): number {
-	let line = 0;
-	for (let i = 0; i < span.start; i++) {
-		if (source[i] === "\n") {
-			line++;
-		}
-	}
-	return line;
+export type Type = PrimitiveType | ProcType;
+
+const TypeType: Type = {
+	$type: undefined as unknown as Type,
+	kind: Kind.Primitive,
+	name: "Type",
+};
+TypeType.$type = TypeType;
+
+export const Type = {
+	primitive: primitiveType,
+	proc: procType,
+	Type: TypeType,
+	Unit: primitiveType("Unit"),
+	Bool: primitiveType("Bool"),
+	Int: primitiveType("Int"),
+	Float: primitiveType("Float"),
+	Str: primitiveType("Str"),
+	Any: primitiveType("Any"),
+	print: printType,
+	of: typeOf,
+};
+
+function primitiveType(name: string): PrimitiveType {
+	return { $type: TypeType, kind: Kind.Primitive, name };
 }
 
-function columnOf(span: Span, source: string): number {
-	let column = 0;
-	for (let i = 0; i < span.start; i++) {
-		column++;
-		if (source[i] === "\n") {
-			column = 0;
-		}
-	}
-	return column;
+function procType(params: Type[], returns: Type): ProcType {
+	return { $type: TypeType, kind: Kind.Proc, params, returns };
 }
 
-function highlight(span: Span, source: string, note: string = ""): string {
-	let column = 0;
-	let lineNumber = 1;
-	let lineContents = "";
-	for (let i = 0; i < source.length; i++) {
-		if (source[i] === "\n") {
-			if (i >= span.end) {
-				break;
-			}
-			column = 0;
-			lineNumber++;
-			lineContents = "";
-			continue;
-		} else {
-			if (i < span.start) {
-				column++;
-			}
-			lineContents += source[i];
-		}
+function printType(t: Type): string {
+	switch (t.kind) {
+		case Kind.Primitive:
+			return t.name;
+		case Kind.Proc:
+			return `proc (${t.params.map(printType).join(", ")}) -> ${printType(
+				t.returns
+			)}`;
 	}
-	console.log({
-		start: span.start,
-		end: span.end,
-		column,
-		lineNumber,
-		lineContents,
-		note,
-	});
-	const prefix = ` ${lineNumber} | `;
-	const padding = `${" ".repeat(prefix.length - 2)}| ${" ".repeat(column)}`;
-	const spanLength = Math.max(span.end - span.start, 1);
-	const highlight = "^".repeat(spanLength);
-	if (spanLength > lineContents.length - column) {
-		throw new Error("Cannot highlight multiline span!");
+}
+
+function typeOf(v: unknown): Type {
+	switch (typeof v) {
+		case "boolean":
+			return Type.Bool;
+		case "bigint":
+			return Type.Int;
+		case "number":
+			return Type.Float;
+		case "string":
+			return Type.Str;
 	}
-	return `${padding}\n${prefix}${lineContents}\n${padding}${highlight}\n${padding}${note}`;
+	if (v === null) {
+		return Type.Unit;
+	}
+	if (typeof v !== "object") {
+		throw new Error(`Cannot find type! ${v}`);
+	}
+	const type = (v as Record<string, Type | undefined>).$type;
+	if (type !== undefined) {
+		return type;
+	}
+	throw new Error(`Cannot find type! ${v}`);
+}
+
+export type Proc = {
+	$type: ProcType;
+	name?: string;
+	impl: (args: unknown[]) => unknown;
+};
+
+export const Proc = { create: createProc };
+
+function createProc(
+	name: string | undefined,
+	params: Type[],
+	returns: Type,
+	impl: (args: unknown[]) => unknown
+): Proc {
+	return { $type: Type.proc(params, returns), name, impl };
+}
+
+export function print(v: unknown): string {
+	const type = typeOf(v);
+	if (type === Type.Unit) {
+		return "()";
+	}
+	if (type === Type.Bool) {
+		return (v as boolean) ? "True" : "False";
+	}
+	if (type === Type.Int) {
+		return (v as bigint).toString();
+	}
+	if (type === Type.Float) {
+		return (v as number).toString();
+	}
+	if (type === Type.Str) {
+		return v as string;
+	}
+	if (type === Type.Type) {
+		return `Type[${printType(v as Type)}]`;
+	}
+	if (type.kind === Kind.Proc) {
+		return `proc ${(v as Proc).name ?? ""}`;
+	}
+	throw new Unreachable();
 }
 
 export enum BinaryOp {
@@ -91,141 +154,9 @@ export enum UnaryOp {
 	Spread = "...",
 }
 
-export type Op = BinaryOp | UnaryOp;
-
-export enum RtType {
-	Unit = "Unit",
-	Bool = "Bool",
-	Num = "Num", // TODO split into numeric types
-	Str = "Str",
-	Proc = "Proc",
-}
-
-function unwrap<T extends { type: RtType; value: unknown }>(
-	type: T["type"]
-): (value: RtValue) => T["value"] {
-	return (value) => {
-		if (value.type !== type) {
-			throw new Error(
-				`Expected ${RtType[type]} but got ${RtType[value.type]}!`
-			);
-		}
-		return value.value;
-	};
-}
-
-export type RtUnit = {
-	type: RtType.Unit;
-	value: undefined;
-};
-
-const Unit: RtUnit = { type: RtType.Unit, value: undefined };
-
-export const RtUnit = {
-	unwrap: unwrap<RtUnit>(RtType.Unit),
-};
-
-export type RtBool = {
-	type: RtType.Bool;
-	value: boolean;
-};
-
-const True: RtBool = { type: RtType.Bool, value: true };
-const False: RtBool = { type: RtType.Bool, value: false };
-
-function bool(value: boolean): RtBool {
-	return value ? True : False;
-}
-
-export const RtBool = {
-	unwrap: unwrap<RtBool>(RtType.Bool),
-};
-
-export type RtNum = {
-	type: RtType.Num;
-	value: number;
-};
-
-function num(value: number): RtNum {
-	return { type: RtType.Num, value };
-}
-
-export const RtNum = {
-	unwrap: unwrap<RtNum>(RtType.Num),
-};
-
-export type RtStr = {
-	type: RtType.Str;
-	value: string;
-};
-
-function str(value: string): RtStr {
-	return { type: RtType.Str, value };
-}
-
-export const RtStr = {
-	unwrap: unwrap<RtStr>(RtType.Str),
-};
-
-export type RtProc = {
-	type: RtType.Proc;
-	value: (args: RtValue[]) => RtValue;
-};
-
-function proc(value: (args: RtValue[]) => RtValue): RtProc {
-	return { type: RtType.Proc, value };
-}
-
-export const RtProc = {
-	unwrap: unwrap<RtProc>(RtType.Proc),
-};
-
-export type RtValue = RtUnit | RtBool | RtNum | RtStr | RtProc;
-
-export const RtValue = {
-	Unit,
-	True,
-	False,
-	bool,
-	num,
-	str,
-	proc,
-	eq,
-	id,
-	print,
-};
-
-function eq(a: RtValue, b: RtValue): boolean {
-	if (a.type !== b.type) {
-		return false;
-	}
-	switch (a.type) {
-		case RtType.Unit:
-			return true;
-		case RtType.Bool:
-		case RtType.Num:
-		case RtType.Str:
-		case RtType.Proc:
-			return a.value === (b as typeof a).value;
-	}
-}
-
-function id(a: RtValue, b: RtValue): boolean {
-	return eq(a, b);
-}
-
-function print(v: RtValue): string {
-	switch (v.type) {
-		case RtType.Unit:
-			return "()";
-		case RtType.Bool:
-			return v.value ? "True" : "False";
-		case RtType.Num:
-		case RtType.Str:
-			return `${v.value}`;
-		case RtType.Proc:
-			return "proc";
-	}
+export enum Access {
+	Var = "Var",
+	Const = "Const",
 }
 
 export enum AstType {
@@ -247,7 +178,8 @@ export enum AstType {
 	UnaryExpr = "UnaryExpr",
 	CallExpr = "CallExpr",
 	LitExpr = "LitExpr",
-	Id = "Id",
+	IdExpr = "IdExpr",
+	ProcTypeExpr = "ProcTypeExpr",
 }
 
 export type Module = {
@@ -258,25 +190,26 @@ export type Module = {
 
 export type VarDecl = {
 	type: AstType.VarDecl;
-	isConst: boolean;
-	id: Id;
-	initializer: Ast;
+	access: Access;
+	declType?: Ast;
+	id: IdExpr;
+	initExpr: Ast;
 } & Span;
 
 export type ProcDecl = {
 	type: AstType.ProcDecl;
-	id: Id;
-	expr: ProcExpr;
+	id: IdExpr;
+	initExpr: ProcExpr;
 } & Span;
 
 export type BreakStmt = {
 	type: AstType.BreakStmt;
-	label?: Id;
+	label?: IdExpr;
 } & Span;
 
 export type ContinueStmt = {
 	type: AstType.ContinueStmt;
-	label?: Id;
+	label?: IdExpr;
 } & Span;
 
 export type ReturnStmt = {
@@ -286,9 +219,8 @@ export type ReturnStmt = {
 
 export type AssignStmt = {
 	type: AstType.AssignStmt;
-	id: Id;
-	op?: BinaryOp;
-	value: Ast;
+	id: IdExpr;
+	expr: Ast;
 } & Span;
 
 export type ExprStmt = {
@@ -298,7 +230,6 @@ export type ExprStmt = {
 
 export type BlockExpr = {
 	type: AstType.BlockExpr;
-	label?: Id;
 	stmts: Ast[];
 } & Span;
 
@@ -316,20 +247,26 @@ export type IfExpr = {
 
 export type LoopExpr = {
 	type: AstType.LoopExpr;
-	label?: Id;
-	blockExpr: Ast;
+	label?: IdExpr;
+	thenExpr: BlockExpr;
 } & Span;
 
 export type WhileExpr = {
 	type: AstType.WhileExpr;
 	testExpr: Ast;
-	blockExpr: Ast;
+	thenExpr: BlockExpr;
 } & Span;
+
+export type ProcParam = {
+	id: IdExpr;
+	type: Ast;
+};
 
 export type ProcExpr = {
 	type: AstType.ProcExpr;
-	params: Id[];
-	impl: Ast;
+	params: ProcParam[];
+	returnType: Ast;
+	implExpr: BlockExpr;
 } & Span;
 
 export type BinaryExpr = {
@@ -353,13 +290,19 @@ export type CallExpr = {
 
 export type LitExpr = {
 	type: AstType.LitExpr;
-	value: RtValue;
+	value: unknown;
 } & Span;
 
-export type Id = {
-	type: AstType.Id;
+export type IdExpr = {
+	type: AstType.IdExpr;
 	value: string;
 	resolvedId?: number;
+} & Span;
+
+export type ProcTypeExpr = {
+	type: AstType.ProcTypeExpr;
+	params: Ast[];
+	returnType: Ast;
 } & Span;
 
 export type Ast =
@@ -381,65 +324,11 @@ export type Ast =
 	| UnaryExpr
 	| CallExpr
 	| LitExpr
-	| Id;
+	| IdExpr
+	| ProcTypeExpr;
 
-export const Ast = { sexpr };
+export const Ast = { print: printAst };
 
-function sexpr(ast: Ast): string {
-	function tab(head: string, parts: string[]): string {
-		let text = `(${head}`;
-		for (const part of parts) {
-			text += `\n  ${part.replaceAll("\n", "\n  ")}`;
-		}
-		text += ")";
-		return text;
-	}
-	switch (ast.type) {
-		case AstType.Module:
-			return tab(ast.type, ast.decls.map(sexpr));
-		case AstType.VarDecl:
-			return tab(ast.type, [sexpr(ast.id), sexpr(ast.initializer)]);
-		case AstType.ProcDecl:
-			return tab(ast.type, [sexpr(ast.id), sexpr(ast.expr)]);
-		case AstType.BreakStmt:
-			return `(${ast.type}${
-				ast.label === undefined ? "" : " " + sexpr(ast.label)
-			})`;
-		case AstType.ContinueStmt:
-			return `(${ast.type}${
-				ast.label === undefined ? "" : " " + sexpr(ast.label)
-			})`;
-		case AstType.ReturnStmt:
-			return tab(ast.type, ast.expr === undefined ? [] : [sexpr(ast.expr)]);
-		case AstType.AssignStmt:
-			return tab(ast.type, [sexpr(ast.id), sexpr(ast.value)]);
-		case AstType.ExprStmt:
-			return tab(ast.type, [sexpr(ast.expr)]);
-		case AstType.BlockExpr:
-			return tab(ast.type, ast.stmts.map(sexpr));
-		case AstType.GroupExpr:
-			return tab(ast.type, [sexpr(ast.expr)]);
-		case AstType.IfExpr:
-			return tab(ast.type, [
-				sexpr(ast.testExpr),
-				sexpr(ast.thenExpr),
-				...(ast.elseExpr === undefined ? [] : [sexpr(ast.elseExpr)]),
-			]);
-		case AstType.LoopExpr:
-			return tab(ast.type, [sexpr(ast.blockExpr)]);
-		case AstType.WhileExpr:
-			return tab(ast.type, [sexpr(ast.testExpr), sexpr(ast.blockExpr)]);
-		case AstType.ProcExpr:
-			return tab(ast.type, [`(${ast.params.join(" ")})`, sexpr(ast.impl)]);
-		case AstType.BinaryExpr:
-			return tab(ast.type, [ast.op, sexpr(ast.left), sexpr(ast.right)]);
-		case AstType.UnaryExpr:
-			return tab(ast.type, [ast.op, sexpr(ast.right)]);
-		case AstType.CallExpr:
-			return tab(ast.type, [sexpr(ast.proc), ...ast.args.map(sexpr)]);
-		case AstType.LitExpr:
-			return print(ast.value);
-		case AstType.Id:
-			return ast.value;
-	}
+function printAst(ast: Ast): string {
+	return sexpr(ast, ["start", "end"]);
 }

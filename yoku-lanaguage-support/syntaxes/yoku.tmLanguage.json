@@ -19,7 +19,7 @@
 		},
 		{
 			"name": "keyword.yoku",
-			"match": "\\b(import|export|as|var|const|proc|struct|enum|type|impl|if|else|match|do|loop|break|continue|while|for|in|return|try|throw|todo)\\b"
+			"match": "\\b(import|export|module|as|var|const|proc|struct|enum|type|impl|if|else|match|do|loop|break|continue|while|for|in|return|try|throw)\\b"
 		},
 		{
 			"name": "comment.block",

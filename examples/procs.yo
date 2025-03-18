@@ -1,4 +1,4 @@
-proc sayHi(first, last) -> {
+proc sayHi(first: Str, last: Str) -> Str {
 	print(cat("Hi, ", first, " ", last, "!"))
 }
 
@@ -24,13 +24,13 @@ p(); -- 6
 global = 10;
 p(); -- 15
 
-proc fib(n) -> {
+proc fib(n: Num) -> Num {
   if n <= 1 { return n }
   return fib(n - 2) + fib(n - 1)
 }
 
 var i = 0;
-while i < 30 {
+while i < 20 {
 	print(fib(i));
 	i = i + 1;
 }
@@ -61,7 +61,7 @@ thrice(proc (a) -> { print(a) });
 do {
 	var a = "outer";
 	do {
-		proc showA() -> {
+		proc showA() -> Unit {
 			print(a);
 		}
 		showA();
