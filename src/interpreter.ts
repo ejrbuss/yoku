@@ -27,7 +27,8 @@ import {
 	WhileExpr,
 } from "./core.ts";
 import { Resolver } from "./resolver.ts";
-import { structurallyEq, Todo } from "./utils.ts";
+import { TypeChecker } from "./typechecker.ts";
+import { structurallyEq, Todo, Unreachable } from "./utils.ts";
 
 class Break {
 	constructor(readonly label?: string) {}
@@ -67,10 +68,12 @@ export const Builtins = {
 	}),
 };
 
-function create(r: Resolver): Interpreter {
+function create(r: Resolver, t: TypeChecker): Interpreter {
 	const globals = [];
 	for (const [id, builtin] of Object.entries(Builtins)) {
-		globals[Resolver.declareGlobal(r, id)] = builtin;
+		const resolvedId = Resolver.declareGlobal(r, id);
+		TypeChecker.declareGlobal(t, resolvedId, Type.of(builtin));
+		globals[resolvedId] = builtin;
 	}
 	return { inGlobalScope: true, globals, locals: [], closure: [] };
 }
@@ -115,6 +118,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateLitExpr(i, ast);
 		case AstType.IdExpr:
 			return interperateIdExpr(i, ast);
+		case AstType.ProcTypeExpr:
+			throw new Unreachable();
 	}
 }
 
@@ -130,14 +135,14 @@ function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
 	const memory = i.inGlobalScope ? i.globals : i.locals;
 	const value = interperate(i, d.initExpr);
 	memory[resolveId(d.id)] = value;
-	return value;
+	return null;
 }
 
 function interperateProcDecl(i: Interpreter, p: ProcDecl): unknown {
 	const memory = i.inGlobalScope ? i.globals : i.locals;
-	const value = interperateProcExpr(i, p.initExpr);
+	const value = interperate(i, p.initExpr);
 	memory[resolveId(p.id)] = value;
-	return value;
+	return null;
 }
 
 function interperateBreakStmt(_i: Interpreter, b: BreakStmt): unknown {
@@ -167,15 +172,15 @@ function interperateAssignStmt(i: Interpreter, a: AssignStmt): unknown {
 	return null;
 }
 
-function interperateExprStmt(i: Interpreter, a: ExprStmt): unknown {
-	return interperate(i, a.expr);
+function interperateExprStmt(i: Interpreter, e: ExprStmt): unknown {
+	return interperate(i, e.expr);
 }
 
-function interperateBlockExpr(i: Interpreter, a: BlockExpr): unknown {
+function interperateBlockExpr(i: Interpreter, b: BlockExpr): unknown {
 	const localsLength = i.locals.length;
 	try {
 		let acc: unknown = null;
-		for (const stmt of a.stmts) {
+		for (const stmt of b.stmts) {
 			acc = interperate(i, stmt);
 		}
 		return acc;
@@ -199,10 +204,9 @@ function interperateIfExpr(i: Interpreter, f: IfExpr): unknown {
 }
 
 function interperateLoopExpr(i: Interpreter, l: LoopExpr): unknown {
-	let acc: unknown = null;
 	for (;;) {
 		try {
-			acc = interperate(i, l.thenExpr);
+			interperate(i, l.thenExpr);
 		} catch (e) {
 			if (
 				e instanceof Continue &&
@@ -214,12 +218,11 @@ function interperateLoopExpr(i: Interpreter, l: LoopExpr): unknown {
 				e instanceof Break &&
 				(e.label === undefined || e.label === l.label?.value)
 			) {
-				break;
+				return null;
 			}
 			throw e;
 		}
 	}
-	return acc;
 }
 
 function interperateWhileExpr(i: Interpreter, w: WhileExpr): unknown {

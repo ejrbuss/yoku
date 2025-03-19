@@ -239,3 +239,15 @@ Top 3 bits of all references could be special flags
 How much of this shows up at the type level?
 
 ```
+
+Get runtime types
+```
+const int_type: Type[Int] = type Int;
+const float_type: Type[Float] = Type.of(4.5);
+```
+
+Assert types out of Any
+```
+const Result.Ok { value } = some_any_value;
+```
+

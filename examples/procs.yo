@@ -1,14 +1,14 @@
-proc sayHi(first: Str, last: Str) -> Str {
-	print(cat("Hi, ", first, " ", last, "!"))
+proc sayHi(first: Str, last: Str) -> Unit {
+	print(cat(cat(cat("Hi, ", first), last), "!"))
 }
 
 sayHi("Dear", "Reader");
 
 var global = 1;
 
-proc outer() -> {
+proc outer() -> proc () -> Unit {
 	var outer_local = 2;
-	proc inner() -> {
+	proc inner() -> Unit {
 		var inner_local = 3;
 		print(global + outer_local + inner_local);
 	}
@@ -24,7 +24,7 @@ p(); -- 6
 global = 10;
 p(); -- 15
 
-proc fib(n: Num) -> Num {
+proc fib(n: Int) -> Int {
   if n <= 1 { return n }
   return fib(n - 2) + fib(n - 1)
 }
@@ -35,9 +35,9 @@ while i < 20 {
 	i = i + 1;
 }
 
-proc makeCounter() -> {
+proc makeCounter() -> proc() -> Unit {
   var i = 0;
-  proc count() -> {
+  proc count() -> Unit {
     i = i + 1;
     print(i);
   }
@@ -48,7 +48,7 @@ var counter = makeCounter();
 counter(); -- 1
 counter(); -- 2
 
-proc thrice(p) -> {
+proc thrice(p: proc (Int) -> Unit) -> Unit {
 	var i = 1;
 	while i <= 3 {
 		p(i);
@@ -56,7 +56,7 @@ proc thrice(p) -> {
 	}
 }
 
-thrice(proc (a) -> { print(a) });
+thrice(proc (a: Int) -> Unit { print(a) });
 
 do {
 	var a = "outer";

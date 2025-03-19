@@ -152,13 +152,13 @@ function nextToken(t: Tokenizer): Token | undefined {
 		return tokenHere(t, TokenType.Op);
 	}
 	if (match(t, "0b")) {
-		return nextIntLiteral(t, Digits.bin, 0b10);
+		return nextIntLiteral(t, Digits.bin, "0b");
 	}
 	if (match(t, "0o")) {
-		return nextIntLiteral(t, Digits.oct, 0o10);
+		return nextIntLiteral(t, Digits.oct, "0o");
 	}
 	if (match(t, "0x")) {
-		return nextIntLiteral(t, Digits.hex, 0x10);
+		return nextIntLiteral(t, Digits.hex, "0x");
 	}
 	const c = t.source[t.end];
 	if (c === '"') {
@@ -178,8 +178,8 @@ function nextToken(t: Tokenizer): Token | undefined {
 	return errorHere(t, "Unexpected character!");
 }
 
-function nextIntLiteral(t: Tokenizer, digits: string, radix: number): Token {
-	let image = "";
+function nextIntLiteral(t: Tokenizer, digits: string, prefix: string): Token {
+	let image = prefix;
 	while (hasMore(t)) {
 		const c = t.source[t.end];
 		if (isDigit(c, digits)) {
@@ -192,7 +192,7 @@ function nextIntLiteral(t: Tokenizer, digits: string, radix: number): Token {
 	if (image.length === 0) {
 		return errorHere(t, "Integer prefix with no integer value!");
 	}
-	return tokenHere(t, TokenType.Lit, parseInt(image, radix));
+	return tokenHere(t, TokenType.Lit, BigInt(image));
 }
 
 function nextStrLiteral(t: Tokenizer): Token {
@@ -218,6 +218,7 @@ function nextStrLiteral(t: Tokenizer): Token {
 
 function nextNumberLiteral(t: Tokenizer): Token {
 	let image = "";
+	let int = true;
 	while (hasMore(t)) {
 		const c = t.source[t.end];
 		if (isDigit(c)) {
@@ -228,6 +229,7 @@ function nextNumberLiteral(t: Tokenizer): Token {
 		t.end++;
 	}
 	if (t.source[t.end] === ".") {
+		int = false;
 		image += t.source[t.end++];
 		while (hasMore(t)) {
 			const c = t.source[t.end];
@@ -240,6 +242,7 @@ function nextNumberLiteral(t: Tokenizer): Token {
 		}
 	}
 	if (t.source[t.end] === "e" || t.source[t.end] === "E") {
+		int = false;
 		image += t.source[t.end++];
 		if (t.source[t.end] === "-") {
 			image += t.source[t.end++];
@@ -254,7 +257,7 @@ function nextNumberLiteral(t: Tokenizer): Token {
 			t.end++;
 		}
 	}
-	return tokenHere(t, TokenType.Lit, parseFloat(image));
+	return tokenHere(t, TokenType.Lit, int ? BigInt(image) : parseFloat(image));
 }
 
 function nextIdentifier(t: Tokenizer): Token {

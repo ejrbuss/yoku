@@ -85,6 +85,7 @@ function highlight(source: string, span: Span, note?: string): string {
 	const line = lineOf(source, span);
 	let lineContents = "";
 	for (let i = 0; i < source.length; i++) {
+		// TODO multiline spans
 		if (source[i] === "\n") {
 			if (i >= span.end) {
 				break;

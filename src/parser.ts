@@ -116,11 +116,11 @@ function parseVarDecl(p: Parser): VarDecl {
 function parseProcDecl(p: Parser): ProcDecl {
 	pushStart(p);
 	consume(p, "proc");
-	const procId = consume(p, TokenType.Id);
+	const procId = parseIdExpr(p);
 	const initExpr = parseProcExpr(p);
 	return {
 		type: AstType.ProcDecl,
-		id: id(procId),
+		id: procId,
 		initExpr,
 		start: popStart(p),
 		end: getEnd(p),
@@ -130,7 +130,10 @@ function parseProcDecl(p: Parser): ProcDecl {
 function parseBreakStmt(p: Parser): BreakStmt {
 	pushStart(p);
 	consume(p, "break");
-	const label = parseIdExpr(p);
+	let label: undefined | IdExpr;
+	if (lookAhead(p, TokenType.Id)) {
+		label = parseIdExpr(p);
+	}
 	return {
 		type: AstType.BreakStmt,
 		label,
@@ -157,7 +160,10 @@ function parseReturnStmt(p: Parser): ReturnStmt {
 function parseContinueStmt(p: Parser): ContinueStmt {
 	pushStart(p);
 	consume(p, "continue");
-	const label = parseIdExpr(p);
+	let label: undefined | IdExpr;
+	if (lookAhead(p, TokenType.Id)) {
+		label = parseIdExpr(p);
+	}
 	return {
 		type: AstType.ContinueStmt,
 		label,
@@ -420,6 +426,7 @@ function parseGroupExpr(p: Parser): GroupExpr {
 
 function parseBlockExpr(p: Parser): BlockExpr {
 	pushStart(p);
+	match(p, "do");
 	consume(p, "{");
 	const stmts: Ast[] = [];
 	while (hasMore(p) && !lookAhead(p, "}")) {

@@ -4,6 +4,7 @@ import { Interpreter } from "./interpreter.ts";
 import { Ast, print } from "./core.ts";
 import { ResolutionError, Resolver } from "./resolver.ts";
 import { Span } from "./utils.ts";
+import { TypeChecker, TypeError } from "./typechecker.ts";
 
 class YokuError extends Error {}
 
@@ -20,18 +21,22 @@ async function main(args: string[]) {
 
 async function runFile(path: string) {
 	const resolver = Resolver.create();
-	const interpreter = Interpreter.create(resolver);
-	run(resolver, interpreter, path, await Deno.readTextFile(path));
+	const typeChecker = TypeChecker.create();
+	const interpreter = Interpreter.create(resolver, typeChecker);
+	run(resolver, typeChecker, interpreter, path, await Deno.readTextFile(path));
 }
 
 function runPrompt() {
 	const resolver = Resolver.create();
-	const interpreter = Interpreter.create(resolver);
+	const typeChecker = TypeChecker.create();
+	const interpreter = Interpreter.create(resolver, typeChecker);
 	for (;;) {
 		try {
 			const line = prompt(">");
 			if (line !== null) {
-				console.log(print(run(resolver, interpreter, "repl", line)));
+				console.log(
+					print(run(resolver, typeChecker, interpreter, "repl", line))
+				);
 			}
 		} catch (error) {
 			if (!(error instanceof YokuError)) {
@@ -43,6 +48,7 @@ function runPrompt() {
 
 function run(
 	resolver: Resolver,
+	typeChecker: TypeChecker,
 	interpreter: Interpreter,
 	moduleId: string,
 	source: string
@@ -73,6 +79,7 @@ function run(
 		console.log(Ast.print(ast));
 		console.log();
 		Resolver.resolve(resolver, ast);
+		TypeChecker.check(typeChecker, ast);
 		return Interpreter.interperate(interpreter, ast);
 	} catch (error) {
 		if (error instanceof ParseError) {
@@ -80,6 +87,10 @@ function run(
 			throw new YokuError();
 		}
 		if (error instanceof ResolutionError) {
+			reportError(moduleId, source, error, error.note);
+			throw new YokuError();
+		}
+		if (error instanceof TypeError) {
 			reportError(moduleId, source, error, error.note);
 			throw new YokuError();
 		}
