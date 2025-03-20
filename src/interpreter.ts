@@ -19,7 +19,11 @@ import {
 	Proc,
 	ProcDecl,
 	ProcExpr,
+	ProcType,
 	ReturnStmt,
+	Tuple,
+	TupleExpr,
+	TupleType,
 	Type,
 	UnaryExpr,
 	UnaryOp,
@@ -44,7 +48,7 @@ class Return {
 
 export type Interpreter = {
 	inGlobalScope: boolean;
-	// TODO this should probably be soemthing like global > module > local
+	// TODO this should probably be something like global > module > local
 	globals: unknown[];
 	closure: unknown[];
 	locals: unknown[];
@@ -56,16 +60,23 @@ export const Builtins = {
 	Unit: null,
 	True: true,
 	False: false,
-	print: Proc.create("print", [Type.Any], Type.Unit, (args) => {
+	print: Proc.create("print", Type.proc([Type.Any], Type.Unit), (args) => {
 		console.log(print(args[0]));
 		return null;
 	}),
-	clock: Proc.create("clock", [], Type.Int, () => {
+	clock: Proc.create("clock", Type.proc([], Type.Int), () => {
 		return BigInt(Date.now());
 	}),
-	cat: Proc.create("cat", [Type.Any, Type.Any], Type.Str, (args) => {
+	cat: Proc.create("cat", Type.proc([Type.Any, Type.Any], Type.Str), (args) => {
 		return args.map(print).join("");
 	}),
+	print_type: Proc.create(
+		"print_type",
+		Type.proc([Type.Any], Type.Str),
+		(args) => {
+			return Type.print(Type.of(args[0]));
+		}
+	),
 };
 
 function create(r: Resolver, t: TypeChecker): Interpreter {
@@ -98,6 +109,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateExprStmt(i, ast);
 		case AstType.BlockExpr:
 			return interperateBlockExpr(i, ast);
+		case AstType.TupleExpr:
+			return interperateTupleExpr(i, ast);
 		case AstType.GroupExpr:
 			return interperateGroupExpr(i, ast);
 		case AstType.IfExpr:
@@ -189,6 +202,13 @@ function interperateBlockExpr(i: Interpreter, b: BlockExpr): unknown {
 	}
 }
 
+function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
+	return Tuple.create(
+		t.resolvedType as TupleType,
+		t.items.map((item) => interperate(i, item))
+	);
+}
+
 function interperateGroupExpr(i: Interpreter, g: GroupExpr): unknown {
 	return interperate(i, g.expr);
 }
@@ -245,8 +265,7 @@ function interperateWhileExpr(i: Interpreter, w: WhileExpr): unknown {
 
 function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 	const closure = [...i.locals];
-	// TODO type signature is going to have to be resolved on nodes
-	return Proc.create(undefined, [], Type.Any, (args) => {
+	return Proc.create(undefined, p.resolvedType as ProcType, (args) => {
 		const localsSave = i.locals;
 		const closureSave = i.closure;
 		const inGlobalScopeSave = i.inGlobalScope;
@@ -353,7 +372,9 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 			throw new Todo();
 		}
 		case BinaryOp.Member: {
-			throw new Todo();
+			const left = interperate(i, b.left);
+			const right = interperate(i, b.right);
+			return (left as Tuple).items[Number(right as bigint)];
 		}
 	}
 }
@@ -385,7 +406,6 @@ function interperateLitExpr(_i: Interpreter, l: LitExpr): unknown {
 }
 
 function interperateIdExpr(i: Interpreter, id: IdExpr): unknown {
-	// TODO the resolver could do this
 	const resolvedId = resolveId(id);
 	const localValue = i.locals[resolvedId];
 	if (localValue !== undefined) {

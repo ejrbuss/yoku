@@ -251,3 +251,20 @@ Assert types out of Any
 const Result.Ok { value } = some_any_value;
 ```
 
+### TODO Pre Structs/Enums
+ - Tuple Types and Values
+ - Multiple Errors during Parsing/Resolving/Typing
+ - Muli-line highlights
+ - Split declrations from statements in parsing + special handling of repl
+ - Muli-line repl input
+
+
+```
+trait Show {
+	proc show(self: Self) -> Str;
+}
+
+trait Hash {
+	proc hash(self: Self) -> Int;
+}
+```

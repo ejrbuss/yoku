@@ -18,10 +18,12 @@ import {
 	ProcDecl,
 	ProcExpr,
 	ReturnStmt,
+	TupleExpr,
 	UnaryExpr,
 	VarDecl,
 	WhileExpr,
 } from "./core.ts";
+import { Unreachable } from "./utils.ts";
 
 type Decl = {
 	access: Access;
@@ -105,6 +107,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveExprStmt(r, ast);
 		case AstType.BlockExpr:
 			return resolverBlockExpr(r, ast);
+		case AstType.TupleExpr:
+			return resolveTupleExpr(r, ast);
 		case AstType.GroupExpr:
 			return resolveGroupExpr(r, ast);
 		case AstType.IfExpr:
@@ -125,6 +129,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveLitExpr(r, ast);
 		case AstType.IdExpr:
 			return resolveIdExpr(r, ast);
+		case AstType.ProcTypeExpr:
+			throw new Unreachable();
 	}
 }
 
@@ -207,6 +213,12 @@ function resolverBlockExpr(r: Resolver, b: BlockExpr): void {
 		resolve(r, stmt);
 	}
 	popScope(r);
+}
+
+function resolveTupleExpr(r: Resolver, t: TupleExpr): void {
+	for (const item of t.items) {
+		resolve(r, item);
+	}
 }
 
 function resolveGroupExpr(r: Resolver, g: GroupExpr): void {

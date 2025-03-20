@@ -1,24 +1,32 @@
 import { Span, Unreachable, sexpr } from "./utils.ts";
 
+type YokuObject = {
+	$type: Type;
+};
+
 export enum Kind {
 	Primitive = "Primitive",
 	Proc = "Proc",
+	Tuple = "Tuple",
 }
 
 export type PrimitiveType = {
-	$type: Type;
 	kind: Kind.Primitive;
 	name: string;
-};
+} & YokuObject;
 
 export type ProcType = {
-	$type: Type;
 	kind: Kind.Proc;
 	params: Type[];
 	returns: Type;
-};
+} & YokuObject;
 
-export type Type = PrimitiveType | ProcType;
+export type TupleType = {
+	kind: Kind.Tuple;
+	items: Type[];
+} & YokuObject;
+
+export type Type = PrimitiveType | ProcType | TupleType;
 
 const TypeType: Type = {
 	$type: undefined as unknown as Type,
@@ -30,8 +38,9 @@ TypeType.$type = TypeType;
 export const Type = {
 	primitive: primitiveType,
 	proc: procType,
+	tuple: tupleType,
 	Type: TypeType,
-	Unit: primitiveType("Unit"),
+	Unit: tupleType([]),
 	Bool: primitiveType("Bool"),
 	Int: primitiveType("Int"),
 	Float: primitiveType("Float"),
@@ -49,6 +58,10 @@ function procType(params: Type[], returns: Type): ProcType {
 	return { $type: TypeType, kind: Kind.Proc, params, returns };
 }
 
+function tupleType(items: Type[]): TupleType {
+	return { $type: TypeType, kind: Kind.Tuple, items };
+}
+
 function printType(t: Type): string {
 	switch (t.kind) {
 		case Kind.Primitive:
@@ -57,6 +70,10 @@ function printType(t: Type): string {
 			return `proc (${t.params.map(printType).join(", ")}) -> ${printType(
 				t.returns
 			)}`;
+		case Kind.Tuple:
+			return t.items.length === 1
+				? `(${printType(t.items[0])},)`
+				: `(${t.items.map(printType).join(", ")})`;
 	}
 }
 
@@ -77,7 +94,7 @@ function typeOf(v: unknown): Type {
 	if (typeof v !== "object") {
 		throw new Error(`Cannot find type! ${v}`);
 	}
-	const type = (v as Record<string, Type | undefined>).$type;
+	const type = (v as YokuObject).$type;
 	if (type !== undefined) {
 		return type;
 	}
@@ -85,20 +102,28 @@ function typeOf(v: unknown): Type {
 }
 
 export type Proc = {
-	$type: ProcType;
 	name?: string;
 	impl: (args: unknown[]) => unknown;
-};
+} & YokuObject;
 
 export const Proc = { create: createProc };
 
 function createProc(
 	name: string | undefined,
-	params: Type[],
-	returns: Type,
+	type: ProcType,
 	impl: (args: unknown[]) => unknown
 ): Proc {
-	return { $type: Type.proc(params, returns), name, impl };
+	return { $type: type, name, impl };
+}
+
+export type Tuple = {
+	items: unknown[];
+} & YokuObject;
+
+export const Tuple = { create: createTuple };
+
+function createTuple(type: TupleType, items: unknown[]): Tuple {
+	return { $type: type, items };
 }
 
 export function print(v: unknown): string {
@@ -122,7 +147,17 @@ export function print(v: unknown): string {
 		return `Type[${printType(v as Type)}]`;
 	}
 	if (type.kind === Kind.Proc) {
-		return `proc ${(v as Proc).name ?? ""}`;
+		const type = Type.print((v as Proc).$type);
+		const name = (v as Proc).name;
+		if (name !== undefined) {
+			return type.replace("proc ", `proc ${name}`);
+		}
+		return type;
+	}
+	if (type.kind === Kind.Tuple) {
+		return (v as Tuple).items.length === 1
+			? `(${print((v as Tuple).items[0])},)`
+			: `(${(v as Tuple).items.map(print).join(", ")})`;
 	}
 	throw new Unreachable();
 }
@@ -169,6 +204,7 @@ export enum AstType {
 	AssignStmt = "AssignStmt",
 	ExprStmt = "ExprStmt",
 	BlockExpr = "BlockExpr",
+	TupleExpr = "TupleExpr",
 	GroupExpr = "GroupExpr",
 	IfExpr = "IfExpr",
 	LoopExpr = "LoopExpr",
@@ -233,6 +269,12 @@ export type BlockExpr = {
 	stmts: Ast[];
 } & Span;
 
+export type TupleExpr = {
+	type: AstType.TupleExpr;
+	items: Ast[];
+	resolvedType?: TupleType;
+} & Span;
+
 export type GroupExpr = {
 	type: AstType.GroupExpr;
 	expr: Ast;
@@ -267,6 +309,7 @@ export type ProcExpr = {
 	params: ProcParam[];
 	returnType: Ast;
 	implExpr: BlockExpr;
+	resolvedType?: ProcType;
 } & Span;
 
 export type BinaryExpr = {
@@ -315,6 +358,7 @@ export type Ast =
 	| AssignStmt
 	| ExprStmt
 	| BlockExpr
+	| TupleExpr
 	| GroupExpr
 	| IfExpr
 	| LoopExpr

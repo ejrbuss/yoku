@@ -1,0 +1,4 @@
+const t = (1, "test", True, ());
+
+print_type(t);
+print(cat(t.0, t.1));

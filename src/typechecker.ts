@@ -19,6 +19,8 @@ import {
 	ProcDecl,
 	ProcExpr,
 	ReturnStmt,
+	Tuple,
+	TupleExpr,
 	Type,
 	UnaryExpr,
 	UnaryOp,
@@ -72,9 +74,6 @@ function declareType(t: TypeChecker, name: string, type: Type): void {
 	t.types[name] = type;
 }
 
-// Discard type should never be used, but can be discarded
-const Discard = Type.primitive("Discard");
-
 function check(t: TypeChecker, ast: Ast): Type {
 	switch (ast.type) {
 		case AstType.Module:
@@ -95,6 +94,8 @@ function check(t: TypeChecker, ast: Ast): Type {
 			return checkExprStmt(t, ast);
 		case AstType.BlockExpr:
 			return checkBlockExpr(t, ast);
+		case AstType.TupleExpr:
+			return checkTupleExpr(t, ast);
 		case AstType.GroupExpr:
 			return checkGroupExpr(t, ast);
 		case AstType.IfExpr:
@@ -130,13 +131,6 @@ function checkModule(t: TypeChecker, m: Module): Type {
 
 function checkVarDecl(t: TypeChecker, d: VarDecl): Type {
 	const type = check(t, d.initExpr);
-	if (type === Discard) {
-		throw new TypeError(
-			`Not a valid expression!`,
-			d.initExpr.start,
-			d.initExpr.end
-		);
-	}
 	if (d.declType !== undefined) {
 		const declType = reifyType(t, d.declType);
 		if (!assignable(type, declType)) {
@@ -150,26 +144,32 @@ function checkVarDecl(t: TypeChecker, d: VarDecl): Type {
 		}
 	}
 	t.values[resolveId(d.id)] = type;
-	return Discard;
+	return Type.Unit;
 }
 
 function checkProcDecl(t: TypeChecker, p: ProcDecl): Type {
-	// TODO need to forward declare the proc type ahead of its def, so that recursion works
-	const type = check(t, p.initExpr);
-	t.values[resolveId(p.id)] = type;
-	return Discard;
+	const params: Type[] = [];
+	for (const param of p.initExpr.params) {
+		const paramType = reifyType(t, param.type);
+		t.values[resolveId(param.id)] = paramType;
+		params.push(paramType);
+	}
+	const returns = reifyType(t, p.initExpr.returnType);
+	t.values[resolveId(p.id)] = Type.proc(params, returns);
+	check(t, p.initExpr);
+	return Type.Unit;
 }
 
 function checkBreakStmt(_t: TypeChecker, _b: BreakStmt): Type {
-	return Discard;
+	return Type.Unit;
 }
 
 function checkContinueStmt(_t: TypeChecker, _c: ContinueStmt): Type {
-	return Discard;
+	return Type.Unit;
 }
 
 function checkReturnStmt(t: TypeChecker, r: ReturnStmt): Type {
-	const type = r.expr !== undefined ? check(t, r.expr) : Discard;
+	const type = r.expr !== undefined ? check(t, r.expr) : Type.Unit;
 	t.returns.push(type);
 	return type;
 }
@@ -187,7 +187,7 @@ function checkAssignStmt(t: TypeChecker, a: AssignStmt): Type {
 			a.id.end
 		);
 	}
-	return Discard;
+	return Type.Unit;
 }
 
 function checkExprStmt(t: TypeChecker, e: ExprStmt): Type {
@@ -195,11 +195,21 @@ function checkExprStmt(t: TypeChecker, e: ExprStmt): Type {
 }
 
 function checkBlockExpr(t: TypeChecker, b: BlockExpr): Type {
-	let acc: Type = Type.Unit;
+	let acc: Type | undefined = Type.Unit;
 	for (const stmt of b.stmts) {
 		acc = check(t, stmt);
 	}
 	return acc;
+}
+
+function checkTupleExpr(t: TypeChecker, u: TupleExpr): Type {
+	const items: Type[] = [];
+	for (const item of u.items) {
+		items.push(check(t, item));
+	}
+	const type = Type.tuple(items);
+	u.resolvedType = type;
+	return type;
 }
 
 function checkGroupExpr(t: TypeChecker, g: GroupExpr): Type {
@@ -223,13 +233,13 @@ function checkIfExpr(t: TypeChecker, i: IfExpr): Type {
 			return thenType;
 		}
 	}
-	return Discard;
+	return Type.Unit;
 }
 
 function checkLoopExpr(t: TypeChecker, l: LoopExpr): Type {
 	// TODO loop should really only be allowed as a stmt
 	check(t, l.thenExpr);
-	return Discard;
+	return Type.Unit;
 }
 
 function checkWhileExpr(t: TypeChecker, w: WhileExpr): Type {
@@ -244,7 +254,7 @@ function checkWhileExpr(t: TypeChecker, w: WhileExpr): Type {
 		);
 	}
 	check(t, w.thenExpr);
-	return Discard;
+	return Type.Unit;
 }
 
 function checkProcExpr(t: TypeChecker, p: ProcExpr): Type {
@@ -258,7 +268,7 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr): Type {
 	const returnsSave = t.returns;
 	t.returns = [];
 	const implicitReturn = check(t, p.implExpr);
-	if (implicitReturn !== Discard) {
+	if (implicitReturn !== undefined) {
 		t.returns.push(implicitReturn);
 	}
 	for (const r of t.returns) {
@@ -272,8 +282,10 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr): Type {
 			);
 		}
 	}
+	const type = Type.proc(params, returns);
 	t.returns = returnsSave;
-	return Type.proc(params, returns);
+	p.resolvedType = type;
+	return type;
 }
 
 function checkBinaryExpr(t: TypeChecker, b: BinaryExpr): Type {
@@ -303,8 +315,27 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr): Type {
 		case BinaryOp.NotId:
 			return checkBinaryExprHelper(b, l, r, [l]);
 		case BinaryOp.Default:
-		case BinaryOp.Member:
-			throw new Todo();
+		case BinaryOp.Member: {
+			if (l.kind !== Kind.Tuple) {
+				const lp = Type.print(l);
+				throw new TypeError(
+					`Operator . cannot be applied to non Tuple ${lp}!`,
+					b.start,
+					b.end
+				);
+			}
+			if (
+				b.right.type !== AstType.LitExpr ||
+				typeof b.right.value !== "bigint"
+			) {
+				const rp = Type.print(r);
+				throw new TypeError(
+					`Operator . cannot be applied to Tuple and ${rp}!`,
+					b.start,
+					b.end
+				);
+			}
+		}
 	}
 }
 
@@ -412,13 +443,14 @@ function reifyType(t: TypeChecker, ast: Ast): Type {
 			const returns = reifyType(t, ast.returnType);
 			return Type.proc(params, returns);
 		}
+		case AstType.TupleExpr: {
+			const items = ast.items.map((i) => reifyType(t, i));
+			return Type.tuple(items);
+		}
 	}
 	throw new Unreachable();
 }
 
 function assignable(from: Type, into: Type): boolean {
-	return (
-		from !== Discard &&
-		(into === Type.Any || from === into || structurallyEq(from, into))
-	);
+	return into === Type.Any || structurallyEq(from, into);
 }

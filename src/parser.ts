@@ -356,33 +356,53 @@ function parseUnary(p: Parser): Ast {
 
 function parseCall(p: Parser): Ast {
 	let expr = parsePrimary(p);
-	while (match(p, "(")) {
-		const args: Ast[] = [];
-		while (hasMore(p) && !lookAhead(p, ")")) {
-			const arg = parseExpr(p);
-			args.push(arg);
-			if (args.length > 255) {
-				throw new ParseError("More than 255 arguments!", arg.start, arg.end);
+	for (;;) {
+		if (match(p, "(")) {
+			const args: Ast[] = [];
+			while (hasMore(p) && !lookAhead(p, ")")) {
+				const arg = parseExpr(p);
+				args.push(arg);
+				if (args.length > 255) {
+					throw new ParseError("More than 255 arguments!", arg.start, arg.end);
+				}
+				if (!lookAhead(p, ")")) {
+					consume(p, ",");
+				}
 			}
-			if (!lookAhead(p, ")")) {
-				consume(p, ",");
+			consume(p, ")");
+			expr = {
+				type: AstType.CallExpr,
+				proc: expr,
+				args,
+				start: expr.start,
+				end: getEnd(p),
+			};
+		} else if (match(p, ".")) {
+			const right = parsePrimary(p);
+			if (
+				right.type !== AstType.IdExpr &&
+				(right.type !== AstType.LitExpr || typeof right.value !== "bigint")
+			) {
+				throw new ParseError("Expected Id or Int!", right.start, right.end);
 			}
+			expr = {
+				type: AstType.BinaryExpr,
+				op: BinaryOp.Member,
+				left: expr,
+				right,
+				start: expr.start,
+				end: getEnd(p),
+			};
+		} else {
+			break;
 		}
-		consume(p, ")");
-		expr = {
-			type: AstType.CallExpr,
-			proc: expr,
-			args,
-			start: expr.start,
-			end: getEnd(p),
-		};
 	}
 	return expr;
 }
 
 function parsePrimary(p: Parser): Ast {
 	if (lookAhead(p, "(")) {
-		return parseGroupExpr(p);
+		return parseTupleExpr(p);
 	}
 	if (lookAhead(p, "do")) {
 		return parseBlockExpr(p);
@@ -411,17 +431,43 @@ function parsePrimary(p: Parser): Ast {
 	return parseIdExpr(p);
 }
 
-function parseGroupExpr(p: Parser): GroupExpr {
+function parseTupleExpr(p: Parser): Ast {
 	pushStart(p);
 	consume(p, "(");
-	const expr = parseExpr(p);
-	consume(p, ")");
-	return {
-		type: AstType.GroupExpr,
-		expr,
-		start: popStart(p),
-		end: getEnd(p),
-	};
+	if (match(p, ")")) {
+		return {
+			type: AstType.TupleExpr,
+			items: [],
+			start: popStart(p),
+			end: getEnd(p),
+		};
+	} else {
+		const expr = parseExpr(p);
+		if (match(p, ",")) {
+			const items = [expr];
+			while (hasMore(p) && !lookAhead(p, ")")) {
+				items.push(parseExpr(p));
+				if (!lookAhead(p, ")")) {
+					consume(p, ",");
+				}
+			}
+			consume(p, ")");
+			return {
+				type: AstType.TupleExpr,
+				items,
+				start: popStart(p),
+				end: getEnd(p),
+			};
+		} else {
+			consume(p, ")");
+			return {
+				type: AstType.GroupExpr,
+				expr,
+				start: popStart(p),
+				end: getEnd(p),
+			};
+		}
+	}
 }
 
 function parseBlockExpr(p: Parser): BlockExpr {
@@ -545,6 +591,9 @@ function parseTypeExpr(p: Parser): Ast {
 	if (lookAhead(p, "proc")) {
 		return parseProcTypeExpr(p);
 	}
+	if (lookAhead(p, "(")) {
+		return parseTupleExpr(p);
+	}
 	return parseIdExpr(p);
 }
 
@@ -623,7 +672,7 @@ function consume(p: Parser, m?: TokenMatcher, note?: string): Token {
 	}
 	if (note === undefined) {
 		if (m === undefined) {
-			note = "Unexpcted end of input!";
+			note = "Unexpected end of input!";
 		} else if (m in TokenType) {
 			note = `Expected ${m}!`;
 		} else {
