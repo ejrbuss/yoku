@@ -263,10 +263,22 @@ trait Hash {
 
 ### Mini TODO
 ```yoku
--- basic assert
-assert 4 == 4
-
 -- test suite that actually runs examples
+-- expressions
+
+-- Implicit Unit
+proc hi() { print("hi!") }
+
+-- basic assert and test
+assert 4 == 4
+test "name" {
+
+}
+
+-- parametrized tests (later)
+test "parameterized" for value in Array.of(1, 2, 3, 4) {
+
+}
 
 -- assert in const/var
 const x = (3, 4);

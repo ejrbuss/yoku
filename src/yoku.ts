@@ -13,30 +13,39 @@ async function main(args: string[]) {
 		console.log("Usage: yoku [script]");
 		Deno.exit(64);
 	} else if (args.length === 1) {
-		await runFile(args[0]);
+		await runFile(Runtime.create(), args[0]);
 	} else {
-		runPrompt();
+		runPrompt(Runtime.create());
 	}
 }
 
-async function runFile(path: string) {
+export type Runtime = {
+	resolver: Resolver;
+	typeChecker: TypeChecker;
+	interpreter: Interpreter;
+	debugTokens?: boolean;
+	debugAst?: boolean;
+};
+
+export const Runtime = { create: createRuntime, run, runFile };
+
+function createRuntime(): Runtime {
 	const resolver = Resolver.create();
 	const typeChecker = TypeChecker.create();
 	const interpreter = Interpreter.create(resolver, typeChecker);
-	run(resolver, typeChecker, interpreter, path, await Deno.readTextFile(path));
+	return { resolver, typeChecker, interpreter };
 }
 
-function runPrompt() {
-	const resolver = Resolver.create();
-	const typeChecker = TypeChecker.create();
-	const interpreter = Interpreter.create(resolver, typeChecker);
+async function runFile(rt: Runtime, path: string): Promise<void> {
+	run(rt, path, await Deno.readTextFile(path));
+}
+
+function runPrompt(rt: Runtime): void {
 	for (;;) {
 		try {
 			const line = prompt(">");
 			if (line !== null) {
-				console.log(
-					print(run(resolver, typeChecker, interpreter, "repl", line))
-				);
+				console.log(print(run(rt, "repl", line)));
 			}
 		} catch (error) {
 			if (!(error instanceof YokuError)) {
@@ -46,22 +55,13 @@ function runPrompt() {
 	}
 }
 
-function run(
-	resolver: Resolver,
-	typeChecker: TypeChecker,
-	interpreter: Interpreter,
-	moduleId: string,
-	source: string
-): unknown {
+function run(rt: Runtime, moduleId: string, source: string): unknown {
 	// TODO: reportError does not currently understand \t
 	source = source.replaceAll("\t", "    ");
 	const tokens = Tokenizer.tokenize(source);
-	console.log();
-	console.log(`--- Tokens ---`);
-	for (const token of tokens) {
-		console.log(Token.print(token));
+	if (rt.debugTokens) {
+		printTokens(tokens);
 	}
-	console.log();
 
 	let error = false;
 	for (const token of tokens) {
@@ -75,12 +75,12 @@ function run(
 	}
 	try {
 		const ast = Parser.parse(moduleId, tokens);
-		console.log(`\n--- AST ---`);
-		console.log(Ast.print(ast));
-		console.log();
-		Resolver.resolve(resolver, ast);
-		TypeChecker.check(typeChecker, ast);
-		return Interpreter.interperate(interpreter, ast);
+		if (rt.debugAst) {
+			printAst(ast);
+		}
+		Resolver.resolve(rt.resolver, ast);
+		TypeChecker.check(rt.typeChecker, ast);
+		return Interpreter.interperate(rt.interpreter, ast);
 	} catch (error) {
 		if (error instanceof ParseError) {
 			reportError(moduleId, source, error, error.note);
@@ -111,4 +111,20 @@ function reportError(
 	console.error(`${headline}\n${highlight}\n`);
 }
 
-main(Deno.args);
+function printTokens(tokens: Token[]): void {
+	console.log("--- Tokens ---");
+	for (const token of tokens) {
+		console.log(Token.print(token));
+	}
+	console.log();
+}
+
+function printAst(ast: Ast): void {
+	console.log(`\n--- AST ---`);
+	console.log(Ast.print(ast));
+	console.log();
+}
+
+if (import.meta.main) {
+	main(Deno.args);
+}

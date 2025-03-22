@@ -270,6 +270,9 @@ function nextIdentifier(t: Tokenizer): Token {
 		t.end++;
 	}
 	const image = t.source.substring(t.start, t.end);
+	if (image === "true" || image === "false") {
+		return tokenHere(t, TokenType.Lit, image === "true");
+	}
 	if (Keywords.has(image)) {
 		return tokenHere(t, TokenType.Keyword);
 	}

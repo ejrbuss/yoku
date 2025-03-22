@@ -14,6 +14,10 @@
 			]
 		},
 		{
+			"name": "constant.language.yoku",
+			"match": "\\b(true|false)\\b"
+		},
+		{
 			"name": "constant.numeric.yoku",
 			"match": "-?(0b[01_]+|0o[01234567_]+|0x[\\dabcdefABCDEF_]+|\\d[\\d_]*(\\.[\\d_]+)?([eE][\\d_]+)?)"
 		},

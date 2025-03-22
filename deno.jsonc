@@ -1,5 +1,8 @@
 {
 	"compilerOptions": {
 		"strict": true
+	},
+	"tasks": {
+		"test": "deno test --allow-read"
 	}
 }

@@ -57,9 +57,6 @@ export type Interpreter = {
 export const Interpreter = { create, interperate };
 
 export const Builtins = {
-	Unit: null,
-	True: true,
-	False: false,
 	print: Proc.create("print", Type.proc([Type.Any], Type.Unit), (args) => {
 		console.log(print(args[0]));
 		return null;

@@ -104,65 +104,66 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 	throw new Unreachable();
 }
 
-function check(t: TypeChecker, ast: Ast): Type {
+function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 	switch (ast.type) {
 		case AstType.Module:
-			return checkModule(t, ast);
+			return checkModule(t, ast, d);
 		case AstType.VarDecl:
-			return checkVarDecl(t, ast);
+			return checkVarDecl(t, ast, d);
 		case AstType.ProcDecl:
-			return checkProcDecl(t, ast);
+			return checkProcDecl(t, ast, d);
 		case AstType.BreakStmt:
-			return checkBreakStmt(t, ast);
+			return checkBreakStmt(t, ast, d);
 		case AstType.ContinueStmt:
-			return checkContinueStmt(t, ast);
+			return checkContinueStmt(t, ast, d);
 		case AstType.ReturnStmt:
-			return checkReturnStmt(t, ast);
+			return checkReturnStmt(t, ast, d);
 		case AstType.AssignStmt:
-			return checkAssignStmt(t, ast);
+			return checkAssignStmt(t, ast, d);
 		case AstType.LoopStmt:
-			return checkLoopStmt(t, ast);
+			return checkLoopStmt(t, ast, d);
 		case AstType.WhileStmt:
-			return checkWhileStmt(t, ast);
+			return checkWhileStmt(t, ast, d);
 		case AstType.ExprStmt:
-			return checkExprStmt(t, ast);
+			return checkExprStmt(t, ast, d);
 		case AstType.BlockExpr:
-			return checkBlockExpr(t, ast);
+			return checkBlockExpr(t, ast, d);
 		case AstType.TupleExpr:
-			return checkTupleExpr(t, ast);
+			return checkTupleExpr(t, ast, d);
 		case AstType.GroupExpr:
-			return checkGroupExpr(t, ast);
+			return checkGroupExpr(t, ast, d);
 		case AstType.IfExpr:
-			return checkIfExpr(t, ast);
+			return checkIfExpr(t, ast, d);
 		case AstType.ProcExpr:
-			return checkProcExpr(t, ast);
+			return checkProcExpr(t, ast, d);
 		case AstType.BinaryExpr:
-			return checkBinaryExpr(t, ast);
+			return checkBinaryExpr(t, ast, d);
 		case AstType.UnaryExpr:
-			return checkUnaryExpr(t, ast);
+			return checkUnaryExpr(t, ast, d);
 		case AstType.CallExpr:
-			return checkCallExpr(t, ast);
+			return checkCallExpr(t, ast, d);
 		case AstType.LitExpr:
-			return checkLitExpr(t, ast);
+			return checkLitExpr(t, ast, d);
 		case AstType.IdExpr:
-			return checkIdExpr(t, ast);
+			return checkIdExpr(t, ast, d);
 		case AstType.ProcTypeExpr:
 			throw new Unreachable();
 	}
 }
 
-function checkModule(t: TypeChecker, m: Module): Type {
+function checkModule(t: TypeChecker, m: Module, _d?: Type): Type {
 	let acc: Type = Type.Unit;
 	for (const decl of m.decls) {
 		acc = check(t, decl);
 	}
-	return acc;
+	return acc; // TODO this is a hack for repl
 }
 
-function checkVarDecl(t: TypeChecker, d: VarDecl): Type {
-	const type = check(t, d.initExpr);
-	if (d.declType !== undefined) {
-		const declType = reifyType(t, d.declType);
+function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: Type): Type {
+	const declType =
+		d.declType !== undefined ? reifyType(t, d.declType) : undefined;
+	const type = check(t, d.initExpr, declType);
+	if (declType !== undefined) {
 		if (!assignable(type, declType)) {
 			const declared = Type.print(declType);
 			const found = Type.print(type);
@@ -177,7 +178,7 @@ function checkVarDecl(t: TypeChecker, d: VarDecl): Type {
 	return Type.Unit;
 }
 
-function checkProcDecl(t: TypeChecker, p: ProcDecl): Type {
+function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
 	const params: Type[] = [];
 	for (const param of p.initExpr.params) {
 		const paramType = reifyType(t, param.type);
@@ -186,28 +187,28 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl): Type {
 	}
 	const returns = reifyType(t, p.initExpr.returnType);
 	t.values[resolveId(p.id)] = Type.proc(params, returns);
-	check(t, p.initExpr);
+	check(t, p.initExpr, returns);
 	return Type.Unit;
 }
 
-function checkBreakStmt(_t: TypeChecker, _b: BreakStmt): Type {
+function checkBreakStmt(_t: TypeChecker, _b: BreakStmt, _d?: Type): Type {
 	return Type.Unit;
 }
 
-function checkContinueStmt(_t: TypeChecker, _c: ContinueStmt): Type {
+function checkContinueStmt(_t: TypeChecker, _c: ContinueStmt, _d?: Type): Type {
 	return Type.Unit;
 }
 
-function checkReturnStmt(t: TypeChecker, r: ReturnStmt): Type {
-	const type = r.expr !== undefined ? check(t, r.expr) : Type.Unit;
+function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: Type): Type {
+	const type = r.expr !== undefined ? check(t, r.expr, d) : Type.Unit;
 	t.returns.push(type);
 	return type;
 }
 
-function checkAssignStmt(t: TypeChecker, a: AssignStmt): Type {
-	const valueType = check(t, a.expr);
+function checkAssignStmt(t: TypeChecker, a: AssignStmt, _d?: Type): Type {
 	const resolvedId = resolveId(a.id);
 	const targetType = t.values[resolvedId];
+	const valueType = check(t, a.expr, targetType);
 	if (!assignable(valueType, targetType)) {
 		const found = Type.print(valueType);
 		const declared = Type.print(targetType);
@@ -220,14 +221,14 @@ function checkAssignStmt(t: TypeChecker, a: AssignStmt): Type {
 	return Type.Unit;
 }
 
-function checkLoopStmt(t: TypeChecker, l: LoopStmt): Type {
+function checkLoopStmt(t: TypeChecker, l: LoopStmt, _d?: Type): Type {
 	check(t, l.thenExpr);
 	return Type.Unit;
 }
 
-function checkWhileStmt(t: TypeChecker, w: WhileStmt): Type {
-	const testType = check(t, w.testExpr);
-	if (testType !== Type.Bool) {
+function checkWhileStmt(t: TypeChecker, w: WhileStmt, _d?: Type): Type {
+	const testType = check(t, w.testExpr, Type.Bool);
+	if (assignable(testType, Type.Bool)) {
 		const found = Type.print(testType);
 		throw new TypeError(
 			`Type ${found} cannot be used as condition!`,
@@ -239,35 +240,41 @@ function checkWhileStmt(t: TypeChecker, w: WhileStmt): Type {
 	return Type.Unit;
 }
 
-function checkExprStmt(t: TypeChecker, e: ExprStmt): Type {
-	return check(t, e.expr);
+function checkExprStmt(t: TypeChecker, e: ExprStmt, d?: Type): Type {
+	return check(t, e.expr, d);
 }
 
-function checkBlockExpr(t: TypeChecker, b: BlockExpr): Type {
-	let acc: Type | undefined = Type.Unit;
+function checkBlockExpr(t: TypeChecker, b: BlockExpr, d?: Type): Type {
 	for (const stmt of b.stmts) {
-		acc = check(t, stmt);
+		check(t, stmt);
 	}
-	return acc;
+	if (b.stmts.length > 0) {
+		return check(t, b.stmts[b.stmts.length - 1], d);
+	}
+	return Type.Unit;
 }
 
-function checkTupleExpr(t: TypeChecker, u: TupleExpr): Type {
+function checkTupleExpr(t: TypeChecker, u: TupleExpr, d?: Type): Type {
 	const items: Type[] = [];
-	for (const item of u.items) {
-		items.push(check(t, item));
+	for (let i = 0; i < u.items.length; i++) {
+		if (d?.kind === Kind.Tuple) {
+			items.push(check(t, u.items[i], d.items[i]));
+		} else {
+			items.push(check(t, u.items[i]));
+		}
 	}
 	const type = Type.tuple(items);
 	u.resolvedType = type;
 	return type;
 }
 
-function checkGroupExpr(t: TypeChecker, g: GroupExpr): Type {
-	return check(t, g.expr);
+function checkGroupExpr(t: TypeChecker, g: GroupExpr, d?: Type): Type {
+	return check(t, g.expr, d);
 }
 
-function checkIfExpr(t: TypeChecker, i: IfExpr): Type {
-	const testType = check(t, i.testExpr);
-	if (testType !== Type.Bool) {
+function checkIfExpr(t: TypeChecker, i: IfExpr, d?: Type): Type {
+	const testType = check(t, i.testExpr, Type.Bool);
+	if (assignable(testType, Type.Bool)) {
 		const found = Type.print(testType);
 		throw new TypeError(
 			`Type ${found} cannot be used as condition!`,
@@ -275,17 +282,20 @@ function checkIfExpr(t: TypeChecker, i: IfExpr): Type {
 			i.testExpr.end
 		);
 	}
-	const thenType = check(t, i.thenExpr);
+	const thenType = check(t, i.thenExpr, d);
 	if (i.elseExpr !== undefined) {
-		const elseType = check(t, i.elseExpr);
-		if (structurallyEq(thenType, elseType)) {
+		const elseType = check(t, i.elseExpr, d);
+		if (assignable(thenType, elseType)) {
+			return elseType;
+		}
+		if (assignable(elseType, thenType)) {
 			return thenType;
 		}
 	}
 	return Type.Unit;
 }
 
-function checkProcExpr(t: TypeChecker, p: ProcExpr): Type {
+function checkProcExpr(t: TypeChecker, p: ProcExpr, _d?: Type): Type {
 	const params: Type[] = [];
 	for (const param of p.params) {
 		const paramType = reifyType(t, param.type);
@@ -295,7 +305,7 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr): Type {
 	const returns = reifyType(t, p.returnType);
 	const returnsSave = t.returns;
 	t.returns = [];
-	const implicitReturn = check(t, p.implExpr);
+	const implicitReturn = check(t, p.implExpr, returns);
 	if (implicitReturn !== undefined) {
 		t.returns.push(implicitReturn);
 	}
@@ -316,34 +326,35 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr): Type {
 	return type;
 }
 
-function checkBinaryExpr(t: TypeChecker, b: BinaryExpr): Type {
-	const l = check(t, b.left);
-	const r = check(t, b.right);
+function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: Type): Type {
 	switch (b.op) {
 		case BinaryOp.Add:
 		case BinaryOp.Sub:
 		case BinaryOp.Mul:
 		case BinaryOp.Div:
-		case BinaryOp.Rem:
 		case BinaryOp.Pow:
-			return checkBinaryExprHelper(b, l, r, [Type.Int, Type.Float]);
+			return checkBinaryExprHelper(t, b, [Type.Int, Type.Float], d);
+		case BinaryOp.Rem:
+			return checkBinaryExprHelper(t, b, [Type.Int], d);
 		case BinaryOp.Lt:
 		case BinaryOp.Lte:
 		case BinaryOp.Gt:
 		case BinaryOp.Gte:
-			checkBinaryExprHelper(b, l, r, [Type.Int, Type.Float]);
+			checkBinaryExprHelper(t, b, [Type.Int, Type.Float]);
 			return Type.Bool;
 		case BinaryOp.And:
-			return checkBinaryExprHelper(b, l, r, [Type.Bool]);
+			return checkBinaryExprHelper(t, b, [Type.Bool]);
 		case BinaryOp.Or:
-			return checkBinaryExprHelper(b, l, r, [Type.Bool]);
+			return checkBinaryExprHelper(t, b, [Type.Bool]);
 		case BinaryOp.Eq:
 		case BinaryOp.NotEq:
 		case BinaryOp.Id:
-		case BinaryOp.NotId:
-			return checkBinaryExprHelper(b, l, r, [l]);
+		case BinaryOp.NotId: {
+			return checkBinaryExprHelper(t, b, [check(t, b.left)]);
+		}
 		case BinaryOp.Default:
 		case BinaryOp.Member: {
+			const l = check(t, b.left);
 			if (l.kind !== Kind.Tuple) {
 				const lp = Type.print(l);
 				throw new TypeError(
@@ -356,7 +367,7 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr): Type {
 				b.right.type !== AstType.LitExpr ||
 				typeof b.right.value !== "bigint"
 			) {
-				const rp = Type.print(r);
+				const rp = Type.print(Type.Int);
 				throw new TypeError(
 					`Operator . cannot be applied to Tuple and ${rp}!`,
 					b.start,
@@ -376,50 +387,74 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr): Type {
 }
 
 function checkBinaryExprHelper(
+	t: TypeChecker,
 	b: BinaryExpr,
-	l: Type,
-	r: Type,
-	v: Type[]
+	v: Type[],
+	d?: Type
 ): Type {
-	if (l !== r || !v.includes(l)) {
-		const op = b.op;
-		const lp = Type.print(l);
-		const rp = Type.print(r);
-		throw new TypeError(
-			`Operator ${op} cannot be applied to ${lp} and ${rp}!`,
-			b.start,
-			b.end
-		);
+	if (d !== undefined && v.includes(d)) {
+		const l = check(t, b.left, d);
+		const r = check(t, b.right, d);
+		if (assignable(l, d) && assignable(r, d)) {
+			return d;
+		}
 	}
-	return l;
+	for (const vt of v) {
+		const l = check(t, b.left, vt);
+		const r = check(t, b.right, vt);
+		if (assignable(l, vt) && assignable(r, vt)) {
+			return vt;
+		}
+	}
+	const op = b.op;
+	const lp = Type.print(check(t, b.left));
+	const rp = Type.print(check(t, b.right));
+	throw new TypeError(
+		`Operator ${op} cannot be applied to ${lp} and ${rp}!`,
+		b.start,
+		b.end
+	);
 }
 
-function checkUnaryExpr(t: TypeChecker, u: UnaryExpr): Type {
-	const r = check(t, u.right);
+function checkUnaryExpr(t: TypeChecker, u: UnaryExpr, d?: Type): Type {
 	switch (u.op) {
 		case UnaryOp.Not:
-			return checkUnaryExprHelper(u, r, [Type.Bool]);
+			return checkUnaryExprHelper(t, u, [Type.Bool]);
 		case UnaryOp.Neg:
-			return checkUnaryExprHelper(u, r, [Type.Int, Type.Float]);
+			return checkUnaryExprHelper(t, u, [Type.Int, Type.Float], d);
 		case UnaryOp.Spread:
 			throw new Todo();
 	}
 }
 
-function checkUnaryExprHelper(u: UnaryExpr, r: Type, v: Type[]): Type {
-	if (!v.includes(r)) {
-		const op = u.op;
-		const rp = Type.print(r);
-		throw new TypeError(
-			`Operator ${op} cannot be applied to ${rp}!`,
-			u.start,
-			u.end
-		);
+function checkUnaryExprHelper(
+	t: TypeChecker,
+	u: UnaryExpr,
+	v: Type[],
+	d?: Type
+): Type {
+	if (d !== undefined && v.includes(d)) {
+		const r = check(t, u.right, d);
+		if (assignable(r, d)) {
+			return d;
+		}
 	}
-	return r;
+	for (const vt of v) {
+		const r = check(t, u.right, vt);
+		if (assignable(r, vt)) {
+			return vt;
+		}
+	}
+	const op = u.op;
+	const rp = Type.print(check(t, u.right));
+	throw new TypeError(
+		`Operator ${op} cannot be applied to ${rp}!`,
+		u.start,
+		u.end
+	);
 }
 
-function checkCallExpr(t: TypeChecker, c: CallExpr): Type {
+function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: Type): Type {
 	const procType = check(t, c.proc);
 	if (procType.kind !== Kind.Proc) {
 		const found = Type.print(procType);
@@ -450,11 +485,19 @@ function checkCallExpr(t: TypeChecker, c: CallExpr): Type {
 	return procType.returns;
 }
 
-function checkLitExpr(_t: TypeChecker, l: LitExpr): Type {
+function checkLitExpr(_t: TypeChecker, l: LitExpr, d?: Type): Type {
+	// Check for allowed implicit casts of numeric literals
+	if (
+		d === Type.Float &&
+		typeof l.value === "bigint" &&
+		l.value < Number.MAX_SAFE_INTEGER
+	) {
+		l.value = Number(l.value);
+	}
 	return Type.of(l.value);
 }
 
-function checkIdExpr(t: TypeChecker, i: IdExpr): Type {
+function checkIdExpr(t: TypeChecker, i: IdExpr, _d?: Type): Type {
 	return t.values[resolveId(i)];
 }
 
