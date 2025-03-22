@@ -14,18 +14,17 @@ import {
 	IfExpr,
 	Kind,
 	LitExpr,
-	LoopExpr,
+	LoopStmt,
 	Module,
 	ProcDecl,
 	ProcExpr,
 	ReturnStmt,
-	Tuple,
 	TupleExpr,
 	Type,
 	UnaryExpr,
 	UnaryOp,
 	VarDecl,
-	WhileExpr,
+	WhileStmt,
 } from "./core.ts";
 import { structurallyEq, Todo, Unreachable } from "./utils.ts";
 
@@ -74,6 +73,37 @@ function declareType(t: TypeChecker, name: string, type: Type): void {
 	t.types[name] = type;
 }
 
+function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
+	if (pattern.type === AstType.IdExpr) {
+		t.values[resolveId(pattern)] = type;
+		return;
+	}
+	if (pattern.type === AstType.TupleExpr) {
+		if (type.kind !== Kind.Tuple) {
+			const pt = Type.print(type);
+			throw new TypeError(
+				`Cannot assign ${pt} to a tuple pattern!`,
+				pattern.start,
+				pattern.end
+			);
+		}
+		if (pattern.items.length !== type.items.length) {
+			const fl = type.items.length;
+			const dl = pattern.items.length;
+			throw new TypeError(
+				`Cannot assign a tuple of size ${fl} to a tuple of size ${dl}!`,
+				pattern.start,
+				pattern.end
+			);
+		}
+		for (let i = 0; i < pattern.items.length; i++) {
+			storeTypes(t, pattern.items[i], type.items[i]);
+		}
+		return;
+	}
+	throw new Unreachable();
+}
+
 function check(t: TypeChecker, ast: Ast): Type {
 	switch (ast.type) {
 		case AstType.Module:
@@ -90,6 +120,10 @@ function check(t: TypeChecker, ast: Ast): Type {
 			return checkReturnStmt(t, ast);
 		case AstType.AssignStmt:
 			return checkAssignStmt(t, ast);
+		case AstType.LoopStmt:
+			return checkLoopStmt(t, ast);
+		case AstType.WhileStmt:
+			return checkWhileStmt(t, ast);
 		case AstType.ExprStmt:
 			return checkExprStmt(t, ast);
 		case AstType.BlockExpr:
@@ -100,10 +134,6 @@ function check(t: TypeChecker, ast: Ast): Type {
 			return checkGroupExpr(t, ast);
 		case AstType.IfExpr:
 			return checkIfExpr(t, ast);
-		case AstType.LoopExpr:
-			return checkLoopExpr(t, ast);
-		case AstType.WhileExpr:
-			return checkWhileExpr(t, ast);
 		case AstType.ProcExpr:
 			return checkProcExpr(t, ast);
 		case AstType.BinaryExpr:
@@ -138,12 +168,12 @@ function checkVarDecl(t: TypeChecker, d: VarDecl): Type {
 			const found = Type.print(type);
 			throw new TypeError(
 				`Type ${found} is not assignable to type ${declared}!`,
-				d.id.start,
-				d.id.end
+				d.pattern.start,
+				d.pattern.end
 			);
 		}
 	}
-	t.values[resolveId(d.id)] = type;
+	storeTypes(t, d.pattern, type);
 	return Type.Unit;
 }
 
@@ -190,6 +220,25 @@ function checkAssignStmt(t: TypeChecker, a: AssignStmt): Type {
 	return Type.Unit;
 }
 
+function checkLoopStmt(t: TypeChecker, l: LoopStmt): Type {
+	check(t, l.thenExpr);
+	return Type.Unit;
+}
+
+function checkWhileStmt(t: TypeChecker, w: WhileStmt): Type {
+	const testType = check(t, w.testExpr);
+	if (testType !== Type.Bool) {
+		const found = Type.print(testType);
+		throw new TypeError(
+			`Type ${found} cannot be used as condition!`,
+			w.testExpr.start,
+			w.testExpr.end
+		);
+	}
+	check(t, w.thenExpr);
+	return Type.Unit;
+}
+
 function checkExprStmt(t: TypeChecker, e: ExprStmt): Type {
 	return check(t, e.expr);
 }
@@ -233,27 +282,6 @@ function checkIfExpr(t: TypeChecker, i: IfExpr): Type {
 			return thenType;
 		}
 	}
-	return Type.Unit;
-}
-
-function checkLoopExpr(t: TypeChecker, l: LoopExpr): Type {
-	// TODO loop should really only be allowed as a stmt
-	check(t, l.thenExpr);
-	return Type.Unit;
-}
-
-function checkWhileExpr(t: TypeChecker, w: WhileExpr): Type {
-	// TODO support acc
-	const testType = check(t, w.testExpr);
-	if (testType !== Type.Bool) {
-		const found = Type.print(testType);
-		throw new TypeError(
-			`Type ${found} cannot be used as condition!`,
-			w.testExpr.start,
-			w.testExpr.end
-		);
-	}
-	check(t, w.thenExpr);
 	return Type.Unit;
 }
 
@@ -335,6 +363,14 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr): Type {
 					b.end
 				);
 			}
+			if (b.right.value >= l.items.length) {
+				throw new TypeError(
+					`Tuple of length ${l.items.length} has no item ${b.right.value}!`,
+					b.start,
+					b.end
+				);
+			}
+			return l.items[Number(b.right.value)];
 		}
 	}
 }

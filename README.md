@@ -251,14 +251,6 @@ Assert types out of Any
 const Result.Ok { value } = some_any_value;
 ```
 
-### TODO Pre Structs/Enums
- - Tuple Types and Values
- - Multiple Errors during Parsing/Resolving/Typing
- - Muli-line highlights
- - Split declrations from statements in parsing + special handling of repl
- - Muli-line repl input
-
-
 ```
 trait Show {
 	proc show(self: Self) -> Str;
@@ -266,5 +258,63 @@ trait Show {
 
 trait Hash {
 	proc hash(self: Self) -> Int;
+}
+```
+
+### Mini TODO
+```yoku
+-- basic assert
+assert 4 == 4
+
+-- test suite that actually runs examples
+
+-- assert in const/var
+const x = (3, 4);
+const assert (y, 4) = x;
+
+-- wildcard/discard pattern
+const _ = x; 
+
+-- patterns in params
+proc f((x, y): (Int, Int)) -> Int { x * y + y + x }
+f((3, 4));
+
+-- `as` aliasing
+const (x, y, z) as point = (1, 2, 3); 
+
+-- Type declarations
+type i64 = Int; 
+
+-- spread in tuples
+const t1 = (1, 2);
+const t2 = (3, 4);
+const t3: (Int, Int, Bool, Int, Int) = (...t1, True, ...t2)
+
+-- spread in calls
+const f(x: Int, y: Int) -> Int { x * y + y + x }
+f(...(3, 4));
+
+-- spread in patterns
+const (x, ...yz) = (1, 2, 3)
+
+-- spread in types
+type Point2D = (Int, Int)
+type Point3D = (Int, ...Point2D)
+
+-- match if/else
+const x = 5;
+const y = match {
+	if x == 1 => { "one" }
+	if x == 2 => { "two" }
+	else => { "many" }
+}
+print(y);
+
+-- match values
+const x = 5;
+match x {
+	1 => { "one" }
+	2 => { "two" }
+	else { "many" }
 }
 ```

@@ -202,13 +202,13 @@ export enum AstType {
 	ContinueStmt = "ContinueStmt",
 	ReturnStmt = "ReturnStmt",
 	AssignStmt = "AssignStmt",
+	LoopStmt = "LoopStmt",
+	WhileStmt = "WhileStmt",
 	ExprStmt = "ExprStmt",
 	BlockExpr = "BlockExpr",
 	TupleExpr = "TupleExpr",
 	GroupExpr = "GroupExpr",
 	IfExpr = "IfExpr",
-	LoopExpr = "LoopExpr",
-	WhileExpr = "WhileExpr",
 	ProcExpr = "ProcExpr",
 	BinaryExpr = "BinaryExpr",
 	UnaryExpr = "UnaryExpr",
@@ -228,7 +228,7 @@ export type VarDecl = {
 	type: AstType.VarDecl;
 	access: Access;
 	declType?: Ast;
-	id: IdExpr;
+	pattern: Ast;
 	initExpr: Ast;
 } & Span;
 
@@ -259,6 +259,18 @@ export type AssignStmt = {
 	expr: Ast;
 } & Span;
 
+export type LoopStmt = {
+	type: AstType.LoopStmt;
+	label?: IdExpr;
+	thenExpr: BlockExpr;
+} & Span;
+
+export type WhileStmt = {
+	type: AstType.WhileStmt;
+	testExpr: Ast;
+	thenExpr: BlockExpr;
+} & Span;
+
 export type ExprStmt = {
 	type: AstType.ExprStmt;
 	expr: Ast;
@@ -285,18 +297,6 @@ export type IfExpr = {
 	testExpr: Ast;
 	thenExpr: Ast;
 	elseExpr?: Ast;
-} & Span;
-
-export type LoopExpr = {
-	type: AstType.LoopExpr;
-	label?: IdExpr;
-	thenExpr: BlockExpr;
-} & Span;
-
-export type WhileExpr = {
-	type: AstType.WhileExpr;
-	testExpr: Ast;
-	thenExpr: BlockExpr;
 } & Span;
 
 export type ProcParam = {
@@ -356,13 +356,13 @@ export type Ast =
 	| ContinueStmt
 	| ReturnStmt
 	| AssignStmt
+	| LoopStmt
+	| WhileStmt
 	| ExprStmt
 	| BlockExpr
 	| TupleExpr
 	| GroupExpr
 	| IfExpr
-	| LoopExpr
-	| WhileExpr
 	| ProcExpr
 	| BinaryExpr
 	| UnaryExpr

@@ -5,11 +5,8 @@ import {
 	BinaryOp,
 	UnaryOp,
 	ProcExpr,
-	WhileExpr,
-	LoopExpr,
 	IfExpr,
 	BlockExpr,
-	GroupExpr,
 	ContinueStmt,
 	BreakStmt,
 	ProcDecl,
@@ -20,6 +17,9 @@ import {
 	ProcParam,
 	Access,
 	ProcTypeExpr,
+	WhileStmt,
+	LoopStmt,
+	TupleExpr,
 } from "./core.ts";
 
 type TokenMatcher = TokenType | string;
@@ -83,6 +83,12 @@ function parseStmt(p: Parser): Ast {
 	if (lookAhead(p, "return")) {
 		return parseReturnStmt(p);
 	}
+	if (lookAhead(p, "loop")) {
+		return parseLoopStmt(p);
+	}
+	if (lookAhead(p, "while")) {
+		return parseWhileStmt(p);
+	}
 	return parseAssignStmt(p);
 }
 
@@ -95,7 +101,7 @@ function parseVarDecl(p: Parser): VarDecl {
 		consume(p, "var");
 		access = Access.Var;
 	}
-	const id = parseIdExpr(p);
+	const pattern = parsePattern(p);
 	let declType: undefined | Ast;
 	if (match(p, ":")) {
 		declType = parseTypeExpr(p);
@@ -106,7 +112,7 @@ function parseVarDecl(p: Parser): VarDecl {
 		type: AstType.VarDecl,
 		access,
 		declType,
-		id,
+		pattern,
 		initExpr,
 		start: popStart(p),
 		end: getEnd(p),
@@ -197,6 +203,37 @@ function parseAssignStmt(p: Parser): Ast {
 		expr: target,
 		start: target.start,
 		end: target.end,
+	};
+}
+
+function parseLoopStmt(p: Parser): LoopStmt {
+	pushStart(p);
+	consume(p, "loop");
+	let label: undefined | IdExpr;
+	if (lookAhead(p, TokenType.Id)) {
+		label = parseIdExpr(p);
+	}
+	const thenExpr = parseBlockExpr(p);
+	return {
+		type: AstType.LoopStmt,
+		label,
+		thenExpr,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseWhileStmt(p: Parser): WhileStmt {
+	pushStart(p);
+	consume(p, "while");
+	const testExpr = parseExpr(p);
+	const thenExpr = parseBlockExpr(p);
+	return {
+		type: AstType.WhileStmt,
+		testExpr,
+		thenExpr,
+		start: popStart(p),
+		end: getEnd(p),
 	};
 }
 
@@ -410,12 +447,6 @@ function parsePrimary(p: Parser): Ast {
 	if (lookAhead(p, "if")) {
 		return parseIfExpr(p);
 	}
-	if (lookAhead(p, "loop")) {
-		return parseLoopExpr(p);
-	}
-	if (lookAhead(p, "while")) {
-		return parseWhileExpr(p);
-	}
 	if (lookAhead(p, "proc")) {
 		return parseProcExpr(p);
 	}
@@ -515,37 +546,6 @@ function parseIfExpr(p: Parser): IfExpr {
 	};
 }
 
-function parseLoopExpr(p: Parser): LoopExpr {
-	pushStart(p);
-	consume(p, "loop");
-	let label: undefined | IdExpr;
-	if (lookAhead(p, TokenType.Id)) {
-		label = parseIdExpr(p);
-	}
-	const thenExpr = parseBlockExpr(p);
-	return {
-		type: AstType.LoopExpr,
-		label,
-		thenExpr,
-		start: popStart(p),
-		end: getEnd(p),
-	};
-}
-
-function parseWhileExpr(p: Parser): WhileExpr {
-	pushStart(p);
-	consume(p, "while");
-	const testExpr = parseExpr(p);
-	const thenExpr = parseBlockExpr(p);
-	return {
-		type: AstType.WhileExpr,
-		testExpr,
-		thenExpr,
-		start: popStart(p),
-		end: getEnd(p),
-	};
-}
-
 function parseProcExpr(p: Parser): ProcExpr {
 	pushStart(p);
 	match(p, "proc");
@@ -592,7 +592,7 @@ function parseTypeExpr(p: Parser): Ast {
 		return parseProcTypeExpr(p);
 	}
 	if (lookAhead(p, "(")) {
-		return parseTupleExpr(p);
+		return parseTupleTypeExpr(p);
 	}
 	return parseIdExpr(p);
 }
@@ -619,6 +619,51 @@ function parseProcTypeExpr(p: Parser): ProcTypeExpr {
 		type: AstType.ProcTypeExpr,
 		params,
 		returnType,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseTupleTypeExpr(p: Parser): TupleExpr {
+	pushStart(p);
+	consume(p, "(");
+	const items: Ast[] = [];
+	while (hasMore(p) && !lookAhead(p, ")")) {
+		items.push(parseTypeExpr(p));
+		if (!lookAhead(p, ")")) {
+			consume(p, ",");
+		}
+	}
+	consume(p, ")");
+	return {
+		type: AstType.TupleExpr,
+		items,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parsePattern(p: Parser): Ast {
+	if (lookAhead(p, "(")) {
+		return parseTuplePattern(p);
+	}
+	return parseIdExpr(p);
+}
+
+function parseTuplePattern(p: Parser): TupleExpr {
+	pushStart(p);
+	consume(p, "(");
+	const items: Ast[] = [];
+	while (hasMore(p) && !lookAhead(p, ")")) {
+		items.push(parsePattern(p));
+		if (!lookAhead(p, ")")) {
+			consume(p, ",");
+		}
+	}
+	consume(p, ")");
+	return {
+		type: AstType.TupleExpr,
+		items,
 		start: popStart(p),
 		end: getEnd(p),
 	};

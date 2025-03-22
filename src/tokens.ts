@@ -48,6 +48,7 @@ const Keywords = new Set([
 	"return",
 	"try",
 	"throw",
+	"_",
 ]);
 
 const Escapes: Record<string, string | undefined> = {
@@ -312,7 +313,7 @@ function isDigit(c: string, digits: string = Digits.dec): boolean {
 }
 
 function isAlpha(c: string) {
-	return ("a" <= c && c <= "z") || ("A" <= c && c <= "Z");
+	return ("a" <= c && c <= "z") || ("A" <= c && c <= "Z") || c === "_";
 }
 
 function isWhitespace(c: string) {

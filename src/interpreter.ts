@@ -13,7 +13,7 @@ import {
 	IdExpr,
 	IfExpr,
 	LitExpr,
-	LoopExpr,
+	LoopStmt,
 	Module,
 	print,
 	Proc,
@@ -28,7 +28,7 @@ import {
 	UnaryExpr,
 	UnaryOp,
 	VarDecl,
-	WhileExpr,
+	WhileStmt,
 } from "./core.ts";
 import { Resolver } from "./resolver.ts";
 import { TypeChecker } from "./typechecker.ts";
@@ -89,6 +89,21 @@ function create(r: Resolver, t: TypeChecker): Interpreter {
 	return { inGlobalScope: true, globals, locals: [], closure: [] };
 }
 
+function storeValue(i: Interpreter, pattern: Ast, value: unknown): void {
+	if (pattern.type === AstType.IdExpr) {
+		const memory = i.inGlobalScope ? i.globals : i.locals;
+		memory[resolveId(pattern)] = value;
+		return;
+	}
+	if (pattern.type === AstType.TupleExpr) {
+		for (let j = 0; j < pattern.items.length; j++) {
+			storeValue(i, pattern.items[j], (value as Tuple).items[j]);
+		}
+		return;
+	}
+	throw new Unreachable();
+}
+
 function interperate(i: Interpreter, ast: Ast): unknown {
 	switch (ast.type) {
 		case AstType.Module:
@@ -105,6 +120,10 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateReturnStmt(i, ast);
 		case AstType.AssignStmt:
 			return interperateAssignStmt(i, ast);
+		case AstType.LoopStmt:
+			return interperateLoopStmt(i, ast);
+		case AstType.WhileStmt:
+			return interperateWhileStmt(i, ast);
 		case AstType.ExprStmt:
 			return interperateExprStmt(i, ast);
 		case AstType.BlockExpr:
@@ -115,10 +134,6 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateGroupExpr(i, ast);
 		case AstType.IfExpr:
 			return interperateIfExpr(i, ast);
-		case AstType.LoopExpr:
-			return interperateLoopExpr(i, ast);
-		case AstType.WhileExpr:
-			return interperateWhileExpr(i, ast);
 		case AstType.ProcExpr:
 			return interperateProcExpr(i, ast);
 		case AstType.BinaryExpr:
@@ -145,16 +160,13 @@ function interperateModule(i: Interpreter, m: Module): unknown {
 }
 
 function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
-	const memory = i.inGlobalScope ? i.globals : i.locals;
 	const value = interperate(i, d.initExpr);
-	memory[resolveId(d.id)] = value;
+	storeValue(i, d.pattern, value);
 	return null;
 }
 
 function interperateProcDecl(i: Interpreter, p: ProcDecl): unknown {
-	const memory = i.inGlobalScope ? i.globals : i.locals;
-	const value = interperate(i, p.initExpr);
-	memory[resolveId(p.id)] = value;
+	storeValue(i, p.id, interperate(i, p.initExpr));
 	return null;
 }
 
@@ -182,6 +194,46 @@ function interperateAssignStmt(i: Interpreter, a: AssignStmt): unknown {
 		return null;
 	}
 	i.globals[resolvedId] = value;
+	return null;
+}
+
+function interperateLoopStmt(i: Interpreter, l: LoopStmt): unknown {
+	for (;;) {
+		try {
+			interperate(i, l.thenExpr);
+		} catch (e) {
+			if (
+				e instanceof Continue &&
+				(e.label === undefined || e.label === l.label?.value)
+			) {
+				continue;
+			}
+			if (
+				e instanceof Break &&
+				(e.label === undefined || e.label === l.label?.value)
+			) {
+				return null;
+			}
+			throw e;
+		}
+	}
+	return null;
+}
+
+function interperateWhileStmt(i: Interpreter, w: WhileStmt): unknown {
+	while (interperate(i, w.testExpr)) {
+		try {
+			interperate(i, w.thenExpr);
+		} catch (e) {
+			if (e instanceof Continue && e.label === undefined) {
+				continue;
+			}
+			if (e instanceof Break && e.label === undefined) {
+				break;
+			}
+			throw e;
+		}
+	}
 	return null;
 }
 
@@ -221,46 +273,6 @@ function interperateIfExpr(i: Interpreter, f: IfExpr): unknown {
 	} else {
 		return null;
 	}
-}
-
-function interperateLoopExpr(i: Interpreter, l: LoopExpr): unknown {
-	for (;;) {
-		try {
-			interperate(i, l.thenExpr);
-		} catch (e) {
-			if (
-				e instanceof Continue &&
-				(e.label === undefined || e.label === l.label?.value)
-			) {
-				continue;
-			}
-			if (
-				e instanceof Break &&
-				(e.label === undefined || e.label === l.label?.value)
-			) {
-				return null;
-			}
-			throw e;
-		}
-	}
-}
-
-function interperateWhileExpr(i: Interpreter, w: WhileExpr): unknown {
-	let acc: unknown = null;
-	while (interperate(i, w.testExpr)) {
-		try {
-			acc = interperate(i, w.thenExpr);
-		} catch (e) {
-			if (e instanceof Continue && e.label === undefined) {
-				continue;
-			}
-			if (e instanceof Break && e.label === undefined) {
-				break;
-			}
-			throw e;
-		}
-	}
-	return acc;
 }
 
 function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {

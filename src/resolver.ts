@@ -13,7 +13,7 @@ import {
 	IdExpr,
 	IfExpr,
 	LitExpr,
-	LoopExpr,
+	LoopStmt,
 	Module,
 	ProcDecl,
 	ProcExpr,
@@ -21,7 +21,7 @@ import {
 	TupleExpr,
 	UnaryExpr,
 	VarDecl,
-	WhileExpr,
+	WhileStmt,
 } from "./core.ts";
 import { Unreachable } from "./utils.ts";
 
@@ -68,14 +68,28 @@ function declareGlobal(r: Resolver, id: string): number {
 	return resolvedId;
 }
 
-function declare(r: Resolver, id: IdExpr, access: Access) {
-	const globalScope = r.scopes[0];
-	if (globalScope.decls[id.value] !== undefined) {
-		throw new ResolutionError(`You cannot redeclare global!`, id.start, id.end);
+function declarePattern(r: Resolver, pattern: Ast, access: Access): void {
+	if (pattern.type === AstType.IdExpr) {
+		const globalScope = r.scopes[0];
+		if (globalScope.decls[pattern.value] !== undefined) {
+			throw new ResolutionError(
+				`You cannot redeclare global!`,
+				pattern.start,
+				pattern.end
+			);
+		}
+		const scope = r.scopes[r.scopes.length - 1];
+		pattern.resolvedId = scope.nextId++;
+		scope.decls[pattern.value] = { resolvedId: pattern.resolvedId, access };
+		return;
 	}
-	const scope = r.scopes[r.scopes.length - 1];
-	id.resolvedId = scope.nextId++;
-	scope.decls[id.value] = { resolvedId: id.resolvedId, access };
+	if (pattern.type === AstType.TupleExpr) {
+		for (const item of pattern.items) {
+			declarePattern(r, item, access);
+		}
+		return;
+	}
+	throw new Unreachable();
 }
 
 function pushScope(r: Resolver): void {
@@ -103,6 +117,10 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveReturnStmt(r, ast);
 		case AstType.AssignStmt:
 			return resolveAssignStmt(r, ast);
+		case AstType.LoopStmt:
+			return resolveLoopStmt(r, ast);
+		case AstType.WhileStmt:
+			return resolveWhileStmt(r, ast);
 		case AstType.ExprStmt:
 			return resolveExprStmt(r, ast);
 		case AstType.BlockExpr:
@@ -113,10 +131,6 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveGroupExpr(r, ast);
 		case AstType.IfExpr:
 			return resolveIfExpr(r, ast);
-		case AstType.LoopExpr:
-			return resolveLoopExpr(r, ast);
-		case AstType.WhileExpr:
-			return resolveWhileExpr(r, ast);
 		case AstType.ProcExpr:
 			return resolveProcExpr(r, ast);
 		case AstType.BinaryExpr:
@@ -144,11 +158,11 @@ function resolveModule(r: Resolver, m: Module): void {
 
 function resolveVarDecl(r: Resolver, v: VarDecl): void {
 	resolve(r, v.initExpr);
-	declare(r, v.id, v.access);
+	declarePattern(r, v.pattern, v.access);
 }
 
 function resolveProcDecl(r: Resolver, p: ProcDecl): void {
-	declare(r, p.id, Access.Const);
+	declarePattern(r, p.id, Access.Const);
 	resolveProcExpr(r, p.initExpr);
 }
 
@@ -203,6 +217,17 @@ function resolveAssignStmt(r: Resolver, a: AssignStmt): void {
 	throw new ResolutionError("Undeclared variable!", a.id.start, a.id.end);
 }
 
+function resolveLoopStmt(r: Resolver, l: LoopStmt): void {
+	r.loopStack.push(l.label?.value);
+	resolve(r, l.thenExpr);
+	r.loopStack.pop();
+}
+
+function resolveWhileStmt(r: Resolver, w: WhileStmt): void {
+	resolve(r, w.testExpr);
+	resolve(r, w.thenExpr);
+}
+
 function resolveExprStmt(r: Resolver, e: ExprStmt): void {
 	resolve(r, e.expr);
 }
@@ -233,21 +258,10 @@ function resolveIfExpr(r: Resolver, i: IfExpr): void {
 	}
 }
 
-function resolveLoopExpr(r: Resolver, l: LoopExpr): void {
-	r.loopStack.push(l.label?.value);
-	resolve(r, l.thenExpr);
-	r.loopStack.pop();
-}
-
-function resolveWhileExpr(r: Resolver, w: WhileExpr): void {
-	resolve(r, w.testExpr);
-	resolve(r, w.thenExpr);
-}
-
 function resolveProcExpr(r: Resolver, p: ProcExpr): void {
 	pushScope(r);
 	for (const param of p.params) {
-		declare(r, param.id, Access.Const);
+		declarePattern(r, param.id, Access.Const);
 	}
 	const saveLoopStack = r.loopStack;
 	r.loopStack = [];
