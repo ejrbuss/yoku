@@ -106,7 +106,7 @@ function run(rt: Runtime, s: CodeSource): RunResult {
 
 function reportError(error: RunError): void {
 	if (error.start === undefined || error.end === undefined) {
-		console.error(`%c${error.name}: ${error.note}`, "color: red");
+		console.error(`\n%c${error.name}: ${error.note}\n`, "color: red");
 		return;
 	}
 	const span = { start: error.start, end: error.end };
@@ -114,7 +114,7 @@ function reportError(error: RunError): void {
 	const column = Span.columnOf(error.source.content, span) + 1;
 	const headline = `--> ${error.source.path}:${line}:${column} ${error.name}`;
 	const highlight = Span.highlight(error.source.content, span, error.note);
-	console.error(`%c${headline}\n${highlight}\n`, "color: red");
+	console.error(`\n%c${headline}\n${highlight}\n`, "color: red");
 }
 
 function printTokens(tokens: Token[]): void {

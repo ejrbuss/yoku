@@ -150,3 +150,38 @@ loop {
 while true {
 	continue outer
 } --> ! ResolutionError
+
+--- test "Match Expressions" ---
+const x = 5
+match x {
+	1 => { "one" }
+	2 => { "two" }
+	else => { "many" }
+} --> "many"
+
+match x {
+	_ if x % 2 == 0 => { "even" }
+	_ if x % 2 == 1 => { "odd" }
+	else => { "dunno" }
+} --> "odd"
+
+const y = 12
+match {
+	if x > y => { 1 }
+	if y > x => { 2 }
+	else => { 3 }
+} --> 2
+
+--- test "If Assert Statments" ---
+proc f(x: Any) -> Str {
+	if assert y: Bool = x {
+		cat("Bool ", y)
+	} else if assert y: Int = x {
+		cat("Int ", y)
+	} else {
+		cat("Dunno ", x)
+	}
+}
+f(true) --> "Bool true"
+f(1) --> "Int 1"
+f("test") --> "Dunno test"

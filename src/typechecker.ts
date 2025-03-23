@@ -1,3 +1,4 @@
+import test from "node:test";
 import {
 	AssertStmt,
 	AssignStmt,
@@ -16,8 +17,8 @@ import {
 	Kind,
 	LitExpr,
 	LoopStmt,
+	MatchExpr,
 	Module,
-	print,
 	ProcDecl,
 	ProcExpr,
 	Repl,
@@ -32,7 +33,8 @@ import {
 	VarDecl,
 	WhileStmt,
 } from "./core.ts";
-import { structurallyEq, Todo, Unreachable } from "./utils.ts";
+import { Span, structurallyEq, Todo, Unreachable } from "./utils.ts";
+import path from "node:path";
 
 export type TypeChecker = {
 	inGlobalScope: boolean;
@@ -127,16 +129,7 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		return;
 	}
 	if (pattern.type === AstType.LitExpr) {
-		const litType = Type.of(pattern.value);
-		if (!assignable(type, litType)) {
-			const declared = Type.print(litType);
-			const found = Type.print(type);
-			throw new TypeError(
-				`Type ${found} is not assignable to type ${declared}!`,
-				pattern.start,
-				pattern.end
-			);
-		}
+		assertAssignable(type, Type.of(pattern.value), pattern);
 		return;
 	}
 	if (pattern.type === AstType.IdExpr) {
@@ -184,6 +177,8 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 			return checkGroupExpr(t, ast, d);
 		case AstType.IfExpr:
 			return checkIfExpr(t, ast, d);
+		case AstType.MatchExpr:
+			return checkMatchExpr(t, ast, d);
 		case AstType.ProcExpr:
 			return checkProcExpr(t, ast, d);
 		case AstType.BinaryExpr:
@@ -209,7 +204,7 @@ function checkModule(t: TypeChecker, m: Module, _d?: Type): Type {
 	for (const decl of m.decls) {
 		check(t, decl);
 	}
-	return Type.Unit;
+	return Type.Any;
 }
 
 function checkRepl(t: TypeChecker, r: Repl, d?: Type): Type {
@@ -221,23 +216,22 @@ function checkRepl(t: TypeChecker, r: Repl, d?: Type): Type {
 }
 
 function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: Type): Type {
-	const declType =
-		d.declType !== undefined ? reifyType(t, d.declType) : undefined;
-	const type = check(t, d.initExpr, declType);
+	let declType: undefined | Type;
+	if (d.declType !== undefined) {
+		declType = reifyType(t, d.declType);
+	}
+	const initType = check(t, d.initExpr, declType);
 	if (declType !== undefined) {
-		if (!(d.assert ? assertable(type, declType) : assignable(type, declType))) {
-			const declared = Type.print(declType);
-			const found = Type.print(type);
-			throw new TypeError(
-				`Type ${found} is not assignable to type ${declared}!`,
-				d.pattern.start,
-				d.pattern.end
-			);
+		if (d.assert) {
+			assertAssertable(initType, declType, d.pattern);
+		} else {
+			assertAssignable(initType, declType, d.pattern);
 		}
 	}
-	d.resolvedType = declType ?? type;
-	storeTypes(t, d.pattern, declType ?? type);
-	return Type.Unit;
+	const type = declType ?? initType;
+	d.resolvedType = type;
+	storeTypes(t, d.pattern, type);
+	return Type.Any;
 }
 
 function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
@@ -253,7 +247,7 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
 	const returns = reifyType(t, p.initExpr.returnType);
 	storeTypes(t, p.id, Type.proc(params, returns));
 	check(t, p.initExpr, returns);
-	return Type.Unit;
+	return Type.Any;
 }
 
 function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: Type): Type {
@@ -269,7 +263,7 @@ function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: Type): Type {
 		);
 	}
 	declareType(t, d.id.value, type);
-	return Type.Unit;
+	return Type.Any;
 }
 
 function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: Type): Type {
@@ -277,15 +271,15 @@ function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: Type): Type {
 		throw new Unreachable();
 	}
 	check(t, d.thenExpr);
-	return Type.Unit;
+	return Type.Any;
 }
 
 function checkBreakStmt(_t: TypeChecker, _b: BreakStmt, _d?: Type): Type {
-	return Type.Unit;
+	return Type.Any;
 }
 
 function checkContinueStmt(_t: TypeChecker, _c: ContinueStmt, _d?: Type): Type {
-	return Type.Unit;
+	return Type.Any;
 }
 
 function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: Type): Type {
@@ -296,42 +290,27 @@ function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: Type): Type {
 
 function checkAssertStmt(t: TypeChecker, a: AssertStmt, _d?: Type): Type {
 	check(t, a.testExpr);
-	return Type.Unit;
+	return Type.Any;
 }
 
 function checkAssignStmt(t: TypeChecker, a: AssignStmt, _d?: Type): Type {
 	const resolvedId = resolveId(a.id);
-	const targetType = t.values[resolvedId];
-	const valueType = check(t, a.expr, targetType);
-	if (!assignable(valueType, targetType)) {
-		const found = Type.print(valueType);
-		const declared = Type.print(targetType);
-		throw new TypeError(
-			`Type ${found} is not assignable to type ${declared}!`,
-			a.id.start,
-			a.id.end
-		);
-	}
-	return Type.Unit;
+	const into = t.values[resolvedId];
+	const from = check(t, a.expr, into);
+	assertAssignable(from, into, a.id);
+	return Type.Any;
 }
 
 function checkLoopStmt(t: TypeChecker, l: LoopStmt, _d?: Type): Type {
 	check(t, l.thenExpr);
-	return Type.Unit;
+	return Type.Any;
 }
 
 function checkWhileStmt(t: TypeChecker, w: WhileStmt, _d?: Type): Type {
-	const testType = check(t, w.testExpr, Type.Bool);
-	if (!assignable(testType, Type.Bool)) {
-		const found = Type.print(testType);
-		throw new TypeError(
-			`Type ${found} cannot be used as condition!`,
-			w.testExpr.start,
-			w.testExpr.end
-		);
-	}
+	const from = check(t, w.testExpr, Type.Bool);
+	assertAssignable(from, Type.Bool, w.testExpr);
 	check(t, w.thenExpr);
-	return Type.Unit;
+	return Type.Any;
 }
 
 function checkExprStmt(t: TypeChecker, e: ExprStmt, d?: Type): Type {
@@ -382,26 +361,68 @@ function checkGroupExpr(t: TypeChecker, g: GroupExpr, d?: Type): Type {
 }
 
 function checkIfExpr(t: TypeChecker, i: IfExpr, d?: Type): Type {
-	const testType = check(t, i.testExpr, Type.Bool);
-	if (!assignable(testType, Type.Bool)) {
-		const found = Type.print(testType);
-		throw new TypeError(
-			`Type ${found} cannot be used as condition!`,
-			i.testExpr.start,
-			i.testExpr.end
-		);
+	if (i.pattern !== undefined) {
+		let declType: undefined | Type;
+		if (i.declType !== undefined) {
+			declType = reifyType(t, i.declType);
+		}
+		const from = check(t, i.testExpr, declType);
+		if (declType !== undefined) {
+			assertAssertable(from, declType, i.pattern);
+		}
+		storeTypes(t, i.pattern, from);
+		i.resolvedDeclType = declType;
+	} else {
+		const from = check(t, i.testExpr, Type.Bool);
+		assertAssignable(from, Type.Bool, i.testExpr);
 	}
 	const thenType = check(t, i.thenExpr, d);
 	if (i.elseExpr !== undefined) {
 		const elseType = check(t, i.elseExpr, d);
-		if (assignable(thenType, elseType)) {
-			return elseType;
-		}
-		if (assignable(elseType, thenType)) {
-			return thenType;
-		}
+		return union([thenType, elseType]);
 	}
-	return Type.Unit;
+	return union([thenType, Type.Unit]);
+}
+
+function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: Type): Type {
+	let from: Type = Type.Unit;
+	if (m.testExpr !== undefined) {
+		from = check(t, m.testExpr, Type.Bool);
+	}
+	const caseTypes: Type[] = [];
+	let exhausted = false;
+	for (const c of m.cases) {
+		if (c.pattern !== undefined) {
+			storeTypes(t, c.pattern, from);
+			if (c.declType !== undefined) {
+				const into = reifyType(t, c.declType);
+				assertAssertable(from, into, c.pattern);
+				c.resolvedDeclType = into;
+			}
+		}
+		if (c.testExpr !== undefined) {
+			const from = check(t, c.testExpr, Type.Bool);
+			assertAssignable(from, Type.Bool, c.testExpr);
+		}
+		// Exhaustive if this is an else case
+		if (c.pattern === undefined && c.testExpr === undefined) {
+			exhausted = true;
+		}
+		// Exhaustive if this is a wildcard case with an assignable type
+		if (
+			c.pattern !== undefined &&
+			c.pattern.type === AstType.WildCardExpr &&
+			c.testExpr === undefined &&
+			(c.declType === undefined || assignable(from, reifyType(t, c.declType)))
+		) {
+			exhausted = true;
+		}
+		caseTypes.push(check(t, c.thenExpr, d));
+	}
+	if (!exhausted) {
+		caseTypes.push(Type.Unit);
+	}
+	return union(caseTypes);
 }
 
 function checkProcExpr(t: TypeChecker, p: ProcExpr, _d?: Type): Type {
@@ -415,18 +436,14 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr, _d?: Type): Type {
 	const returnsSave = t.returns;
 	t.returns = [];
 	const implicitReturn = check(t, p.implExpr, returns);
-	if (implicitReturn !== undefined) {
-		t.returns.push(implicitReturn);
-	}
-	for (const r of t.returns) {
-		if (!assignable(r, returns)) {
-			const expected = Type.print(returns);
-			const found = Type.print(r);
-			throw new TypeError(
-				`Expected type ${expected} but proc returns type ${found}!`,
-				p.returnType.start,
-				p.returnType.end
-			);
+	if (t.returns.length === 0 && assignable(returns, Type.Unit)) {
+		p.discardReturn = true;
+	} else {
+		if (implicitReturn !== undefined) {
+			t.returns.push(implicitReturn);
+		}
+		for (const r of t.returns) {
+			assertAssignable(r, returns, p.returnType);
 		}
 	}
 	const type = Type.proc(params, returns);
@@ -590,27 +607,13 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: Type): Type {
 			const paramType = Type.tuple(
 				procType.params.slice(i, i + argType.items.length)
 			);
-			if (!assignable(argType, paramType)) {
-				const found = Type.print(argType);
-				const declared = Type.print(paramType);
-				throw new TypeError(
-					`Type ${found} is not assignable to type ${declared}!`,
-					arg.start,
-					arg.end
-				);
-			}
+			assertAssignable(argType, paramType, arg);
 			i += argType.items.length;
 		} else {
 			const paramType = procType.params[i];
 			const argType = check(t, arg, paramType);
-			if (paramType !== undefined && !assignable(argType, paramType)) {
-				const found = Type.print(argType);
-				const declared = Type.print(paramType);
-				throw new TypeError(
-					`Type ${found} is not assignable to type ${declared}!`,
-					arg.start,
-					arg.end
-				);
+			if (paramType !== undefined) {
+				assertAssignable(argType, paramType, arg);
 			}
 			i++;
 		}
@@ -706,4 +709,40 @@ function assignable(from: Type, into: Type): boolean {
 
 function assertable(from: Type, into: Type): boolean {
 	return from === Type.Any || assignable(from, into);
+}
+
+function assertAssignable(from: Type, into: Type, span: Span): void {
+	if (!assignable(from, into)) {
+		const f = Type.print(from);
+		const t = Type.print(into);
+		throw new TypeError(
+			`Type ${f} is not assignable to ${t}`,
+			span.start,
+			span.end
+		);
+	}
+}
+
+function assertAssertable(from: Type, into: Type, span: Span): void {
+	if (!assertable(from, into)) {
+		const f = Type.print(from);
+		const t = Type.print(into);
+		throw new TypeError(
+			`Type ${f} cannot be asserted into ${t}`,
+			span.start,
+			span.end
+		);
+	}
+}
+
+function union(types: Type[]): Type {
+	outer: for (const target of types) {
+		for (const type of types) {
+			if (!assignable(type, target)) {
+				continue outer;
+			}
+		}
+		return target;
+	}
+	return Type.Any;
 }

@@ -99,7 +99,6 @@ function runReplTest(source: string, path: string): void {
 				throw new Unreachable();
 			}
 			if (!structurallyEq(actualResult, expectedResult)) {
-				console.error(`%cFile: ${path}\nLine: ${line}`, "color: red");
 				const ap = print(actualResult.result);
 				const ep = print(expectedResult.result);
 				console.error(

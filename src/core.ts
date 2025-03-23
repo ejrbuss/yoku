@@ -227,6 +227,7 @@ export enum AstType {
 	TupleExpr = "TupleExpr",
 	GroupExpr = "GroupExpr",
 	IfExpr = "IfExpr",
+	MatchExpr = "MatchExpr",
 	ProcExpr = "ProcExpr",
 	BinaryExpr = "BinaryExpr",
 	UnaryExpr = "UnaryExpr",
@@ -338,9 +339,26 @@ export type GroupExpr = {
 
 export type IfExpr = {
 	type: AstType.IfExpr;
+	pattern?: Ast;
+	declType?: Ast;
 	testExpr: Ast;
 	thenExpr: Ast;
 	elseExpr?: Ast;
+	resolvedDeclType?: Type;
+} & Span;
+
+export type Case = {
+	pattern?: Ast;
+	declType?: Ast;
+	testExpr?: Ast;
+	thenExpr: Ast;
+	resolvedDeclType?: Type;
+};
+
+export type MatchExpr = {
+	type: AstType.MatchExpr;
+	testExpr?: Ast;
+	cases: Case[];
 } & Span;
 
 export type ProcParam = {
@@ -354,6 +372,7 @@ export type ProcExpr = {
 	returnType: Ast;
 	implExpr: BlockExpr;
 	resolvedType?: ProcType;
+	discardReturn?: boolean;
 } & Span;
 
 export type BinaryExpr = {
@@ -421,6 +440,7 @@ export type Ast =
 	| TupleExpr
 	| GroupExpr
 	| IfExpr
+	| MatchExpr
 	| ProcExpr
 	| BinaryExpr
 	| UnaryExpr

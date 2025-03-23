@@ -17,6 +17,7 @@ import {
 	IfExpr,
 	LitExpr,
 	LoopStmt,
+	MatchExpr,
 	Module,
 	ProcDecl,
 	ProcExpr,
@@ -191,6 +192,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveGroupExpr(r, ast);
 		case AstType.IfExpr:
 			return resolveIfExpr(r, ast);
+		case AstType.MatchExpr:
+			return resolveMatchExpr(r, ast);
 		case AstType.ProcExpr:
 			return resolveProcExpr(r, ast);
 		case AstType.BinaryExpr:
@@ -336,10 +339,35 @@ function resolveGroupExpr(r: Resolver, g: GroupExpr): void {
 }
 
 function resolveIfExpr(r: Resolver, i: IfExpr): void {
-	resolve(r, i.testExpr);
-	resolve(r, i.thenExpr);
+	if (i.pattern !== undefined) {
+		pushScope(r);
+		declarePattern(r, i.pattern, Access.Const, true);
+		resolve(r, i.testExpr);
+		resolve(r, i.thenExpr);
+		popScope(r);
+	} else {
+		resolve(r, i.testExpr);
+		resolve(r, i.thenExpr);
+	}
 	if (i.elseExpr !== undefined) {
 		resolve(r, i.elseExpr);
+	}
+}
+
+function resolveMatchExpr(r: Resolver, m: MatchExpr): void {
+	if (m.testExpr !== undefined) {
+		resolve(r, m.testExpr);
+	}
+	for (const c of m.cases) {
+		pushScope(r);
+		if (c.pattern !== undefined) {
+			declarePattern(r, c.pattern, Access.Const, true);
+		}
+		if (c.testExpr !== undefined) {
+			resolve(r, c.testExpr);
+		}
+		resolve(r, c.thenExpr);
+		popScope(r);
 	}
 }
 

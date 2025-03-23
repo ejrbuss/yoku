@@ -4,6 +4,6 @@
 	},
 	"tasks": {
 		"test": "deno test --allow-read",
-		"run": "deno ./src/yoku.ts"
+		"run": "deno --allow-read --allow-env ./src/yoku.ts"
 	}
 }

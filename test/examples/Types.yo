@@ -34,3 +34,36 @@ const p5: (...Point2D, ...Point3D, Bool) = (1, 2, 3, 4, 5, true)
 type P = proc (Bool, ...Point3D, Bool) -> ()
 proc p(a: Bool, b: Int, c: Int, d: Int, e: Bool) {}
 const ref: P = p
+
+--- test "If Type Resolution" ---
+const _: () = if true {}
+const _: () = if true {} else {}
+const _: () = if true { 3 } else { true } --> ! TypeError
+const _: Any = if true { 3 } else { true }
+const _: Int = if true { 1 } else { true } --> ! TypeError
+const _: Int = if true { 1 } else { 2 }
+
+--- test "Match Type Resolution" ---
+const _: () = match {}
+const _: () = match { else => {} }
+
+const _: Int = match { if true => { 1 } } --> ! TypeError
+const _: Int = match { if true => { 1 } else => { false } } --> ! TypeError
+const _: Int = match { if true => { 1 } else => { 2 } }
+const _: Any = match { if true => { 1 } else => { false } }
+
+const _: () = match 1 { 1 => {} }
+const _: Int = match 1 { 1 => { 2 } } --> ! TypeError
+const _: Int = match 1 { 1 => { 2 } else => { false } } --> ! TypeError
+const _: Int = match 1 { 1 => { 2 } else => { 2 } }
+const _: Int = match 1 { 1 => { 2 } _ => { 2 } }
+const _: Any = match 1 { 1 => { 2 } }
+
+--- test "Match Type Assertions" ---
+match true { _: Int => {} } --> ! TypeError
+const x: Any = true
+match x {
+	_: Int => { "Int" }
+	_: Bool => { "Bool" }
+	else => { "Dunno" }
+} --> "Bool"

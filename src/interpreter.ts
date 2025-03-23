@@ -15,6 +15,7 @@ import {
 	IfExpr,
 	LitExpr,
 	LoopStmt,
+	MatchExpr,
 	Module,
 	print,
 	Proc,
@@ -183,6 +184,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateGroupExpr(i, ast);
 		case AstType.IfExpr:
 			return interperateIfExpr(i, ast);
+		case AstType.MatchExpr:
+			return interperateMatchExpr(i, ast);
 		case AstType.ProcExpr:
 			return interperateProcExpr(i, ast);
 		case AstType.BinaryExpr:
@@ -375,13 +378,73 @@ function interperateGroupExpr(i: Interpreter, g: GroupExpr): unknown {
 }
 
 function interperateIfExpr(i: Interpreter, f: IfExpr): unknown {
-	if (interperate(i, f.testExpr)) {
-		return interperate(i, f.thenExpr);
-	} else if (f.elseExpr !== undefined) {
-		return interperate(i, f.elseExpr);
+	if (f.pattern !== undefined) {
+		const value = interperate(i, f.testExpr);
+		if (
+			f.resolvedDeclType !== undefined &&
+			!TypeChecker.assignable(Type.of(value), f.resolvedDeclType)
+		) {
+			if (f.elseExpr !== undefined) {
+				return interperate(i, f.elseExpr);
+			} else {
+				return null;
+			}
+		}
+		try {
+			storeValue(i, f.pattern, value);
+			return interperate(i, f.thenExpr);
+		} catch (error) {
+			if (error instanceof RuntimeError) {
+				if (f.elseExpr !== undefined) {
+					return interperate(i, f.elseExpr);
+				} else {
+					return null;
+				}
+			}
+			throw error;
+		}
 	} else {
-		return null;
+		if (interperate(i, f.testExpr)) {
+			return interperate(i, f.thenExpr);
+		} else if (f.elseExpr !== undefined) {
+			return interperate(i, f.elseExpr);
+		} else {
+			return null;
+		}
 	}
+}
+
+function interperateMatchExpr(i: Interpreter, m: MatchExpr): unknown {
+	let value: unknown = null;
+	if (m.testExpr !== undefined) {
+		value = interperate(i, m.testExpr);
+	}
+	for (const c of m.cases) {
+		if (
+			c.resolvedDeclType !== undefined &&
+			!TypeChecker.assignable(Type.of(value), c.resolvedDeclType)
+		) {
+			continue;
+		}
+		if (c.pattern !== undefined) {
+			try {
+				storeValue(i, c.pattern, value);
+			} catch (error) {
+				if (error instanceof RuntimeError) {
+					continue;
+				}
+				throw error;
+			}
+		}
+		if (c.testExpr !== undefined) {
+			const test = interperate(i, c.testExpr);
+			if (!test) {
+				continue;
+			}
+		}
+		return interperate(i, c.thenExpr);
+	}
+	return null;
 }
 
 function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
@@ -397,10 +460,11 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 			for (let j = 0; j < p.params.length; j++) {
 				storeValue(i, p.params[j].pattern, args[j] ?? null);
 			}
-			return interperate(i, p.implExpr);
+			const value = interperate(i, p.implExpr);
+			return p.discardReturn ? null : value;
 		} catch (e) {
 			if (e instanceof Return) {
-				return e.value;
+				return p.discardReturn ? null : e.value;
 			}
 			throw e;
 		} finally {

@@ -280,22 +280,108 @@ impl TokenData {
 
 ### TODO
 ```yoku
--- match if/else
-const x = 5;
-const y = match {
-	if x == 1 => { "one" }
-	if x == 2 => { "two" }
-	else => { "many" }
+-- structs
+struct Person {
+	const name: Str
+	var age: Int
 }
-print(y);
 
--- match values
-const x = 5;
-match x {
-	1 => { "one" }
-	2 => { "two" }
-	else { "many" }
+inline struct Complex {
+	const r: Float
+	const i: Float
 }
+
+inline proc p() {}
+
+-- enums 
+enum Alignment {
+	Good
+	Bad
+}
+
+const a = Alignment.Good
+-- exhaustive matching
+const shout: Str = match a {
+	Good => "yay!"
+	Bad => "boo!"
+}
+
+enum Expr {
+	Add { const left: Expr; const right: Expr }
+	Mul {
+		const left: Expr
+		const rigt: Expr
+	}
+	Div(Int, Int),
+	Num(Int)
+	Zero
+}
+
+-- Impl blocks
+impl Int {
+
+	proc add_float(a: This, b: Int) -> Int {
+		return a + b
+	}
+
+}
+
+Int.add(3, 4) --> 7
+(3).add(4) --> 7
+
+-- String interpolation
+-- Try/Catch/Throw
+
+-- Parameterized types
+enum Option[T] {
+	Some(T),
+	None
+}
+-- Runtime types
+-- Modules, import/export
+-- Start Standard Library
+-- Doc comments
+-- Annotations (main, deprecated, builtin, external, test)
+
+proc owned(t: TypeExpr) -> () { ... }
+
+-- The following will make a call to owned once per source code usage
+-- The annotation can also be found on runtime type info
+proc init_world() -> @owned RawRef[World] {}
+
+struct GameState {
+	const world: @owned RawRef[World]
+}
+
+-- Prelude (define types in prelude)
+-- Array
+-- Iter
+-- for loops
+-- Variadic Args
+-- Option
+-- Result
+-- Ref
+-- Map
+-- List
+-- Union types
+
+-- assert throws ideas
+const assert Result.Ok(_) = Result.of(proc () { f() })
+const assert Result.Error(_): Result.Error[DivisionByZero] = Result.of(proc() { f() })
+assert f() throws DivisionByZero -- New keyword just for assert ;_;
+assert throws(proc() { f() }) == DivizionByZero.Tag
+
+-- In general I have some enum, and I want to assert it some variant?
+enum MyEnum {
+	V1(Int)
+	V2(Bool)
+}
+const x: MyEnum = ...
+const assert MyEnum.V1(_) = x
+-- throw/result is just nastier because of the extra layer, so maybe throws is worth it?
+
+-- use statement
+use file = open("data.txt") -- will call close at end of scope
 
 -- parametrized tests
 test "parameterized" for value in Array.of(1, 2, 3, 4) {

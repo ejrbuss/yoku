@@ -1,6 +1,8 @@
 import { CodeSource } from "./codesource.ts";
 import { print } from "./core.ts";
 import { Runtime, RunResultType } from "./runtime.ts";
+import { createInterface } from "node:readline/promises";
+import { stdin, stdout } from "node:process";
 
 async function main(args: string[]) {
 	if (args.length > 1) {
@@ -15,16 +17,17 @@ async function main(args: string[]) {
 			return Deno.exit(1);
 		}
 	} else {
-		const rt = Runtime.create({ replMode: true, debug: true });
+		const rt = Runtime.create({ replMode: true });
 		runPrompt(rt);
 	}
 }
 
-function runPrompt(rt: Runtime): void {
+async function runPrompt(rt: Runtime): void {
+	const readline = createInterface(stdin, stdout);
 	const s = CodeSource.fromString("", "repl");
 	let needsMoreInput = false;
 	for (;;) {
-		const line = prompt(needsMoreInput ? " " : ">");
+		const line = await readline.question(needsMoreInput ? ".. " : "> ");
 		if (line !== null) {
 			CodeSource.append(s, "\n" + line);
 			const result = Runtime.run(rt, s);
@@ -35,7 +38,6 @@ function runPrompt(rt: Runtime): void {
 					break;
 				case RunResultType.Error:
 					if (result.needsMoreInput) {
-						console.log(result);
 						needsMoreInput = true;
 					} else {
 						Runtime.reportError(result);

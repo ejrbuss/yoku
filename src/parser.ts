@@ -27,6 +27,8 @@ import {
 	TypeDecl,
 	SpreadExpr,
 	Type,
+	MatchExpr,
+	Case,
 } from "./core.ts";
 import { CodeSource } from "./codesource.ts";
 import { Unreachable } from "./utils.ts";
@@ -106,10 +108,23 @@ function parseRepl(p: Parser): Repl {
 			try {
 				lines.push(parseStmt(p));
 			} catch (stmtError) {
-				if (stmtError instanceof ParseError && declError.needsMoreInput) {
+				if (!(stmtError instanceof ParseError)) {
+					throw stmtError;
+				}
+				// TODO: eventually we just want to give multiple errors
+				// Try to decide the best error to give the user
+
+				// If one of the errors just needs more input, return that one
+				if (declError.needsMoreInput && !stmtError.needsMoreInput) {
 					throw declError;
 				}
-				throw stmtError;
+				if (stmtError.needsMoreInput && !declError.needsMoreInput) {
+					throw stmtError;
+				}
+				// Otherwise return the one that made it further
+				// stmtError wins ties, arbitrary, but on the repl expressions
+				// are probably more common than statements
+				throw stmtError.start > declError.start ? stmtError : declError;
 			}
 		}
 	}
@@ -588,6 +603,9 @@ function parsePrimaryExpr(p: Parser): Ast {
 	if (lookAhead(p, "if")) {
 		return parseIfExpr(p);
 	}
+	if (lookAhead(p, "match")) {
+		return parseMatchExpr(p);
+	}
 	if (lookAhead(p, "proc")) {
 		return parseProcExpr(p);
 	}
@@ -661,6 +679,15 @@ function parseBlockExpr(p: Parser): BlockExpr {
 function parseIfExpr(p: Parser): IfExpr {
 	pushStart(p);
 	consume(p, "if");
+	let pattern: undefined | Ast;
+	let declType: undefined | Ast;
+	if (match(p, "assert")) {
+		pattern = parsePattern(p);
+		if (match(p, ":")) {
+			declType = parseTypeExpr(p);
+		}
+		consume(p, "=");
+	}
 	const testExpr = parseExpr(p);
 	const thenExpr = parseBlockExpr(p);
 	let elseExpr: Ast | undefined;
@@ -673,9 +700,56 @@ function parseIfExpr(p: Parser): IfExpr {
 	}
 	return {
 		type: AstType.IfExpr,
+		pattern,
+		declType,
 		testExpr,
 		thenExpr,
 		elseExpr,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseMatchExpr(p: Parser): MatchExpr {
+	pushStart(p);
+	consume(p, "match");
+	let testExpr: undefined | Ast;
+	if (!lookAhead(p, "{")) {
+		testExpr = parseExpr(p);
+	}
+	consume(p, "{");
+	const cases: Case[] = [];
+	while (hasMore(p) && !lookAhead(p, "}")) {
+		if (match(p, "else")) {
+			consume(p, "=>");
+			const thenExpr = parseBlockExpr(p);
+			cases.push({ thenExpr });
+		} else if (testExpr === undefined) {
+			consume(p, "if");
+			const testExpr = parseExpr(p);
+			consume(p, "=>");
+			const thenExpr = parseBlockExpr(p);
+			cases.push({ testExpr, thenExpr });
+		} else {
+			const pattern = parsePattern(p);
+			let declType: undefined | Ast;
+			if (match(p, ":")) {
+				declType = parseTypeExpr(p);
+			}
+			let testExpr: undefined | Ast;
+			if (match(p, "if")) {
+				testExpr = parseExpr(p);
+			}
+			consume(p, "=>");
+			const thenExpr = parseBlockExpr(p);
+			cases.push({ pattern, declType, testExpr, thenExpr });
+		}
+	}
+	consume(p, "}");
+	return {
+		type: AstType.MatchExpr,
+		testExpr,
+		cases,
 		start: popStart(p),
 		end: getEnd(p),
 	};
