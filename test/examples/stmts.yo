@@ -6,11 +6,24 @@ var x = true
 x --> true
 const y = 12
 y --> 12
+const _ = 7
 
 --- test "Tuple destructuring" ---
 const (x, y, z) = (1, 2, 3)
 (x, y, z) --> (1, 2, 3)
 const (x, y) = (true, 1, 4) --> ! ResolutionError
+const (_, w) = (true, false)
+w --> false
+
+--- test "Assert Statments" ---
+assert 1 == 1
+assert true == false --> ! RuntimeError
+const x = 4
+const y = 7
+const z = "t"
+assert x == y --> ! RuntimeError
+assert x < y
+assert x == z --> ! TypeError
 
 --- test "Assignment" ---
 var a = "before"

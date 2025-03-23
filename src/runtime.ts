@@ -35,6 +35,7 @@ export type Runtime = {
 	interpreter: Interpreter;
 	debug?: boolean;
 	replMode?: boolean;
+	test?: boolean;
 };
 
 export const Runtime = { create: createRuntime, run, reportError };
@@ -42,7 +43,11 @@ export const Runtime = { create: createRuntime, run, reportError };
 function createRuntime(options: Partial<Runtime> = {}): Runtime {
 	const resolver = Resolver.create();
 	const typeChecker = TypeChecker.create();
-	const interpreter = Interpreter.create(resolver, typeChecker);
+	const interpreter = Interpreter.create(
+		resolver,
+		typeChecker,
+		options.test ?? false
+	);
 	return { resolver, typeChecker, interpreter, ...options };
 }
 
@@ -90,6 +95,8 @@ function run(rt: Runtime, s: CodeSource): RunResult {
 				source: s,
 				name: error.constructor.name,
 				note: error.note,
+				start: error.start,
+				end: error.end,
 			};
 		}
 		throw error;

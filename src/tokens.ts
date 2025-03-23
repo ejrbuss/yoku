@@ -24,7 +24,7 @@ function print(token: Token): string {
 	return `(${token.type} \`${token.image}\` ${token.start}:${token.end})`;
 }
 
-const Keywords = new Set([
+export const Keywords = new Set([
 	"import",
 	"export",
 	"module",
@@ -49,6 +49,8 @@ const Keywords = new Set([
 	"return",
 	"try",
 	"throw",
+	"test",
+	"assert",
 	"_",
 ]);
 

@@ -263,23 +263,10 @@ trait Hash {
 
 ### Mini TODO
 ```yoku
--- basic assert and test
-assert 4 == 4
-test "name" {
-
-}
-
--- parametrized tests (later)
-test "parameterized" for value in Array.of(1, 2, 3, 4) {
-
-}
 
 -- assert in const/var
 const x = (3, 4);
 const assert (y, 4) = x;
-
--- wildcard/discard pattern
-const _ = x; 
 
 -- patterns in params
 proc f((x, y): (Int, Int)) -> Int { x * y + y + x }
@@ -322,5 +309,10 @@ match x {
 	1 => { "one" }
 	2 => { "two" }
 	else { "many" }
+}
+
+-- parametrized tests (later)
+test "parameterized" for value in Array.of(1, 2, 3, 4) {
+
 }
 ```

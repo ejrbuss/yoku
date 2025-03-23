@@ -1,5 +1,6 @@
 import {
 	Access,
+	AssertStmt,
 	AssignStmt,
 	Ast,
 	AstType,
@@ -19,6 +20,7 @@ import {
 	ProcExpr,
 	Repl,
 	ReturnStmt,
+	TestDecl,
 	TupleExpr,
 	UnaryExpr,
 	VarDecl,
@@ -70,6 +72,15 @@ function declareGlobal(r: Resolver, id: string): number {
 }
 
 function declarePattern(r: Resolver, pattern: Ast, access: Access): void {
+	if (pattern.type === AstType.TupleExpr) {
+		for (const item of pattern.items) {
+			declarePattern(r, item, access);
+		}
+		return;
+	}
+	if (pattern.type === AstType.WildCardExpr) {
+		return;
+	}
 	if (pattern.type === AstType.IdExpr) {
 		const globalScope = r.scopes[0];
 		if (globalScope.decls[pattern.value] !== undefined) {
@@ -82,12 +93,6 @@ function declarePattern(r: Resolver, pattern: Ast, access: Access): void {
 		const scope = r.scopes[r.scopes.length - 1];
 		pattern.resolvedId = scope.nextId++;
 		scope.decls[pattern.value] = { resolvedId: pattern.resolvedId, access };
-		return;
-	}
-	if (pattern.type === AstType.TupleExpr) {
-		for (const item of pattern.items) {
-			declarePattern(r, item, access);
-		}
 		return;
 	}
 	throw new Unreachable();
@@ -112,18 +117,22 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveVarDecl(r, ast);
 		case AstType.ProcDecl:
 			return resolveProcDecl(r, ast);
+		case AstType.TestDecl:
+			return resolveTestDecl(r, ast);
 		case AstType.BreakStmt:
 			return resolveBreakStmt(r, ast);
 		case AstType.ContinueStmt:
 			return resolveContinueStmt(r, ast);
 		case AstType.ReturnStmt:
 			return resolveReturnStmt(r, ast);
-		case AstType.AssignStmt:
-			return resolveAssignStmt(r, ast);
+		case AstType.AssertStmt:
+			return resolveAssertStmt(r, ast);
 		case AstType.LoopStmt:
 			return resolveLoopStmt(r, ast);
 		case AstType.WhileStmt:
 			return resolveWhileStmt(r, ast);
+		case AstType.AssignStmt:
+			return resolveAssignStmt(r, ast);
 		case AstType.ExprStmt:
 			return resolveExprStmt(r, ast);
 		case AstType.BlockExpr:
@@ -146,9 +155,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveLitExpr(r, ast);
 		case AstType.IdExpr:
 			return resolveIdExpr(r, ast);
-		case AstType.ProcTypeExpr:
-			throw new Unreachable();
 	}
+	throw new Unreachable();
 }
 
 function resolveModule(r: Resolver, m: Module): void {
@@ -173,6 +181,10 @@ function resolveVarDecl(r: Resolver, v: VarDecl): void {
 function resolveProcDecl(r: Resolver, p: ProcDecl): void {
 	declarePattern(r, p.id, Access.Const);
 	resolveProcExpr(r, p.initExpr);
+}
+
+function resolveTestDecl(r: Resolver, t: TestDecl): void {
+	resolve(r, t.thenExpr);
 }
 
 function resolveBreakStmt(r: Resolver, b: BreakStmt): void {
@@ -206,6 +218,23 @@ function resolveReturnStmt(r: Resolver, s: ReturnStmt): void {
 	}
 }
 
+function resolveAssertStmt(r: Resolver, a: AssertStmt): void {
+	resolve(r, a.testExpr);
+}
+
+function resolveLoopStmt(r: Resolver, l: LoopStmt): void {
+	r.loopStack.push(l.label?.value);
+	resolve(r, l.thenExpr);
+	r.loopStack.pop();
+}
+
+function resolveWhileStmt(r: Resolver, w: WhileStmt): void {
+	r.loopStack.push(undefined);
+	resolve(r, w.testExpr);
+	resolve(r, w.thenExpr);
+	r.loopStack.pop();
+}
+
 function resolveAssignStmt(r: Resolver, a: AssignStmt): void {
 	for (let j = r.scopes.length - 1; j >= 0; j--) {
 		const scope = r.scopes[j];
@@ -224,19 +253,6 @@ function resolveAssignStmt(r: Resolver, a: AssignStmt): void {
 		}
 	}
 	throw new ResolutionError("Undeclared variable!", a.id.start, a.id.end);
-}
-
-function resolveLoopStmt(r: Resolver, l: LoopStmt): void {
-	r.loopStack.push(l.label?.value);
-	resolve(r, l.thenExpr);
-	r.loopStack.pop();
-}
-
-function resolveWhileStmt(r: Resolver, w: WhileStmt): void {
-	r.loopStack.push(undefined);
-	resolve(r, w.testExpr);
-	resolve(r, w.thenExpr);
-	r.loopStack.pop();
 }
 
 function resolveExprStmt(r: Resolver, e: ExprStmt): void {

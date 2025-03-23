@@ -200,12 +200,14 @@ export enum AstType {
 	Repl = "Repl",
 	VarDecl = "VarDecl",
 	ProcDecl = "ProcDecl",
+	TestDecl = "TestDecl",
 	BreakStmt = "BreakStmt",
 	ContinueStmt = "ContinueStmt",
 	ReturnStmt = "ReturnStmt",
-	AssignStmt = "AssignStmt",
+	AssertStmt = "AssertStmt",
 	LoopStmt = "LoopStmt",
 	WhileStmt = "WhileStmt",
+	AssignStmt = "AssignStmt",
 	ExprStmt = "ExprStmt",
 	BlockExpr = "BlockExpr",
 	TupleExpr = "TupleExpr",
@@ -218,6 +220,7 @@ export enum AstType {
 	LitExpr = "LitExpr",
 	IdExpr = "IdExpr",
 	ProcTypeExpr = "ProcTypeExpr",
+	WildCardExpr = "WildCardExpr",
 }
 
 export type Module = {
@@ -245,6 +248,12 @@ export type ProcDecl = {
 	initExpr: ProcExpr;
 } & Span;
 
+export type TestDecl = {
+	type: AstType.TestDecl;
+	name: string;
+	thenExpr: Ast;
+} & Span;
+
 export type BreakStmt = {
 	type: AstType.BreakStmt;
 	label?: IdExpr;
@@ -260,10 +269,9 @@ export type ReturnStmt = {
 	expr?: Ast;
 } & Span;
 
-export type AssignStmt = {
-	type: AstType.AssignStmt;
-	id: IdExpr;
-	expr: Ast;
+export type AssertStmt = {
+	type: AstType.AssertStmt;
+	testExpr: Ast;
 } & Span;
 
 export type LoopStmt = {
@@ -276,6 +284,12 @@ export type WhileStmt = {
 	type: AstType.WhileStmt;
 	testExpr: Ast;
 	thenExpr: BlockExpr;
+} & Span;
+
+export type AssignStmt = {
+	type: AstType.AssignStmt;
+	id: IdExpr;
+	expr: Ast;
 } & Span;
 
 export type ExprStmt = {
@@ -355,14 +369,20 @@ export type ProcTypeExpr = {
 	returnType: Ast;
 } & Span;
 
+export type WildCardExpr = {
+	type: AstType.WildCardExpr;
+} & Span;
+
 export type Ast =
 	| Module
 	| Repl
 	| VarDecl
 	| ProcDecl
+	| TestDecl
 	| BreakStmt
 	| ContinueStmt
 	| ReturnStmt
+	| AssertStmt
 	| AssignStmt
 	| LoopStmt
 	| WhileStmt
@@ -377,7 +397,8 @@ export type Ast =
 	| CallExpr
 	| LitExpr
 	| IdExpr
-	| ProcTypeExpr;
+	| ProcTypeExpr
+	| WildCardExpr;
 
 export const Ast = { print: printAst };
 

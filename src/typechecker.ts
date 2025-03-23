@@ -1,4 +1,5 @@
 import {
+	AssertStmt,
 	AssignStmt,
 	Ast,
 	AstType,
@@ -20,6 +21,7 @@ import {
 	ProcExpr,
 	Repl,
 	ReturnStmt,
+	TestDecl,
 	TupleExpr,
 	Type,
 	UnaryExpr,
@@ -75,10 +77,6 @@ function declareType(t: TypeChecker, name: string, type: Type): void {
 }
 
 function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
-	if (pattern.type === AstType.IdExpr) {
-		t.values[resolveId(pattern)] = type;
-		return;
-	}
 	if (pattern.type === AstType.TupleExpr) {
 		if (type.kind !== Kind.Tuple) {
 			const pt = Type.print(type);
@@ -102,6 +100,13 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		}
 		return;
 	}
+	if (pattern.type === AstType.WildCardExpr) {
+		return;
+	}
+	if (pattern.type === AstType.IdExpr) {
+		t.values[resolveId(pattern)] = type;
+		return;
+	}
 	throw new Unreachable();
 }
 
@@ -115,12 +120,16 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 			return checkVarDecl(t, ast, d);
 		case AstType.ProcDecl:
 			return checkProcDecl(t, ast, d);
+		case AstType.TestDecl:
+			return checkTestDecl(t, ast, d);
 		case AstType.BreakStmt:
 			return checkBreakStmt(t, ast, d);
 		case AstType.ContinueStmt:
 			return checkContinueStmt(t, ast, d);
 		case AstType.ReturnStmt:
 			return checkReturnStmt(t, ast, d);
+		case AstType.AssertStmt:
+			return checkAssertStmt(t, ast, d);
 		case AstType.AssignStmt:
 			return checkAssignStmt(t, ast, d);
 		case AstType.LoopStmt:
@@ -150,6 +159,8 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 		case AstType.IdExpr:
 			return checkIdExpr(t, ast, d);
 		case AstType.ProcTypeExpr:
+			throw new Unreachable();
+		case AstType.WildCardExpr:
 			throw new Unreachable();
 	}
 }
@@ -201,6 +212,11 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
 	return Type.Unit;
 }
 
+function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: Type): Type {
+	check(t, d.thenExpr);
+	return Type.Unit;
+}
+
 function checkBreakStmt(_t: TypeChecker, _b: BreakStmt, _d?: Type): Type {
 	return Type.Unit;
 }
@@ -213,6 +229,11 @@ function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: Type): Type {
 	const type = r.expr !== undefined ? check(t, r.expr, d) : Type.Unit;
 	t.returns.push(type);
 	return type;
+}
+
+function checkAssertStmt(t: TypeChecker, a: AssertStmt, _d?: Type): Type {
+	check(t, a.testExpr);
+	return Type.Unit;
 }
 
 function checkAssignStmt(t: TypeChecker, a: AssignStmt, _d?: Type): Type {

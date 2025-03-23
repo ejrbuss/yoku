@@ -1,4 +1,5 @@
 import {
+	AssertStmt,
 	AssignStmt,
 	Ast,
 	AstType,
@@ -22,6 +23,7 @@ import {
 	ProcType,
 	Repl,
 	ReturnStmt,
+	TestDecl,
 	Tuple,
 	TupleExpr,
 	TupleType,
@@ -36,7 +38,11 @@ import { TypeChecker } from "./typechecker.ts";
 import { structurallyEq, Todo, Unreachable } from "./utils.ts";
 
 export class RuntimeError {
-	constructor(readonly note: string) {}
+	constructor(
+		readonly note: string,
+		readonly start?: number,
+		readonly end?: number
+	) {}
 }
 
 class Break {
@@ -57,6 +63,7 @@ export type Interpreter = {
 	globals: unknown[];
 	closure: unknown[];
 	locals: unknown[];
+	test: boolean;
 };
 
 export const Interpreter = { create, interperate };
@@ -85,26 +92,29 @@ export const Builtins = {
 	}),
 };
 
-function create(r: Resolver, t: TypeChecker): Interpreter {
+function create(r: Resolver, t: TypeChecker, test: boolean): Interpreter {
 	const globals = [];
 	for (const [id, builtin] of Object.entries(Builtins)) {
 		const resolvedId = Resolver.declareGlobal(r, id);
 		TypeChecker.declareGlobal(t, resolvedId, Type.of(builtin));
 		globals[resolvedId] = builtin;
 	}
-	return { inGlobalScope: true, globals, locals: [], closure: [] };
+	return { inGlobalScope: true, globals, locals: [], closure: [], test };
 }
 
 function storeValue(i: Interpreter, pattern: Ast, value: unknown): void {
-	if (pattern.type === AstType.IdExpr) {
-		const memory = i.inGlobalScope ? i.globals : i.locals;
-		memory[resolveId(pattern)] = value;
-		return;
-	}
 	if (pattern.type === AstType.TupleExpr) {
 		for (let j = 0; j < pattern.items.length; j++) {
 			storeValue(i, pattern.items[j], (value as Tuple).items[j]);
 		}
+		return;
+	}
+	if (pattern.type === AstType.WildCardExpr) {
+		return;
+	}
+	if (pattern.type === AstType.IdExpr) {
+		const memory = i.inGlobalScope ? i.globals : i.locals;
+		memory[resolveId(pattern)] = value;
 		return;
 	}
 	throw new Unreachable();
@@ -120,18 +130,22 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateVarDecl(i, ast);
 		case AstType.ProcDecl:
 			return interperateProcDecl(i, ast);
+		case AstType.TestDecl:
+			return interperateTestDecl(i, ast);
 		case AstType.BreakStmt:
 			return interperateBreakStmt(i, ast);
 		case AstType.ContinueStmt:
 			return interperateContinueStmt(i, ast);
 		case AstType.ReturnStmt:
 			return interperateReturnStmt(i, ast);
-		case AstType.AssignStmt:
-			return interperateAssignStmt(i, ast);
+		case AstType.AssertStmt:
+			return interperateAssertStmt(i, ast);
 		case AstType.LoopStmt:
 			return interperateLoopStmt(i, ast);
 		case AstType.WhileStmt:
 			return interperateWhileStmt(i, ast);
+		case AstType.AssignStmt:
+			return interperateAssignStmt(i, ast);
 		case AstType.ExprStmt:
 			return interperateExprStmt(i, ast);
 		case AstType.BlockExpr:
@@ -154,9 +168,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateLitExpr(i, ast);
 		case AstType.IdExpr:
 			return interperateIdExpr(i, ast);
-		case AstType.ProcTypeExpr:
-			throw new Unreachable();
 	}
+	throw new Unreachable();
 }
 
 function interperateModule(i: Interpreter, m: Module): unknown {
@@ -185,6 +198,19 @@ function interperateProcDecl(i: Interpreter, p: ProcDecl): unknown {
 	return null;
 }
 
+function interperateTestDecl(i: Interpreter, t: TestDecl): unknown {
+	if (i.test) {
+		try {
+			interperate(i, t.thenExpr);
+			console.log(`${t.name} ... %cOk`, "color: green");
+		} catch (error) {
+			console.log(`${t.name} ... %cError`, "color: red");
+			throw error;
+		}
+	}
+	return null;
+}
+
 function interperateBreakStmt(_i: Interpreter, b: BreakStmt): unknown {
 	throw new Break(b.label?.value);
 }
@@ -197,18 +223,21 @@ function interperateReturnStmt(i: Interpreter, r: ReturnStmt): unknown {
 	throw new Return(r.expr !== undefined ? interperate(i, r.expr) : null);
 }
 
-function interperateAssignStmt(i: Interpreter, a: AssignStmt): unknown {
-	const value = interperate(i, a.expr);
-	const resolvedId = resolveId(a.id);
-	if (i.locals[resolvedId] !== undefined) {
-		i.locals[resolvedId] = value;
-		return null;
+function interperateAssertStmt(i: Interpreter, a: AssertStmt): unknown {
+	const value = interperate(i, a.testExpr);
+	if (!value) {
+		if (a.testExpr.type === AstType.BinaryExpr) {
+			const b = a.testExpr;
+			const l = interperate(i, b.left);
+			const r = interperate(i, b.right);
+			throw new RuntimeError(
+				`Expected ${print(l)} ${b.op} ${print(r)}!`,
+				a.start,
+				a.end
+			);
+		}
+		throw new RuntimeError(`Expected true!`, a.start, a.end);
 	}
-	if (i.closure[resolvedId] !== undefined) {
-		i.closure[resolvedId] = value;
-		return null;
-	}
-	i.globals[resolvedId] = value;
 	return null;
 }
 
@@ -248,6 +277,21 @@ function interperateWhileStmt(i: Interpreter, w: WhileStmt): unknown {
 			throw e;
 		}
 	}
+	return null;
+}
+
+function interperateAssignStmt(i: Interpreter, a: AssignStmt): unknown {
+	const value = interperate(i, a.expr);
+	const resolvedId = resolveId(a.id);
+	if (i.locals[resolvedId] !== undefined) {
+		i.locals[resolvedId] = value;
+		return null;
+	}
+	if (i.closure[resolvedId] !== undefined) {
+		i.closure[resolvedId] = value;
+		return null;
+	}
+	i.globals[resolvedId] = value;
 	return null;
 }
 

@@ -13,6 +13,7 @@ import {
 	VarDecl,
 	Module,
 	ReturnStmt,
+	AssertStmt,
 	IdExpr,
 	ProcParam,
 	Access,
@@ -21,9 +22,9 @@ import {
 	LoopStmt,
 	TupleExpr,
 	Repl,
+	TestDecl,
 } from "./core.ts";
 import { CodeSource } from "./codesource.ts";
-import { tokenize } from "jsr:@std/internal@^1.0.5/diff-str";
 
 type TokenMatcher = TokenType | string;
 
@@ -92,9 +93,19 @@ function parseRepl(p: Parser): Repl {
 		const start = p.position;
 		try {
 			lines.push(parseDecl(p));
-		} catch {
+		} catch (declError) {
+			if (!(declError instanceof ParseError)) {
+				throw declError;
+			}
 			p.position = start;
-			lines.push(parseStmt(p));
+			try {
+				lines.push(parseStmt(p));
+			} catch (stmtError) {
+				if (stmtError instanceof ParseError && declError.needsMoreInput) {
+					throw declError;
+				}
+				throw stmtError;
+			}
 		}
 	}
 	return {
@@ -112,6 +123,9 @@ function parseDecl(p: Parser): Ast {
 	if (lookAhead(p, "proc") && lookAhead(p, TokenType.Id, 1)) {
 		return parseProcDecl(p);
 	}
+	if (lookAhead(p, "test")) {
+		return parseTestDecl(p);
+	}
 	const t = lookBehind(p);
 	throw new ParseError(
 		`Expected declaration!`,
@@ -125,9 +139,6 @@ function parseStmt(p: Parser): Ast {
 	if (lookAhead(p, "var") || lookAhead(p, "const")) {
 		return parseVarDecl(p);
 	}
-	if (lookAhead(p, "proc") && lookAhead(p, TokenType.Id, 1)) {
-		return parseProcDecl(p);
-	}
 	if (lookAhead(p, "break")) {
 		return parseBreakStmt(p);
 	}
@@ -137,12 +148,16 @@ function parseStmt(p: Parser): Ast {
 	if (lookAhead(p, "return")) {
 		return parseReturnStmt(p);
 	}
+	if (lookAhead(p, "assert")) {
+		return parseAssertStmt(p);
+	}
 	if (lookAhead(p, "loop")) {
 		return parseLoopStmt(p);
 	}
 	if (lookAhead(p, "while")) {
 		return parseWhileStmt(p);
 	}
+
 	return parseAssignStmt(p);
 }
 
@@ -187,6 +202,23 @@ function parseProcDecl(p: Parser): ProcDecl {
 	};
 }
 
+function parseTestDecl(p: Parser): TestDecl {
+	pushStart(p);
+	consume(p, "test");
+	const name = consume(p, TokenType.Lit);
+	if (typeof name.value !== "string") {
+		throw new ParseError("Expected test name!", false, name.start, name.end);
+	}
+	const thenExpr = parseBlockExpr(p);
+	return {
+		type: AstType.TestDecl,
+		name: name.value,
+		thenExpr,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
 function parseBreakStmt(p: Parser): BreakStmt {
 	pushStart(p);
 	consume(p, "break");
@@ -212,6 +244,18 @@ function parseReturnStmt(p: Parser): ReturnStmt {
 	return {
 		type: AstType.ReturnStmt,
 		expr,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseAssertStmt(p: Parser): AssertStmt {
+	pushStart(p);
+	consume(p, "assert");
+	const testExpr = parseExpr(p);
+	return {
+		type: AstType.AssertStmt,
+		testExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -727,6 +771,9 @@ function parsePattern(p: Parser): Ast {
 	if (lookAhead(p, "(")) {
 		return parseTuplePattern(p);
 	}
+	if (lookAhead(p, "_")) {
+		return parseWildcardExpr(p);
+	}
 	return parseIdExpr(p);
 }
 
@@ -744,6 +791,16 @@ function parseTuplePattern(p: Parser): TupleExpr {
 	return {
 		type: AstType.TupleExpr,
 		items,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseWildcardExpr(p: Parser): Ast {
+	pushStart(p);
+	consume(p, "_");
+	return {
+		type: AstType.WildCardExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};

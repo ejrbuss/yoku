@@ -31,6 +31,8 @@ async function fromPath(path: string): Promise<CodeSource> {
 }
 
 function fromString(content: string, path: string = "_"): CodeSource {
+	// Simplifies column calculations
+	content = content.replaceAll("\t", "    ");
 	return {
 		path,
 		content: content,

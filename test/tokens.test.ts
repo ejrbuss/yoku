@@ -85,10 +85,10 @@ Deno.test("Keywords", () => {
 
 Deno.test("Identifiers", () => {
 	assertTokens(
-		`x y test`,
+		`x xs Math`,
 		[TokenType.Id, "x"],
-		[TokenType.Id, "y"],
-		[TokenType.Id, "test"]
+		[TokenType.Id, "xs"],
+		[TokenType.Id, "Math"]
 	);
 });
 
