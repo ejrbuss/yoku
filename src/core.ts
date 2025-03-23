@@ -182,6 +182,7 @@ export enum BinaryOp {
 	NotId = "!==",
 	Default = "?",
 	Member = ".",
+	As = "as",
 }
 
 export enum UnaryOp {
@@ -323,7 +324,7 @@ export type IfExpr = {
 } & Span;
 
 export type ProcParam = {
-	id: IdExpr;
+	pattern: Ast;
 	type: Ast;
 };
 

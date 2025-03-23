@@ -5,6 +5,7 @@ import {
 	Ast,
 	AstType,
 	BinaryExpr,
+	BinaryOp,
 	BlockExpr,
 	BreakStmt,
 	CallExpr,
@@ -77,6 +78,14 @@ function declarePattern(
 	access: Access,
 	assert: boolean
 ): void {
+	if (pattern.type === AstType.BinaryExpr) {
+		if (pattern.op !== BinaryOp.As) {
+			throw new Unreachable();
+		}
+		declarePattern(r, pattern.left, access, assert);
+		declarePattern(r, pattern.right, access, assert);
+		return;
+	}
 	if (pattern.type === AstType.TupleExpr) {
 		for (const item of pattern.items) {
 			declarePattern(r, item, access, assert);
@@ -303,7 +312,7 @@ function resolveIfExpr(r: Resolver, i: IfExpr): void {
 function resolveProcExpr(r: Resolver, p: ProcExpr): void {
 	pushScope(r);
 	for (const param of p.params) {
-		declarePattern(r, param.id, Access.Const, false);
+		declarePattern(r, param.pattern, Access.Const, false);
 	}
 	const saveLoopStack = r.loopStack;
 	r.loopStack = [];

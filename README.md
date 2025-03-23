@@ -5,35 +5,23 @@
 -- Primitve types
 Byte
 Char
-Int
 Int32
 Int64
-Float
+Int
 Float32
 Float64
+Float
 Any
 This
 
 -- Type Constructors/Enums
 Bool
-True
-False
 Option
-None
-Some
 Result
-Ok
-Error
 Type
 Array
 List
 Map
-
--- Builtin functions
-assert
-
-
-
 
 ```txt
 -- All reference objects have an extra 8 bytes 
@@ -248,7 +236,7 @@ const float_type: Type[Float] = Type.of(4.5);
 
 Assert types out of Any
 ```
-const Result.Ok { value } = some_any_value;
+const assert Result.Ok { value } = some_any_value;
 ```
 
 ```
@@ -261,15 +249,8 @@ trait Hash {
 }
 ```
 
-### Mini TODO
+### TODO
 ```yoku
--- patterns in params
-proc f((x, y): (Int, Int)) -> Int { x * y + y + x }
-f((3, 4));
-
--- `as` aliasing
-const (x, y, z) as point = (1, 2, 3); 
-
 -- Type declarations
 type i64 = Int; 
 

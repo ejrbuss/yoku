@@ -14,6 +14,10 @@ const (x, y, z) = (1, 2, 3)
 const (x, y) = (true, 1, 4) --> ! ResolutionError
 const (_, w) = (true, false)
 w --> false
+const (a, b) as ab = ("a", "b")
+a --> "a"
+b --> "b"
+ab --> ("a", "b")
 
 --- test "Assert Statments" ---
 assert 1 == 1

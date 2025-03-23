@@ -77,6 +77,14 @@ function declareType(t: TypeChecker, name: string, type: Type): void {
 }
 
 function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
+	if (pattern.type === AstType.BinaryExpr) {
+		if (pattern.op !== BinaryOp.As) {
+			throw new Unreachable();
+		}
+		storeTypes(t, pattern.left, type);
+		storeTypes(t, pattern.right, type);
+		return;
+	}
 	if (pattern.type === AstType.TupleExpr) {
 		if (type.kind !== Kind.Tuple) {
 			const pt = Type.print(type);
@@ -217,7 +225,7 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
 	const params: Type[] = [];
 	for (const param of p.initExpr.params) {
 		const paramType = reifyType(t, param.type);
-		t.values[resolveId(param.id)] = paramType;
+		storeTypes(t, param.pattern, paramType);
 		params.push(paramType);
 	}
 	const returns = reifyType(t, p.initExpr.returnType);
@@ -344,7 +352,7 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr, _d?: Type): Type {
 	const params: Type[] = [];
 	for (const param of p.params) {
 		const paramType = reifyType(t, param.type);
-		t.values[resolveId(param.id)] = paramType;
+		storeTypes(t, param.pattern, paramType);
 		params.push(paramType);
 	}
 	const returns = reifyType(t, p.returnType);
@@ -399,6 +407,7 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: Type): Type {
 			return Type.Bool;
 		}
 		case BinaryOp.Default:
+			throw new Todo();
 		case BinaryOp.Member: {
 			const l = check(t, b.left);
 			if (l.kind !== Kind.Tuple) {
@@ -429,6 +438,8 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: Type): Type {
 			}
 			return l.items[Number(b.right.value)];
 		}
+		case BinaryOp.As:
+			throw new Unreachable();
 	}
 }
 

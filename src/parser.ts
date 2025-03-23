@@ -654,16 +654,16 @@ function parseProcExpr(p: Parser): ProcExpr {
 	consume(p, "(");
 	const params: ProcParam[] = [];
 	while (hasMore(p) && !lookAhead(p, ")")) {
-		const id = parseIdExpr(p);
+		const pattern = parsePattern(p);
 		consume(p, ":");
 		const type = parseTypeExpr(p);
-		params.push({ id, type });
+		params.push({ pattern, type });
 		if (params.length > 255) {
 			throw new ParseError(
 				"More than 255 parameters!",
 				false,
-				id.start,
-				id.end
+				pattern.start,
+				pattern.end
 			);
 		}
 		if (!lookAhead(p, ")")) {
@@ -775,6 +775,26 @@ function parseTupleTypeExpr(p: Parser): TupleExpr {
 }
 
 function parsePattern(p: Parser): Ast {
+	return parsePatternAlias(p);
+}
+
+function parsePatternAlias(p: Parser): Ast {
+	const left = parsePatternPrimary(p);
+	if (match(p, "as")) {
+		const right = parseIdExpr(p);
+		return {
+			type: AstType.BinaryExpr,
+			op: BinaryOp.As,
+			left,
+			right,
+			start: left.start,
+			end: right.end,
+		};
+	}
+	return left;
+}
+
+function parsePatternPrimary(p: Parser): Ast {
 	if (lookAhead(p, "(")) {
 		return parseTuplePattern(p);
 	}

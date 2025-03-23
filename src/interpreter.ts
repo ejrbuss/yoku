@@ -103,6 +103,14 @@ function create(r: Resolver, t: TypeChecker, test: boolean): Interpreter {
 }
 
 function storeValue(i: Interpreter, pattern: Ast, value: unknown): void {
+	if (pattern.type === AstType.BinaryExpr) {
+		if (pattern.op !== BinaryOp.As) {
+			throw new Unreachable();
+		}
+		storeValue(i, pattern.left, value);
+		storeValue(i, pattern.right, value);
+		return;
+	}
 	if (pattern.type === AstType.TupleExpr) {
 		for (let j = 0; j < pattern.items.length; j++) {
 			storeValue(i, pattern.items[j], (value as Tuple).items[j]);
@@ -371,7 +379,7 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 		i.inGlobalScope = false;
 		try {
 			for (let j = 0; j < p.params.length; j++) {
-				i.locals[resolveId(p.params[j].id)] = args[j] ?? null;
+				storeValue(i, p.params[j].pattern, args[j] ?? null);
 			}
 			return interperate(i, p.implExpr);
 		} catch (e) {
