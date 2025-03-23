@@ -71,21 +71,36 @@ function declareGlobal(r: Resolver, id: string): number {
 	return resolvedId;
 }
 
-function declarePattern(r: Resolver, pattern: Ast, access: Access): void {
+function declarePattern(
+	r: Resolver,
+	pattern: Ast,
+	access: Access,
+	assert: boolean
+): void {
 	if (pattern.type === AstType.TupleExpr) {
 		for (const item of pattern.items) {
-			declarePattern(r, item, access);
+			declarePattern(r, item, access, assert);
 		}
 		return;
 	}
 	if (pattern.type === AstType.WildCardExpr) {
 		return;
 	}
+	if (pattern.type === AstType.LitExpr) {
+		if (!assert) {
+			throw new ResolutionError(
+				"You cannot use a literal pattern outside of an assert or match!",
+				pattern.start,
+				pattern.end
+			);
+		}
+		return;
+	}
 	if (pattern.type === AstType.IdExpr) {
 		const globalScope = r.scopes[0];
 		if (globalScope.decls[pattern.value] !== undefined) {
 			throw new ResolutionError(
-				`You cannot redeclare global!`,
+				"You cannot redeclare global!",
 				pattern.start,
 				pattern.end
 			);
@@ -175,11 +190,11 @@ function resolveRepl(r: Resolver, e: Repl): void {
 
 function resolveVarDecl(r: Resolver, v: VarDecl): void {
 	resolve(r, v.initExpr);
-	declarePattern(r, v.pattern, v.access);
+	declarePattern(r, v.pattern, v.access, v.assert);
 }
 
 function resolveProcDecl(r: Resolver, p: ProcDecl): void {
-	declarePattern(r, p.id, Access.Const);
+	declarePattern(r, p.id, Access.Const, false);
 	resolveProcExpr(r, p.initExpr);
 }
 
@@ -288,7 +303,7 @@ function resolveIfExpr(r: Resolver, i: IfExpr): void {
 function resolveProcExpr(r: Resolver, p: ProcExpr): void {
 	pushScope(r);
 	for (const param of p.params) {
-		declarePattern(r, param.id, Access.Const);
+		declarePattern(r, param.id, Access.Const, false);
 	}
 	const saveLoopStack = r.loopStack;
 	r.loopStack = [];

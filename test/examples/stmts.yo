@@ -25,6 +25,23 @@ assert x == y --> ! RuntimeError
 assert x < y
 assert x == z --> ! TypeError
 
+--- test "Assert Type Casting" ---
+const x: Any = 42
+const y: Int = x --> ! TypeError
+const assert z: Int = x
+z --> 42
+const assert u: Str = x --> ! RuntimeError
+const assert v: Any = z
+v --> 42
+
+--- test "Assert Destructuring" ---
+const 1 = 1 --> ! ResolutionError
+const assert 1 = 1
+const assert (1, 2) = (1, 2)
+const assert (true, x) = (true, "t")
+x --> "t"
+const assert (1, 1) = (1, 2) --> ! RuntimeError
+
 --- test "Assignment" ---
 var a = "before"
 a --> "before"

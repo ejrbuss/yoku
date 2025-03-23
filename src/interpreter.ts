@@ -117,6 +117,18 @@ function storeValue(i: Interpreter, pattern: Ast, value: unknown): void {
 		memory[resolveId(pattern)] = value;
 		return;
 	}
+	if (pattern.type === AstType.LitExpr) {
+		if (pattern.value !== value) {
+			const expected = print(pattern.value);
+			const actual = print(value);
+			throw new RuntimeError(
+				`Expected ${expected} but found ${actual}!`,
+				pattern.start,
+				pattern.end
+			);
+		}
+		return;
+	}
 	throw new Unreachable();
 }
 
@@ -189,6 +201,18 @@ function interperateRepl(i: Interpreter, r: Repl): unknown {
 
 function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
 	const value = interperate(i, d.initExpr);
+	if (
+		d.assert &&
+		!TypeChecker.assignable(Type.of(value), d.resolvedType as Type)
+	) {
+		const expected = Type.print(d.resolvedType as Type);
+		const actual = print(value);
+		throw new RuntimeError(
+			`Expected type ${expected} but found ${actual}!`,
+			d.initExpr.start,
+			d.initExpr.end
+		);
+	}
 	storeValue(i, d.pattern, value);
 	return null;
 }

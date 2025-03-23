@@ -23,6 +23,7 @@ import {
 	TupleExpr,
 	Repl,
 	TestDecl,
+	LitExpr,
 } from "./core.ts";
 import { CodeSource } from "./codesource.ts";
 
@@ -170,6 +171,7 @@ function parseVarDecl(p: Parser): VarDecl {
 		consume(p, "var");
 		access = Access.Var;
 	}
+	const assert = match(p, "assert") !== undefined;
 	const pattern = parsePattern(p);
 	let declType: undefined | Ast;
 	if (match(p, ":")) {
@@ -180,6 +182,7 @@ function parseVarDecl(p: Parser): VarDecl {
 	return {
 		type: AstType.VarDecl,
 		access,
+		assert,
 		declType,
 		pattern,
 		initExpr,
@@ -560,13 +563,7 @@ function parsePrimary(p: Parser): Ast {
 		return parseProcExpr(p);
 	}
 	if (lookAhead(p, TokenType.Lit)) {
-		const lit = consume(p);
-		return {
-			type: AstType.LitExpr,
-			value: lit.value,
-			start: lit.start,
-			end: lit.end,
-		};
+		return parseLitExpr(p);
 	}
 	return parseIdExpr(p);
 }
@@ -696,6 +693,16 @@ function parseProcExpr(p: Parser): ProcExpr {
 	};
 }
 
+function parseLitExpr(p: Parser): LitExpr {
+	const lit = consume(p);
+	return {
+		type: AstType.LitExpr,
+		value: lit.value,
+		start: lit.start,
+		end: lit.end,
+	};
+}
+
 function parseIdExpr(p: Parser): IdExpr {
 	const id = consume(p, TokenType.Id);
 	return {
@@ -773,6 +780,9 @@ function parsePattern(p: Parser): Ast {
 	}
 	if (lookAhead(p, "_")) {
 		return parseWildcardExpr(p);
+	}
+	if (lookAhead(p, TokenType.Lit)) {
+		return parseLitExpr(p);
 	}
 	return parseIdExpr(p);
 }

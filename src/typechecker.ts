@@ -49,7 +49,7 @@ export class TypeError extends Error {
 	}
 }
 
-export const TypeChecker = { create, check, declareGlobal };
+export const TypeChecker = { create, check, declareGlobal, assignable };
 
 function create(): TypeChecker {
 	const t: TypeChecker = {
@@ -101,6 +101,19 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		return;
 	}
 	if (pattern.type === AstType.WildCardExpr) {
+		return;
+	}
+	if (pattern.type === AstType.LitExpr) {
+		const litType = Type.of(pattern.value);
+		if (!assignable(type, litType)) {
+			const declared = Type.print(litType);
+			const found = Type.print(type);
+			throw new TypeError(
+				`Type ${found} is not assignable to type ${declared}!`,
+				pattern.start,
+				pattern.end
+			);
+		}
 		return;
 	}
 	if (pattern.type === AstType.IdExpr) {
@@ -185,7 +198,7 @@ function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: Type): Type {
 		d.declType !== undefined ? reifyType(t, d.declType) : undefined;
 	const type = check(t, d.initExpr, declType);
 	if (declType !== undefined) {
-		if (!assignable(type, declType)) {
+		if (!(d.assert ? assertable(type, declType) : assignable(type, declType))) {
 			const declared = Type.print(declType);
 			const found = Type.print(type);
 			throw new TypeError(
@@ -195,7 +208,8 @@ function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: Type): Type {
 			);
 		}
 	}
-	storeTypes(t, d.pattern, type);
+	d.resolvedType = declType ?? type;
+	storeTypes(t, d.pattern, declType ?? type);
 	return Type.Unit;
 }
 
@@ -564,4 +578,8 @@ function reifyType(t: TypeChecker, ast: Ast): Type {
 
 function assignable(from: Type, into: Type): boolean {
 	return into === Type.Any || from === Type.Never || structurallyEq(from, into);
+}
+
+function assertable(from: Type, into: Type): boolean {
+	return assignable(from, into) || from === Type.Any;
 }

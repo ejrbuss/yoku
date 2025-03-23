@@ -263,11 +263,6 @@ trait Hash {
 
 ### Mini TODO
 ```yoku
-
--- assert in const/var
-const x = (3, 4);
-const assert (y, 4) = x;
-
 -- patterns in params
 proc f((x, y): (Int, Int)) -> Int { x * y + y + x }
 f((3, 4));

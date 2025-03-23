@@ -69,12 +69,12 @@ function runReplTest(source: string): void {
 		if (line.includes("--> !")) {
 			const [_, expectedSource] = line.split("--> !");
 			if (actualResult.type !== RunResultType.Error) {
-				console.error(`%cLine: ${line}\n`, "color: red");
+				console.error(`%cLine: ${line}`, "color: red");
 				assertEquals(actualResult.type, RunResultType.Error);
 				throw new Unreachable();
 			}
 			if (actualResult.name !== expectedSource.trim()) {
-				console.error(`%cLine: ${line}\n`, "color: red");
+				console.error(`%cLine: ${line}\n${actualResult.note}`, "color: red");
 				assertEquals(actualResult.name, expectedSource.trim());
 			}
 			continue;
@@ -90,9 +90,14 @@ function runReplTest(source: string): void {
 				assertEquals(actualResult.type, RunResultType.Ok);
 				throw new Unreachable();
 			}
+			if (expectedResult.type !== RunResultType.Ok) {
+				Runtime.reportError(expectedResult);
+				assertEquals(expectedResult.type, RunResultType.Ok);
+				throw new Unreachable();
+			}
 			if (!structurallyEq(actualResult, expectedResult)) {
 				const ap = print(actualResult.result);
-				const ep = print((expectedResult as RunOk).result);
+				const ep = print(expectedResult.result);
 				console.error(
 					`%cLine: ${line}\nActual: ${ap}\nExpected: ${ep}`,
 					"color: red"

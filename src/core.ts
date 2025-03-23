@@ -237,9 +237,11 @@ export type Repl = {
 export type VarDecl = {
 	type: AstType.VarDecl;
 	access: Access;
+	assert: boolean;
 	declType?: Ast;
 	pattern: Ast;
 	initExpr: Ast;
+	resolvedType?: Type;
 } & Span;
 
 export type ProcDecl = {
