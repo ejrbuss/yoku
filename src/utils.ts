@@ -52,6 +52,44 @@ export function clamp(n: number, min: number, max: number): number {
 	return Math.max(Math.min(n, max), min);
 }
 
+export class ArrayIter<T> {
+	#array: T[];
+	#position: number;
+
+	constructor(array: T[]) {
+		this.#array = array;
+		this.#position = 0;
+	}
+
+	tryNext(): T | undefined {
+		return this.next();
+	}
+
+	get hasNext(): boolean {
+		return this.#position < this.#array.length;
+	}
+
+	next(): T {
+		return this.#array[this.#position++];
+	}
+
+	take(n: number): T[] {
+		const taken: T[] = [];
+		while (n-- > 0 && this.hasNext) {
+			taken.push(this.next());
+		}
+		return taken;
+	}
+
+	rest(): T[] {
+		return this.#array.slice(this.#position);
+	}
+
+	skip(n: number): void {
+		this.#position += n;
+	}
+}
+
 export type Span = {
 	start: number;
 	end: number;
@@ -82,6 +120,7 @@ function columnOf(source: string, span: Span): number {
 
 function highlight(source: string, span: Span, note?: string): string {
 	// TODO multiline spans
+	// TODO column correction for tabs
 	const column = columnOf(source, span);
 	const line = lineOf(source, span);
 	let lineContents = "";

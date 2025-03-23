@@ -87,3 +87,31 @@ proc f(x: Int, y: Bool) {}
 f(...(1, true))
 const t = (100, false)
 f(...t)
+
+--- test "Inferred Return Type for Proc Declarations" ---
+proc f { 1 }
+const _: () = f()
+const _: Int = f() --> ! TypeError
+
+proc g() { 1 }
+const _: () = g()
+const _: Int = g() --> ! TypeError
+
+proc h() -> { 1 }
+const _: () = h()
+const _: Int = h() --> ! TypeError
+
+--- test "Inferred Return Type For Proc Expression" ---
+const f = proc { 1 }
+const _: Int = f()
+const _: () = f() --> ! TypeError
+
+const g = proc () { 1 }
+const _: Int = g()
+const _: () = g() --> ! TypeError
+
+const h = proc () -> { 1 }
+const _: Int = h()
+const _: () = h() --> ! TypeError
+
+

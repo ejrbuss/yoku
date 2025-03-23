@@ -341,7 +341,7 @@ enum Option[T] {
 -- Modules, import/export
 -- Start Standard Library
 -- Doc comments
--- Annotations (main, deprecated, builtin, external, test)
+-- Annotations (main, deprecated, builtin, external, test, unspecialized, packed, align)
 
 proc owned(t: TypeExpr) -> () { ... }
 

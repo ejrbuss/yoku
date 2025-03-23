@@ -1,4 +1,3 @@
-import { Checkpoint } from "./codesource.ts";
 import {
 	Access,
 	AssertStmt,
@@ -297,8 +296,7 @@ function resolveWhileStmt(r: Resolver, w: WhileStmt): void {
 }
 
 function resolveAssignStmt(r: Resolver, a: AssignStmt): void {
-	for (let j = r.scopes.length - 1; j >= 0; j--) {
-		const scope = r.scopes[j];
+	for (const scope of r.scopes.toReversed()) {
 		const decl = scope.decls[a.id.value];
 		if (decl !== undefined) {
 			if (decl.access === Access.Const) {
@@ -404,8 +402,7 @@ function resolveCallExpr(r: Resolver, c: CallExpr): void {
 function resolveLitExpr(_r: Resolver, _l: LitExpr): void {}
 
 function resolveIdExpr(r: Resolver, i: IdExpr): void {
-	for (let j = r.scopes.length - 1; j >= 0; j--) {
-		const scope = r.scopes[j];
+	for (const scope of r.scopes.toReversed()) {
 		const decl = scope.decls[i.value];
 		if (decl !== undefined) {
 			i.resolvedId = decl.resolvedId;

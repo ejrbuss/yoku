@@ -1,4 +1,4 @@
-import { Span, Unreachable, sexpr } from "./utils.ts";
+import { Span, Unreachable, sexpr, structurallyEq } from "./utils.ts";
 
 type YokuObject = {
 	$type: Type;
@@ -6,7 +6,6 @@ type YokuObject = {
 
 export enum Kind {
 	Primitive = "Primitive",
-	Spread = "Spread",
 	Proc = "Proc",
 	Tuple = "Tuple",
 }
@@ -14,11 +13,6 @@ export enum Kind {
 export type PrimitiveType = {
 	kind: Kind.Primitive;
 	name: string;
-} & YokuObject;
-
-export type SpreadType = {
-	kind: Kind.Spread;
-	spreading: Type;
 } & YokuObject;
 
 export type ProcType = {
@@ -32,7 +26,7 @@ export type TupleType = {
 	items: Type[];
 } & YokuObject;
 
-export type Type = PrimitiveType | SpreadType | ProcType | TupleType;
+export type Type = PrimitiveType | ProcType | TupleType;
 
 const TypeType: Type = {
 	$type: undefined as unknown as Type,
@@ -43,7 +37,6 @@ TypeType.$type = TypeType;
 
 export const Type = {
 	primitive: primitiveType,
-	spread: spreadType,
 	proc: procType,
 	tuple: tupleType,
 	Type: TypeType,
@@ -56,14 +49,12 @@ export const Type = {
 	Never: primitiveType("Never"),
 	print: printType,
 	of: typeOf,
+	assignable,
+	assertable,
 };
 
 function primitiveType(name: string): PrimitiveType {
 	return { $type: TypeType, kind: Kind.Primitive, name };
-}
-
-function spreadType(spreading: Type): SpreadType {
-	return { $type: TypeType, kind: Kind.Spread, spreading };
 }
 
 function procType(params: Type[], returns: Type): ProcType {
@@ -76,18 +67,18 @@ function tupleType(items: Type[]): TupleType {
 
 function printType(t: Type): string {
 	switch (t.kind) {
-		case Kind.Primitive:
+		case Kind.Primitive: {
 			return t.name;
-		case Kind.Spread:
-			return `...${printType(t.spreading)}`;
-		case Kind.Proc:
-			return `proc (${t.params.map(printType).join(", ")}) -> ${printType(
-				t.returns
-			)}`;
-		case Kind.Tuple:
-			return t.items.length === 1
-				? `(${printType(t.items[0])},)`
-				: `(${t.items.map(printType).join(", ")})`;
+		}
+		case Kind.Proc: {
+			const params = t.params.map(printType).join(", ");
+			const returns = printType(t.returns);
+			return `proc (${params}) -> ${returns}`;
+		}
+		case Kind.Tuple: {
+			const items = t.items.map(printType).join(", ");
+			return `(${items})`;
+		}
 	}
 }
 
@@ -113,6 +104,14 @@ function typeOf(v: unknown): Type {
 		return type;
 	}
 	throw new Error(`Cannot find type! ${v}`);
+}
+
+function assignable(from: Type, into: Type): boolean {
+	return into === Type.Any || from === Type.Never || structurallyEq(from, into);
+}
+
+function assertable(from: Type, into: Type): boolean {
+	return from === Type.Any || assignable(from, into);
 }
 
 export type Proc = {
@@ -165,13 +164,13 @@ export function print(v: unknown): string {
 		const name = (v as Proc).name;
 		if (name !== undefined) {
 			return type.replace("proc ", `proc ${name}`);
+		} else {
+			return type;
 		}
-		return type;
 	}
 	if (type.kind === Kind.Tuple) {
-		return (v as Tuple).items.length === 1
-			? `(${print((v as Tuple).items[0])},)`
-			: `(${(v as Tuple).items.map(print).join(", ")})`;
+		const items = (v as Tuple).items.map(print).join(", ");
+		return `(${items}${items.length === 1 ? "," : ""})`;
 	}
 	throw new Unreachable();
 }
@@ -369,7 +368,7 @@ export type ProcParam = {
 export type ProcExpr = {
 	type: AstType.ProcExpr;
 	params: ProcParam[];
-	returnType: Ast;
+	returnType?: Ast;
 	implExpr: BlockExpr;
 	resolvedType?: ProcType;
 	discardReturn?: boolean;

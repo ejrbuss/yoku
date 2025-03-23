@@ -37,7 +37,7 @@ import {
 } from "./core.ts";
 import { Resolver } from "./resolver.ts";
 import { TypeChecker } from "./typechecker.ts";
-import { structurallyEq, Todo, Unreachable } from "./utils.ts";
+import { ArrayIter, structurallyEq, Todo, Unreachable } from "./utils.ts";
 
 export class RuntimeError {
 	constructor(
@@ -104,44 +104,88 @@ function create(r: Resolver, t: TypeChecker, test: boolean): Interpreter {
 	return { inGlobalScope: true, globals, locals: [], closure: [], test };
 }
 
-function storeValue(i: Interpreter, pattern: Ast, value: unknown): void {
-	if (pattern.type === AstType.BinaryExpr) {
-		storeValue(i, pattern.left, value);
-		storeValue(i, pattern.right, value);
-		return;
-	}
-	if (pattern.type === AstType.TupleExpr) {
-		let j = 0;
-		for (const item of pattern.items) {
-			if (item.type === AstType.SpreadExpr) {
-				const spreadType = item.resolvedType as TupleType;
-				const tuple = Tuple.create(spreadType, (value as Tuple).items.slice(j));
-				storeValue(i, item.spreading, tuple);
+function unify(
+	i: Interpreter,
+	pattern: Ast,
+	value: unknown,
+	throwOnFailure: boolean,
+	declType?: Type
+): boolean {
+	// we only bother checking the declType at the top level
+	if (declType !== undefined) {
+		const from = Type.of(value);
+		const into = declType;
+		if (!Type.assignable(from, into)) {
+			if (throwOnFailure) {
+				const i = Type.print(into);
+				const f = print(from);
+				throw new RuntimeError(
+					`Expected type ${i} but found ${f}`,
+					pattern.start,
+					pattern.end
+				);
 			} else {
-				storeValue(i, item, (value as Tuple).items[j++]);
+				return false;
 			}
 		}
-		return;
 	}
+	// pattern.left as pattern.right = value
+	if (pattern.type === AstType.BinaryExpr) {
+		if (!unify(i, pattern.left, value, throwOnFailure)) {
+			return false;
+		}
+		if (!unify(i, pattern.right, value, throwOnFailure)) {
+			return false;
+		}
+		return true;
+	}
+	// (...pattern.items) = (...value.items)
+	if (pattern.type === AstType.TupleExpr) {
+		const tuple = value as Tuple;
+		const patternIter = new ArrayIter(pattern.items);
+		const tupleIter = new ArrayIter(tuple.items);
+		while (patternIter.hasNext) {
+			const item = patternIter.next();
+			if (item.type === AstType.SpreadExpr) {
+				const type = item.resolvedType as TupleType;
+				const value = Tuple.create(type, tupleIter.rest());
+				if (!unify(i, item.spreading, value, throwOnFailure)) {
+					return false;
+				}
+			} else {
+				if (!unify(i, item, tupleIter.next(), throwOnFailure)) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+	// _ = value
 	if (pattern.type === AstType.WildCardExpr) {
-		return;
+		return true;
 	}
+	// pattern = value
 	if (pattern.type === AstType.IdExpr) {
 		const memory = i.inGlobalScope ? i.globals : i.locals;
 		memory[resolveId(pattern)] = value;
-		return;
+		return true;
 	}
+	// "literal" = value
 	if (pattern.type === AstType.LitExpr) {
-		if (pattern.value !== value) {
-			const expected = print(pattern.value);
-			const actual = print(value);
-			throw new RuntimeError(
-				`Expected ${expected} but found ${actual}!`,
-				pattern.start,
-				pattern.end
-			);
+		if (!structurallyEq(pattern.value, value)) {
+			if (throwOnFailure) {
+				const expected = print(pattern.value);
+				const actual = print(value);
+				throw new RuntimeError(
+					`Expected ${expected} but found ${actual}!`,
+					pattern.start,
+					pattern.end
+				);
+			} else {
+				return false;
+			}
 		}
-		return;
+		return true;
 	}
 	throw new Unreachable();
 }
@@ -219,24 +263,12 @@ function interperateRepl(i: Interpreter, r: Repl): unknown {
 
 function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
 	const value = interperate(i, d.initExpr);
-	if (
-		d.assert &&
-		!TypeChecker.assignable(Type.of(value), d.resolvedType as Type)
-	) {
-		const expected = Type.print(d.resolvedType as Type);
-		const actual = print(value);
-		throw new RuntimeError(
-			`Expected type ${expected} but found ${actual}!`,
-			d.initExpr.start,
-			d.initExpr.end
-		);
-	}
-	storeValue(i, d.pattern, value);
+	unify(i, d.pattern, value, true, d.assert ? d.resolvedType : undefined);
 	return null;
 }
 
 function interperateProcDecl(i: Interpreter, p: ProcDecl): unknown {
-	storeValue(i, p.id, interperate(i, p.initExpr));
+	unify(i, p.id, interperate(i, p.initExpr), true);
 	return null;
 }
 
@@ -380,28 +412,12 @@ function interperateGroupExpr(i: Interpreter, g: GroupExpr): unknown {
 function interperateIfExpr(i: Interpreter, f: IfExpr): unknown {
 	if (f.pattern !== undefined) {
 		const value = interperate(i, f.testExpr);
-		if (
-			f.resolvedDeclType !== undefined &&
-			!TypeChecker.assignable(Type.of(value), f.resolvedDeclType)
-		) {
-			if (f.elseExpr !== undefined) {
-				return interperate(i, f.elseExpr);
-			} else {
-				return null;
-			}
-		}
-		try {
-			storeValue(i, f.pattern, value);
+		if (unify(i, f.pattern, value, false, f.resolvedDeclType)) {
 			return interperate(i, f.thenExpr);
-		} catch (error) {
-			if (error instanceof RuntimeError) {
-				if (f.elseExpr !== undefined) {
-					return interperate(i, f.elseExpr);
-				} else {
-					return null;
-				}
-			}
-			throw error;
+		} else if (f.elseExpr !== undefined) {
+			return interperate(i, f.elseExpr);
+		} else {
+			return null;
 		}
 	} else {
 		if (interperate(i, f.testExpr)) {
@@ -420,25 +436,13 @@ function interperateMatchExpr(i: Interpreter, m: MatchExpr): unknown {
 		value = interperate(i, m.testExpr);
 	}
 	for (const c of m.cases) {
-		if (
-			c.resolvedDeclType !== undefined &&
-			!TypeChecker.assignable(Type.of(value), c.resolvedDeclType)
-		) {
-			continue;
-		}
 		if (c.pattern !== undefined) {
-			try {
-				storeValue(i, c.pattern, value);
-			} catch (error) {
-				if (error instanceof RuntimeError) {
-					continue;
-				}
-				throw error;
+			if (!unify(i, c.pattern, value, false, c.resolvedDeclType)) {
+				continue;
 			}
 		}
 		if (c.testExpr !== undefined) {
-			const test = interperate(i, c.testExpr);
-			if (!test) {
+			if (!interperate(i, c.testExpr)) {
 				continue;
 			}
 		}
@@ -457,8 +461,10 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 		i.closure = closure;
 		i.inGlobalScope = false;
 		try {
-			for (let j = 0; j < p.params.length; j++) {
-				storeValue(i, p.params[j].pattern, args[j] ?? null);
+			const paramsIter = new ArrayIter(p.params);
+			const argsIter = new ArrayIter(args);
+			while (paramsIter.hasNext) {
+				unify(i, paramsIter.next().pattern, argsIter.next(), true);
 			}
 			const value = interperate(i, p.implExpr);
 			return p.discardReturn ? null : value;
@@ -609,7 +615,7 @@ function interperateIdExpr(i: Interpreter, id: IdExpr): unknown {
 
 function resolveId(id: IdExpr): number {
 	if (id.resolvedId === undefined) {
-		throw new Error(`Unresolved id! ${JSON.stringify(id)}`);
+		throw new Error(`Unresolved id! ${Ast.print(id)}`);
 	}
 	return id.resolvedId;
 }

@@ -22,7 +22,7 @@ async function main(args: string[]) {
 	}
 }
 
-async function runPrompt(rt: Runtime): void {
+async function runPrompt(rt: Runtime): Promise<void> {
 	const readline = createInterface(stdin, stdout);
 	const s = CodeSource.fromString("", "repl");
 	let needsMoreInput = false;

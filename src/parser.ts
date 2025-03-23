@@ -31,7 +31,7 @@ import {
 	Case,
 } from "./core.ts";
 import { CodeSource } from "./codesource.ts";
-import { Unreachable } from "./utils.ts";
+import { Todo, Unreachable } from "./utils.ts";
 
 type TokenMatcher = TokenType | string;
 
@@ -59,7 +59,7 @@ function parse(source: CodeSource, replMode?: boolean) {
 	const tokens = Tokenizer.tokenize(source);
 	for (const token of tokens) {
 		if (token.type === TokenType.Error) {
-			throw new ParseError(token.note ?? "_", false, token.start, token.end);
+			throw new ParseError(token.note as string, false, token.start, token.end);
 		}
 	}
 	const p: Parser = { tokens, position: 0, starts: [] };
@@ -71,7 +71,7 @@ function parse(source: CodeSource, replMode?: boolean) {
 			return parseModule(p, source.path);
 		}
 	} catch (error) {
-		if (replMode && error instanceof ParseError && error.needsMoreInput) {
+		if (error instanceof ParseError && error.needsMoreInput) {
 			CodeSource.restore(source, c);
 		}
 		throw error;
@@ -195,10 +195,7 @@ function parseVarDecl(p: Parser): VarDecl {
 	}
 	const assert = match(p, "assert") !== undefined;
 	const pattern = parsePattern(p);
-	let declType: undefined | Ast;
-	if (match(p, ":")) {
-		declType = parseTypeExpr(p);
-	}
+	const declType = tryParseTypeAnnotation(p);
 	consume(p, "=");
 	const initExpr = parseExpr(p);
 	return {
@@ -543,19 +540,19 @@ function parseCall(p: Parser): Ast {
 		if (match(p, "(")) {
 			const args: Ast[] = [];
 			while (hasMore(p) && !lookAhead(p, ")")) {
-				const arg = parseExpr(p);
-				args.push(arg);
-				if (args.length > 255) {
-					throw new ParseError(
-						"More than 255 arguments!",
-						false,
-						arg.start,
-						arg.end
-					);
-				}
+				args.push(parseExpr(p));
 				if (!lookAhead(p, ")")) {
 					consume(p, ",");
 				}
+			}
+			if (args.length > 255) {
+				const arg = args[256];
+				throw new ParseError(
+					"More than 255 arguments!",
+					false,
+					arg.start,
+					arg.end
+				);
 			}
 			consume(p, ")");
 			expr = {
@@ -683,9 +680,7 @@ function parseIfExpr(p: Parser): IfExpr {
 	let declType: undefined | Ast;
 	if (match(p, "assert")) {
 		pattern = parsePattern(p);
-		if (match(p, ":")) {
-			declType = parseTypeExpr(p);
-		}
+		declType = tryParseTypeAnnotation(p);
 		consume(p, "=");
 	}
 	const testExpr = parseExpr(p);
@@ -732,10 +727,7 @@ function parseMatchExpr(p: Parser): MatchExpr {
 			cases.push({ testExpr, thenExpr });
 		} else {
 			const pattern = parsePattern(p);
-			let declType: undefined | Ast;
-			if (match(p, ":")) {
-				declType = parseTypeExpr(p);
-			}
+			const declType = tryParseTypeAnnotation(p);
 			let testExpr: undefined | Ast;
 			if (match(p, "if")) {
 				testExpr = parseExpr(p);
@@ -758,36 +750,29 @@ function parseMatchExpr(p: Parser): MatchExpr {
 function parseProcExpr(p: Parser): ProcExpr {
 	pushStart(p);
 	match(p, "proc");
-	consume(p, "(");
 	const params: ProcParam[] = [];
-	while (hasMore(p) && !lookAhead(p, ")")) {
-		const pattern = parsePattern(p);
-		consume(p, ":");
-		const type = parseTypeExpr(p);
-		params.push({ pattern, type });
-		if (params.length > 255) {
-			throw new ParseError(
-				"More than 255 parameters!",
-				false,
-				pattern.start,
-				pattern.end
-			);
+	if (match(p, "(")) {
+		while (hasMore(p) && !lookAhead(p, ")")) {
+			const pattern = parsePattern(p);
+			const type = parseTypeAnnotation(p);
+			params.push({ pattern, type });
+			if (params.length > 255) {
+				throw new ParseError(
+					"More than 255 parameters!",
+					false,
+					pattern.start,
+					pattern.end
+				);
+			}
+			if (!lookAhead(p, ")")) {
+				consume(p, ",");
+			}
 		}
-		if (!lookAhead(p, ")")) {
-			consume(p, ",");
-		}
+		consume(p, ")");
 	}
-	consume(p, ")");
-	let returnType: Ast;
-	if (match(p, "->")) {
+	let returnType: undefined | Ast;
+	if (match(p, "->") && !lookAhead(p, "{")) {
 		returnType = parseTypeExpr(p);
-	} else {
-		returnType = {
-			type: AstType.TupleExpr,
-			items: [],
-			start: getEnd(p),
-			end: getEnd(p),
-		};
 	}
 	const implExpr = parseBlockExpr(p);
 	return {
@@ -820,6 +805,18 @@ function parseIdExpr(p: Parser): IdExpr {
 	};
 }
 
+function tryParseTypeAnnotation(p: Parser): Ast | undefined {
+	if (lookAhead(p, ":")) {
+		return parseTypeAnnotation(p);
+	}
+	return undefined;
+}
+
+function parseTypeAnnotation(p: Parser): Ast {
+	consume(p, ":");
+	return parseTypeExpr(p);
+}
+
 function parseTypeExpr(p: Parser): Ast {
 	if (lookAhead(p, "proc")) {
 		return parseProcTypeExpr(p);
@@ -845,18 +842,18 @@ function parseProcTypeExpr(p: Parser): ProcTypeExpr {
 		} else {
 			params.push(parseTypeExpr(p));
 		}
-		if (params.length > 255) {
-			const param = params[256];
-			throw new ParseError(
-				"More than 255 parameters!",
-				false,
-				param.start,
-				param.end
-			);
-		}
 		if (!lookAhead(p, ")")) {
 			consume(p, ",");
 		}
+	}
+	if (params.length > 255) {
+		const param = params[256];
+		throw new ParseError(
+			"More than 255 parameters!",
+			false,
+			param.start,
+			param.end
+		);
 	}
 	consume(p, ")");
 	consume(p, "->");
