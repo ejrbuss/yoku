@@ -362,7 +362,7 @@ export type MatchExpr = {
 
 export type ProcParam = {
 	pattern: Ast;
-	type: Ast;
+	declType?: Ast;
 };
 
 export type ProcExpr = {

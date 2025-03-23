@@ -114,4 +114,15 @@ const h = proc () -> { 1 }
 const _: Int = h()
 const _: () = h() --> ! TypeError
 
+--- test "Inferred Parameters For Proc Expressions" ---
+type F = proc (Int, Bool) -> Str
+const f: F = proc (a, b) -> { "test" }
+const f: F = proc (a, b) -> { 4 } --> ! TypeError
+const f: F = proc (a) -> { "test" } --> ! TypeError
+const f: F = proc (a, b, c) -> { "test" } --> ! TypeError
 
+proc g(p: proc (Bool) -> Int) {}
+g(proc (x) -> { 4 })
+g(proc () -> { 4 }) --> ! TypeError
+g(proc (x, y) -> { 4 }) --> ! TypeError
+g(proc (x) -> { true }) --> ! TypeError

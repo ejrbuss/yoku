@@ -241,7 +241,14 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
 	}
 	const params: Type[] = [];
 	for (const param of p.initExpr.params) {
-		const paramType = reifyType(t, param.type);
+		if (param.declType === undefined) {
+			throw new TypeError(
+				"Params in proc declarations require type annotations!",
+				param.pattern.start,
+				param.pattern.end
+			);
+		}
+		const paramType = reifyType(t, param.declType);
 		storeTypes(t, param.pattern, paramType);
 		params.push(paramType);
 	}
@@ -424,12 +431,35 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: Type): Type {
 	return union(caseTypes);
 }
 
-function checkProcExpr(t: TypeChecker, p: ProcExpr, _d?: Type): Type {
+function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: Type): Type {
 	const params: Type[] = [];
 	for (const param of p.params) {
-		const paramType = reifyType(t, param.type);
-		storeTypes(t, param.pattern, paramType);
-		params.push(paramType);
+		if (param.declType === undefined) {
+			if (d === undefined) {
+				throw new TypeError(
+					"Params require type annotations if there is no desintation type!",
+					param.pattern.start,
+					param.pattern.end
+				);
+			}
+			// TODO Fix this total hack of a solution ;_;
+			if (d.kind !== Kind.Proc || d.params.length !== p.params.length) {
+				const dt = Type.print(d);
+				throw new TypeError(
+					`Cannot refer param type from destination type ${dt}!`,
+					param.pattern.start,
+					param.pattern.end
+				);
+			}
+			const i = p.params.indexOf(param);
+			const paramType = d.params[i];
+			storeTypes(t, param.pattern, paramType);
+			params.push(paramType);
+		} else {
+			const paramType = reifyType(t, param.declType);
+			storeTypes(t, param.pattern, paramType);
+			params.push(paramType);
+		}
 	}
 	let returns: Type = Type.Unit;
 	if (p.returnType !== undefined) {

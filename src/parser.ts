@@ -754,8 +754,8 @@ function parseProcExpr(p: Parser): ProcExpr {
 	if (match(p, "(")) {
 		while (hasMore(p) && !lookAhead(p, ")")) {
 			const pattern = parsePattern(p);
-			const type = parseTypeAnnotation(p);
-			params.push({ pattern, type });
+			const declType = tryParseTypeAnnotation(p);
+			params.push({ pattern, declType });
 			if (params.length > 255) {
 				throw new ParseError(
 					"More than 255 parameters!",
