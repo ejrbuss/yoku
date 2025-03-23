@@ -1,0 +1,111 @@
+--- mode Repl ---
+
+--- test "Variable Declarations" ---
+z --> ! ResolutionError
+var x = true
+x --> true
+const y = 12
+y --> 12
+
+--- test "Tuple destructuring" ---
+const (x, y, z) = (1, 2, 3)
+(x, y, z) --> (1, 2, 3)
+const (x, y) = (true, 1, 4) --> ! ResolutionError
+
+--- test "Assignment" ---
+var a = "before"
+a --> "before"
+a = "after"
+a --> "after"
+a = 4 --> ! TypeError
+const b = "constant"
+b = "oops!" --> ! ResolutionError
+
+--- test "Block Scope" ---
+var collector = ""
+do {
+	const a = "outer"
+	do {
+		const a = "inner"
+		collector = cat(collector, a)
+	}
+	collector = cat(collector, a)
+}
+collector --> "innerouter"
+
+--- test "Cannot Shadow Globals" ---
+const x = 5
+const x = 10 --> ! ResolutionError
+do {
+	const x = 7
+} --> ! ResolutionError
+
+--- test "If Statements" ---
+if true { "then" } else { explode() } --> "then"
+if false { explode() } else { "else" } --> "else"
+const x = if 3 > 4 { "a" } else { "b"; "c" }
+x --> "c"
+
+--- test "Loop Statments" ---
+var count = 0
+var secret = 0
+loop {
+	if count > 10 {
+		break
+	}
+	count = count + 1
+	if (count > 5) {
+		continue
+	}
+	secret = secret + 1
+}
+count --> 11
+secret --> 5
+
+loop outer {
+	loop inner {
+		break outer
+	}
+}
+
+--- test "While Statements" ---
+var count = 0
+while count < 10 {
+	count = count + 1
+}
+count --> 10
+
+var secret = 0
+while count < 20 {
+	count = count + 1
+	if (count < 15) {
+		continue
+	}
+	secret = secret + 1
+}
+secret --> 6
+
+--- test "Combining Loops" ---
+var counter = 1
+loop outer {
+	while true {
+		counter = counter + 1
+		if counter < 5 {
+			continue
+		}
+		loop inner {
+			break outer
+		}
+	}
+}
+counter --> 5
+
+--- test "Invalid Control Flow" ---
+break --> ! ResolutionError
+continue --> ! ResolutionError
+loop {
+	break outer
+} --> ! ResolutionError
+while true {
+	continue outer
+} --> ! ResolutionError

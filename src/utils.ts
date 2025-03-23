@@ -81,11 +81,11 @@ function columnOf(source: string, span: Span): number {
 }
 
 function highlight(source: string, span: Span, note?: string): string {
+	// TODO multiline spans
 	const column = columnOf(source, span);
 	const line = lineOf(source, span);
 	let lineContents = "";
 	for (let i = 0; i < source.length; i++) {
-		// TODO multiline spans
 		if (source[i] === "\n") {
 			if (i >= span.end) {
 				break;
@@ -104,13 +104,18 @@ function highlight(source: string, span: Span, note?: string): string {
 	// 	note,
 	// });
 	const prefix = ` ${line + 1} | `;
-	const padding = `${" ".repeat(prefix.length - 2)}| ${" ".repeat(column)}`;
+	let padding = `${" ".repeat(prefix.length - 2)}| ${" ".repeat(column)}`;
 	const spanLength = clamp(
 		span.end - span.start,
 		1,
 		lineContents.length - column
 	);
 	const highlight = "^".repeat(spanLength);
+	for (let i = prefix.length; i < padding.length; i++) {
+		if (lineContents[i - prefix.length] === "\t") {
+			padding = padding.substring(0, i) + "\t" + padding.substring(i + 1);
+		}
+	}
 	if (note !== undefined) {
 		return `${padding}\n${prefix}${lineContents}\n${padding}${highlight}\n${padding}${note}`;
 	} else {

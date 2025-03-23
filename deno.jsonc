@@ -3,6 +3,7 @@
 		"strict": true
 	},
 	"tasks": {
-		"test": "deno test --allow-read"
+		"test": "deno test --allow-read",
+		"run": "deno ./src/yoku.ts"
 	}
 }

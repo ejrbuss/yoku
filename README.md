@@ -263,12 +263,6 @@ trait Hash {
 
 ### Mini TODO
 ```yoku
--- test suite that actually runs examples
--- expressions
-
--- Implicit Unit
-proc hi() { print("hi!") }
-
 -- basic assert and test
 assert 4 == 4
 test "name" {

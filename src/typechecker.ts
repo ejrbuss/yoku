@@ -18,6 +18,7 @@ import {
 	Module,
 	ProcDecl,
 	ProcExpr,
+	Repl,
 	ReturnStmt,
 	TupleExpr,
 	Type,
@@ -108,6 +109,8 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 	switch (ast.type) {
 		case AstType.Module:
 			return checkModule(t, ast, d);
+		case AstType.Repl:
+			return checkRepl(t, ast, d);
 		case AstType.VarDecl:
 			return checkVarDecl(t, ast, d);
 		case AstType.ProcDecl:
@@ -152,11 +155,18 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 }
 
 function checkModule(t: TypeChecker, m: Module, _d?: Type): Type {
-	let acc: Type = Type.Unit;
 	for (const decl of m.decls) {
-		acc = check(t, decl);
+		check(t, decl);
 	}
-	return acc; // TODO this is a hack for repl
+	return Type.Unit;
+}
+
+function checkRepl(t: TypeChecker, r: Repl, d?: Type): Type {
+	let acc: Type = Type.Unit;
+	for (const line of r.lines) {
+		acc = check(t, line, d);
+	}
+	return acc;
 }
 
 function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: Type): Type {
@@ -228,7 +238,7 @@ function checkLoopStmt(t: TypeChecker, l: LoopStmt, _d?: Type): Type {
 
 function checkWhileStmt(t: TypeChecker, w: WhileStmt, _d?: Type): Type {
 	const testType = check(t, w.testExpr, Type.Bool);
-	if (assignable(testType, Type.Bool)) {
+	if (!assignable(testType, Type.Bool)) {
 		const found = Type.print(testType);
 		throw new TypeError(
 			`Type ${found} cannot be used as condition!`,
@@ -274,7 +284,7 @@ function checkGroupExpr(t: TypeChecker, g: GroupExpr, d?: Type): Type {
 
 function checkIfExpr(t: TypeChecker, i: IfExpr, d?: Type): Type {
 	const testType = check(t, i.testExpr, Type.Bool);
-	if (assignable(testType, Type.Bool)) {
+	if (!assignable(testType, Type.Bool)) {
 		const found = Type.print(testType);
 		throw new TypeError(
 			`Type ${found} cannot be used as condition!`,
@@ -350,7 +360,8 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: Type): Type {
 		case BinaryOp.NotEq:
 		case BinaryOp.Id:
 		case BinaryOp.NotId: {
-			return checkBinaryExprHelper(t, b, [check(t, b.left)]);
+			checkBinaryExprHelper(t, b, [check(t, b.left)]);
+			return Type.Bool;
 		}
 		case BinaryOp.Default:
 		case BinaryOp.Member: {
@@ -471,7 +482,7 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: Type): Type {
 	}
 	for (let i = 0; i < procType.params.length; i++) {
 		const paramType = procType.params[i];
-		const argType = check(t, c.args[i]);
+		const argType = check(t, c.args[i], paramType);
 		if (!assignable(argType, paramType)) {
 			const found = Type.print(argType);
 			const declared = Type.print(paramType);
@@ -531,5 +542,5 @@ function reifyType(t: TypeChecker, ast: Ast): Type {
 }
 
 function assignable(from: Type, into: Type): boolean {
-	return into === Type.Any || structurallyEq(from, into);
+	return into === Type.Any || from === Type.Never || structurallyEq(from, into);
 }

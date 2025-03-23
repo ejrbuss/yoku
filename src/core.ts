@@ -46,6 +46,7 @@ export const Type = {
 	Float: primitiveType("Float"),
 	Str: primitiveType("Str"),
 	Any: primitiveType("Any"),
+	Never: primitiveType("Never"),
 	print: printType,
 	of: typeOf,
 };
@@ -132,7 +133,7 @@ export function print(v: unknown): string {
 		return "()";
 	}
 	if (type === Type.Bool) {
-		return (v as boolean) ? "True" : "False";
+		return (v as boolean).toString();
 	}
 	if (type === Type.Int) {
 		return (v as bigint).toString();
@@ -196,6 +197,7 @@ export enum Access {
 
 export enum AstType {
 	Module = "Module",
+	Repl = "Repl",
 	VarDecl = "VarDecl",
 	ProcDecl = "ProcDecl",
 	BreakStmt = "BreakStmt",
@@ -222,6 +224,11 @@ export type Module = {
 	type: AstType.Module;
 	id: string;
 	decls: Ast[];
+} & Span;
+
+export type Repl = {
+	type: AstType.Repl;
+	lines: Ast[];
 } & Span;
 
 export type VarDecl = {
@@ -350,6 +357,7 @@ export type ProcTypeExpr = {
 
 export type Ast =
 	| Module
+	| Repl
 	| VarDecl
 	| ProcDecl
 	| BreakStmt

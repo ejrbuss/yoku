@@ -17,6 +17,7 @@ import {
 	Module,
 	ProcDecl,
 	ProcExpr,
+	Repl,
 	ReturnStmt,
 	TupleExpr,
 	UnaryExpr,
@@ -105,6 +106,8 @@ function resolve(r: Resolver, ast: Ast): void {
 	switch (ast.type) {
 		case AstType.Module:
 			return resolveModule(r, ast);
+		case AstType.Repl:
+			return resolveRepl(r, ast);
 		case AstType.VarDecl:
 			return resolveVarDecl(r, ast);
 		case AstType.ProcDecl:
@@ -153,6 +156,12 @@ function resolveModule(r: Resolver, m: Module): void {
 	// scope needs to be enforced.
 	for (const decl of m.decls) {
 		resolve(r, decl);
+	}
+}
+
+function resolveRepl(r: Resolver, e: Repl): void {
+	for (const line of e.lines) {
+		resolve(r, line);
 	}
 }
 
@@ -224,8 +233,10 @@ function resolveLoopStmt(r: Resolver, l: LoopStmt): void {
 }
 
 function resolveWhileStmt(r: Resolver, w: WhileStmt): void {
+	r.loopStack.push(undefined);
 	resolve(r, w.testExpr);
 	resolve(r, w.thenExpr);
+	r.loopStack.pop();
 }
 
 function resolveExprStmt(r: Resolver, e: ExprStmt): void {

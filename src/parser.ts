@@ -1,4 +1,4 @@
-import { Token, TokenType } from "./tokens.ts";
+import { Token, Tokenizer, TokenType } from "./tokens.ts";
 import {
 	Ast,
 	AstType,
@@ -20,7 +20,10 @@ import {
 	WhileStmt,
 	LoopStmt,
 	TupleExpr,
+	Repl,
 } from "./core.ts";
+import { CodeSource } from "./codesource.ts";
+import { tokenize } from "jsr:@std/internal@^1.0.5/diff-str";
 
 type TokenMatcher = TokenType | string;
 
@@ -33,6 +36,7 @@ type Parser = {
 export class ParseError extends Error {
 	constructor(
 		readonly note: string,
+		readonly needsMoreInput: boolean,
 		readonly start: number,
 		readonly end: number
 	) {
@@ -42,21 +46,35 @@ export class ParseError extends Error {
 
 export const Parser = { parse };
 
-function parse(moduleId: string, tokens: Token[]): Module {
+function parse(source: CodeSource, replMode?: boolean) {
+	const c = CodeSource.checkpoint(source);
+	const tokens = Tokenizer.tokenize(source);
+	for (const token of tokens) {
+		if (token.type === TokenType.Error) {
+			throw new ParseError(token.note ?? "_", false, token.start, token.end);
+		}
+	}
 	const p: Parser = { tokens, position: 0, starts: [] };
-	return parseModule(p, moduleId);
+	try {
+		if (replMode) {
+			return parseRepl(p);
+		} else {
+			// TODO how should module ID relate to path?
+			return parseModule(p, source.path);
+		}
+	} catch (error) {
+		if (replMode && error instanceof ParseError && error.needsMoreInput) {
+			CodeSource.restore(source, c);
+		}
+		throw error;
+	}
 }
 
 function parseModule(p: Parser, moduleId: string): Module {
 	pushStart(p);
 	const decls: Ast[] = [];
 	while (hasMore(p)) {
-		decls.push(parseStmt(p));
-		if (!hasMore(p) || lookBehind(p, "}")) {
-			match(p, ";");
-		} else {
-			consume(p, ";", 'Expected ";" following declaration!');
-		}
+		decls.push(parseDecl(p));
 	}
 	return {
 		type: AstType.Module,
@@ -65,6 +83,42 @@ function parseModule(p: Parser, moduleId: string): Module {
 		start: popStart(p),
 		end: getEnd(p),
 	};
+}
+
+function parseRepl(p: Parser): Repl {
+	pushStart(p);
+	const lines: Ast[] = [];
+	while (hasMore(p)) {
+		const start = p.position;
+		try {
+			lines.push(parseDecl(p));
+		} catch {
+			p.position = start;
+			lines.push(parseStmt(p));
+		}
+	}
+	return {
+		type: AstType.Repl,
+		lines,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseDecl(p: Parser): Ast {
+	if (lookAhead(p, "var") || lookAhead(p, "const")) {
+		return parseVarDecl(p);
+	}
+	if (lookAhead(p, "proc") && lookAhead(p, TokenType.Id, 1)) {
+		return parseProcDecl(p);
+	}
+	const t = lookBehind(p);
+	throw new ParseError(
+		`Expected declaration!`,
+		!hasMore(p),
+		t?.start ?? getEnd(p),
+		t?.end ?? getEnd(p)
+	);
 }
 
 function parseStmt(p: Parser): Ast {
@@ -152,7 +206,7 @@ function parseReturnStmt(p: Parser): ReturnStmt {
 	pushStart(p);
 	consume(p, "return");
 	let expr: Ast | undefined;
-	if (!lookAhead(p, ";") && !lookAhead(p, "}")) {
+	if (!lookAhead(p, "}")) {
 		expr = parseExpr(p);
 	}
 	return {
@@ -193,6 +247,7 @@ function parseAssignStmt(p: Parser): Ast {
 		} else {
 			throw new ParseError(
 				"Invalid assignment target!",
+				false,
 				target.start,
 				target.end
 			);
@@ -400,7 +455,12 @@ function parseCall(p: Parser): Ast {
 				const arg = parseExpr(p);
 				args.push(arg);
 				if (args.length > 255) {
-					throw new ParseError("More than 255 arguments!", arg.start, arg.end);
+					throw new ParseError(
+						"More than 255 arguments!",
+						false,
+						arg.start,
+						arg.end
+					);
 				}
 				if (!lookAhead(p, ")")) {
 					consume(p, ",");
@@ -420,7 +480,12 @@ function parseCall(p: Parser): Ast {
 				right.type !== AstType.IdExpr &&
 				(right.type !== AstType.LitExpr || typeof right.value !== "bigint")
 			) {
-				throw new ParseError("Expected Id or Int!", right.start, right.end);
+				throw new ParseError(
+					"Expected Id or Int!",
+					false,
+					right.start,
+					right.end
+				);
 			}
 			expr = {
 				type: AstType.BinaryExpr,
@@ -508,11 +573,7 @@ function parseBlockExpr(p: Parser): BlockExpr {
 	const stmts: Ast[] = [];
 	while (hasMore(p) && !lookAhead(p, "}")) {
 		stmts.push(parseStmt(p));
-		if (lookAhead(p, "}") || lookBehind(p, "}")) {
-			match(p, ";");
-		} else {
-			consume(p, ";", 'Expected ";" following statement!');
-		}
+		match(p, ";");
 	}
 	consume(p, "}");
 	return {
@@ -557,15 +618,29 @@ function parseProcExpr(p: Parser): ProcExpr {
 		const type = parseTypeExpr(p);
 		params.push({ id, type });
 		if (params.length > 255) {
-			throw new ParseError("More than 255 parameters!", id.start, id.end);
+			throw new ParseError(
+				"More than 255 parameters!",
+				false,
+				id.start,
+				id.end
+			);
 		}
 		if (!lookAhead(p, ")")) {
 			consume(p, ",");
 		}
 	}
 	consume(p, ")");
-	consume(p, "->");
-	const returnType = parseTypeExpr(p);
+	let returnType: Ast;
+	if (match(p, "->")) {
+		returnType = parseTypeExpr(p);
+	} else {
+		returnType = {
+			type: AstType.TupleExpr,
+			items: [],
+			start: getEnd(p),
+			end: getEnd(p),
+		};
+	}
 	const implExpr = parseBlockExpr(p);
 	return {
 		type: AstType.ProcExpr,
@@ -606,7 +681,12 @@ function parseProcTypeExpr(p: Parser): ProcTypeExpr {
 		const param = parseTypeExpr(p);
 		params.push(param);
 		if (params.length > 255) {
-			throw new ParseError("More than 255 parameters!", param.start, param.end);
+			throw new ParseError(
+				"More than 255 parameters!",
+				false,
+				param.start,
+				param.end
+			);
 		}
 		if (!lookAhead(p, ")")) {
 			consume(p, ",");
@@ -681,11 +761,7 @@ function matches(t: Token | undefined, m?: TokenMatcher): boolean {
 }
 
 function lookBehind(p: Parser, m?: TokenMatcher): Token | undefined {
-	const token = p.tokens[p.position - 1];
-	if (matches(token, m)) {
-		return token;
-	}
-	return undefined;
+	return lookAhead(p, m, -1);
 }
 
 function lookAhead(
@@ -701,7 +777,7 @@ function lookAhead(
 }
 
 function match(p: Parser, m?: TokenMatcher): Token | undefined {
-	const token = p.tokens[p.position];
+	const token = lookAhead(p);
 	if (matches(token, m)) {
 		p.position++;
 		return token;
@@ -710,7 +786,7 @@ function match(p: Parser, m?: TokenMatcher): Token | undefined {
 }
 
 function consume(p: Parser, m?: TokenMatcher, note?: string): Token {
-	const token = p.tokens[p.position];
+	const token = lookAhead(p);
 	if (matches(token, m)) {
 		p.position++;
 		return token as Token;
@@ -725,11 +801,16 @@ function consume(p: Parser, m?: TokenMatcher, note?: string): Token {
 		}
 	}
 	const end = getEnd(p);
-	throw new ParseError(note, token?.start ?? end, token?.end ?? end);
+	throw new ParseError(
+		note,
+		!hasMore(p),
+		token?.start ?? end,
+		token?.end ?? end
+	);
 }
 
 function pushStart(p: Parser): void {
-	p.starts.push(p.tokens[p.position].start);
+	p.starts.push(lookAhead(p)?.start ?? 0);
 }
 
 function popStart(p: Parser): number {
@@ -737,5 +818,5 @@ function popStart(p: Parser): number {
 }
 
 function getEnd(p: Parser): number {
-	return p.tokens[p.position - 1]?.end ?? 0;
+	return lookBehind(p)?.end ?? 0;
 }

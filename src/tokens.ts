@@ -1,3 +1,4 @@
+import { CodeSource } from "./codesource.ts";
 import { Span } from "./utils.ts";
 
 export enum TokenType {
@@ -69,246 +70,225 @@ const Digits = {
 	hex: "0123456789abcdefABCDEF",
 };
 
-type Tokenizer = {
-	source: string;
-	start: number;
-	end: number;
-};
+export const Tokenizer = { tokenize, nextToken };
 
-export const Tokenizer = { tokenize };
-
-function tokenize(source: string): Token[] {
+function tokenize(s: CodeSource): Token[] {
 	const tokens: Token[] = [];
-	const t: Tokenizer = { source, start: 0, end: 0 };
-	while (hasMore(t)) {
-		const token = nextToken(t);
-		if (token !== undefined) {
-			tokens.push(token);
-		}
+	let t = nextToken(s);
+	while (t !== undefined) {
+		tokens.push(t);
+		t = nextToken(s);
 	}
 	return tokens;
 }
 
-function nextToken(t: Tokenizer): Token | undefined {
-	t.start = t.end;
-	if (match(t, "---")) {
-		while (hasMore(t) && !match(t, "---")) {
-			t.end++;
-		}
-		return tokenHere(t, TokenType.Doc);
-	}
-	if (match(t, "--")) {
-		while (hasMore(t) && !match(t, "\n")) {
-			t.end++;
-		}
+function nextToken(s: CodeSource): Token | undefined {
+	if (!CodeSource.hasMore(s)) {
 		return undefined;
 	}
-	if (
-		match(t, "->") ||
-		match(t, "=>") ||
-		match(t, "(") ||
-		match(t, ")") ||
-		match(t, "[") ||
-		match(t, "]") ||
-		match(t, "{") ||
-		match(t, "}") ||
-		match(t, ",") ||
-		match(t, ";") ||
-		match(t, "@") ||
-		match(t, ":")
-	) {
-		return tokenHere(t, TokenType.Punc);
+	CodeSource.startScan(s);
+	if (CodeSource.match(s, "---")) {
+		while (CodeSource.hasMore(s) && !CodeSource.match(s, "---")) {
+			CodeSource.consume(s);
+		}
+		// TODO Doc comments
+		return nextToken(s);
+	}
+	if (CodeSource.match(s, "--")) {
+		while (CodeSource.hasMore(s) && !CodeSource.match(s, "\n")) {
+			CodeSource.consume(s);
+		}
+		return nextToken(s);
 	}
 	if (
-		match(t, "...") ||
-		match(t, ".") ||
-		match(t, "===") ||
-		match(t, "!==") ||
-		match(t, "==") ||
-		match(t, "!=") ||
-		match(t, "=") ||
-		match(t, "<=") ||
-		match(t, ">=") ||
-		match(t, "+=") ||
-		match(t, "-=") ||
-		match(t, "*=") ||
-		match(t, "/=") ||
-		match(t, "%=") ||
-		match(t, "&=") ||
-		match(t, "|=") ||
-		match(t, "?=") ||
-		match(t, "<") ||
-		match(t, ">") ||
-		match(t, "+") ||
-		match(t, "-") ||
-		match(t, "*") ||
-		match(t, "/") ||
-		match(t, "%") ||
-		match(t, "^") ||
-		match(t, "&") ||
-		match(t, "|") ||
-		match(t, "?") ||
-		match(t, "!")
+		CodeSource.match(s, "->") ||
+		CodeSource.match(s, "=>") ||
+		CodeSource.match(s, "(") ||
+		CodeSource.match(s, ")") ||
+		CodeSource.match(s, "[") ||
+		CodeSource.match(s, "]") ||
+		CodeSource.match(s, "{") ||
+		CodeSource.match(s, "}") ||
+		CodeSource.match(s, ",") ||
+		CodeSource.match(s, ";") ||
+		CodeSource.match(s, "@") ||
+		CodeSource.match(s, ":")
 	) {
-		return tokenHere(t, TokenType.Op);
+		return tokenHere(s, TokenType.Punc);
 	}
-	if (match(t, "0b")) {
-		return nextIntLiteral(t, Digits.bin, "0b");
+	if (
+		CodeSource.match(s, "...") ||
+		CodeSource.match(s, ".") ||
+		CodeSource.match(s, "===") ||
+		CodeSource.match(s, "!==") ||
+		CodeSource.match(s, "==") ||
+		CodeSource.match(s, "!=") ||
+		CodeSource.match(s, "=") ||
+		CodeSource.match(s, "<=") ||
+		CodeSource.match(s, ">=") ||
+		CodeSource.match(s, "+=") ||
+		CodeSource.match(s, "-=") ||
+		CodeSource.match(s, "*=") ||
+		CodeSource.match(s, "/=") ||
+		CodeSource.match(s, "%=") ||
+		CodeSource.match(s, "&=") ||
+		CodeSource.match(s, "|=") ||
+		CodeSource.match(s, "?=") ||
+		CodeSource.match(s, "<") ||
+		CodeSource.match(s, ">") ||
+		CodeSource.match(s, "+") ||
+		CodeSource.match(s, "-") ||
+		CodeSource.match(s, "*") ||
+		CodeSource.match(s, "/") ||
+		CodeSource.match(s, "%") ||
+		CodeSource.match(s, "^") ||
+		CodeSource.match(s, "&") ||
+		CodeSource.match(s, "|") ||
+		CodeSource.match(s, "?") ||
+		CodeSource.match(s, "!")
+	) {
+		return tokenHere(s, TokenType.Op);
 	}
-	if (match(t, "0o")) {
-		return nextIntLiteral(t, Digits.oct, "0o");
+	if (CodeSource.match(s, "0b")) {
+		return nextIntLiteral(s, Digits.bin, "0b");
 	}
-	if (match(t, "0x")) {
-		return nextIntLiteral(t, Digits.hex, "0x");
+	if (CodeSource.match(s, "0o")) {
+		return nextIntLiteral(s, Digits.oct, "0o");
 	}
-	const c = t.source[t.end];
+	if (CodeSource.match(s, "0x")) {
+		return nextIntLiteral(s, Digits.hex, "0x");
+	}
+	const c = CodeSource.peek(s) ?? "\0";
 	if (c === '"') {
-		return nextStrLiteral(t);
+		return nextStrLiteral(s);
 	}
 	if (isDigit(c)) {
-		return nextNumberLiteral(t);
+		return nextNumberLiteral(s);
 	}
 	if (isAlpha(c)) {
-		return nextIdentifier(t);
+		return nextIdentifier(s);
 	}
 	if (isWhitespace(c)) {
-		t.end++;
-		return undefined;
+		CodeSource.consume(s);
+		return nextToken(s);
 	}
-	t.end++;
-	return errorHere(t, "Unexpected character!");
+	CodeSource.consume(s);
+	return errorHere(s, "Unexpected character!");
 }
 
-function nextIntLiteral(t: Tokenizer, digits: string, prefix: string): Token {
+function nextIntLiteral(s: CodeSource, digits: string, prefix: string): Token {
 	let image = prefix;
-	while (hasMore(t)) {
-		const c = t.source[t.end];
+	let c = CodeSource.peek(s);
+	while (c !== undefined) {
 		if (isDigit(c, digits)) {
 			image += c;
 		} else if (c !== "_") {
 			break;
 		}
-		t.end++;
+		c = CodeSource.consumeAndPeek(s);
 	}
 	if (image.length === 0) {
-		return errorHere(t, "Integer prefix with no integer value!");
+		return errorHere(s, "Integer prefix with no integer value!");
 	}
-	return tokenHere(t, TokenType.Lit, BigInt(image));
+	return tokenHere(s, TokenType.Lit, BigInt(image));
 }
 
-function nextStrLiteral(t: Tokenizer): Token {
-	console.assert(t.source[t.end] === '"');
-	t.end++;
+function nextStrLiteral(s: CodeSource): Token {
+	CodeSource.consume(s);
 	let validEscapes = true;
 	let image = "";
-	while (hasMore(t) && t.source[t.end] !== '"') {
-		const c = t.source[t.end++];
+	let c = CodeSource.consume(s);
+	while (c !== undefined && c !== '"') {
 		if (c === "\\") {
-			const escaped = t.source[t.end++];
-			validEscapes ||= escaped in Escapes;
+			const escaped = CodeSource.consume(s) as string;
+			validEscapes &&= escaped in Escapes;
 			image += Escapes[escaped];
 		} else {
 			image += c;
 		}
+		c = CodeSource.consume(s);
 	}
-	if (!match(t, '"') || !validEscapes) {
-		return errorHere(t, "Unclosed Str literal!");
+	if (c !== '"') {
+		return errorHere(s, "Unclosed Str literal!");
 	}
-	return tokenHere(t, TokenType.Lit, image);
+	if (!validEscapes) {
+		return errorHere(s, "Invalid escape sequence!");
+	}
+	return tokenHere(s, TokenType.Lit, image);
 }
 
-function nextNumberLiteral(t: Tokenizer): Token {
+function nextNumberLiteral(s: CodeSource): Token {
 	let image = "";
 	let int = true;
-	while (hasMore(t)) {
-		const c = t.source[t.end];
+	let c = CodeSource.peek(s);
+	while (c !== undefined) {
 		if (isDigit(c)) {
 			image += c;
 		} else if (c !== "_") {
 			break;
 		}
-		t.end++;
+		c = CodeSource.consumeAndPeek(s);
 	}
-	if (t.source[t.end] === ".") {
+	if (c === ".") {
 		int = false;
-		image += t.source[t.end++];
-		while (hasMore(t)) {
-			const c = t.source[t.end];
+		image += CodeSource.consume(s);
+		c = CodeSource.peek(s);
+		while (c !== undefined) {
 			if (isDigit(c)) {
 				image += c;
 			} else if (c !== "_") {
 				break;
 			}
-			t.end++;
+			c = CodeSource.consumeAndPeek(s);
 		}
 	}
-	if (t.source[t.end] === "e" || t.source[t.end] === "E") {
+	if (CodeSource.match(s, "e")) {
 		int = false;
-		image += t.source[t.end++];
-		if (t.source[t.end] === "-") {
-			image += t.source[t.end++];
+		image += "e";
+		if (CodeSource.match(s, "-")) {
+			image += "-";
 		}
-		while (hasMore(t)) {
-			const c = t.source[t.end];
+		c = CodeSource.peek(s);
+		while (c !== undefined) {
 			if (isDigit(c)) {
 				image += c;
 			} else if (c !== "_") {
 				break;
 			}
-			t.end++;
+			c = CodeSource.consumeAndPeek(s);
 		}
 	}
-	return tokenHere(t, TokenType.Lit, int ? BigInt(image) : parseFloat(image));
+	return tokenHere(s, TokenType.Lit, int ? BigInt(image) : parseFloat(image));
 }
 
-function nextIdentifier(t: Tokenizer): Token {
-	while (hasMore(t)) {
-		const c = t.source[t.end];
-		if (!isAlpha(c) && !isDigit(c) && c !== "_") {
+function nextIdentifier(s: CodeSource): Token {
+	let c = CodeSource.peek(s);
+	while (c !== undefined) {
+		if (!isAlpha(c) && !isDigit(c)) {
 			break;
 		}
-		t.end++;
+		c = CodeSource.consumeAndPeek(s);
 	}
-	const image = t.source.substring(t.start, t.end);
+	const image = CodeSource.getScan(s);
 	if (image === "true" || image === "false") {
-		return tokenHere(t, TokenType.Lit, image === "true");
+		return tokenHere(s, TokenType.Lit, image === "true");
 	}
 	if (Keywords.has(image)) {
-		return tokenHere(t, TokenType.Keyword);
+		return tokenHere(s, TokenType.Keyword);
 	}
-	return tokenHere(t, TokenType.Id);
+	return tokenHere(s, TokenType.Id);
 }
 
-function tokenHere(t: Tokenizer, type: TokenType, value?: unknown): Token {
-	return {
-		type,
-		image: t.source.substring(t.start, t.end),
-		value,
-		start: t.start,
-		end: t.end,
-	};
+function tokenHere(s: CodeSource, type: TokenType, value?: unknown): Token {
+	const image = CodeSource.getScan(s);
+	const { start, end } = CodeSource.getSpan(s);
+	return { type, image, value, start, end };
 }
 
-function errorHere(t: Tokenizer, note: string): Token {
-	return {
-		type: TokenType.Error,
-		image: t.source.substring(t.start, t.end),
-		note,
-		start: t.start,
-		end: t.end,
-	};
-}
-
-function hasMore(t: Tokenizer): boolean {
-	return t.end < t.source.length;
-}
-
-function match(t: Tokenizer, toMatch: string): boolean {
-	if (t.source.startsWith(toMatch, t.end)) {
-		t.end += toMatch.length;
-		return true;
-	}
-	return false;
+function errorHere(s: CodeSource, note: string): Token {
+	const image = CodeSource.getScan(s);
+	const { start, end } = CodeSource.getSpan(s);
+	return { type: TokenType.Error, image, note, start, end };
 }
 
 function isDigit(c: string, digits: string = Digits.dec): boolean {

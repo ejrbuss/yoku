@@ -1,0 +1,76 @@
+--- mode Repl ---
+
+--- test "Call Builtins" ---
+print_type(clock()) --> "Int"
+cat("Hi", " there") --> "Hi there"
+
+--- test "Maximum Argument Count" ---
+f(0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0) --> ! ParseError
+
+--- test "Declared Procs" ---
+proc square(n: Int) -> Int { n * n }
+square(5) --> 25
+square(square(2)) --> 16
+
+--- test "Proc Arity Checked" ---
+proc f(a: Int, b: Int, c: Int) {}
+f(1, 2, 3) --> ()
+f(1, 2) --> ! TypeError
+f(1, 2, 3, 4) --> ! TypeError
+
+--- test "Proc Types Checked" ---
+proc f(a: Bool, b: Int, c: Float) {}
+f(true, 1, 5) --> ()
+f(1, 2, 3) --> ! TypeError
+f(true, 3.5, 4) --> ! TypeError
+f(false, 4, "3.4") --> ! TypeError
+
+--- test "Proc Expressions" ---
+const id = proc (x: Int) -> Int { x }
+id(42) --> 42
+
+--- test "Early Returns" ---
+proc safe_if_negative(x: Int) -> () {
+	if x < 0 {
+		return
+	}
+	explode()
+}
+safe_if_negative(-4)
+safe_if_negative(5) --> ! RuntimeError
+
+proc count(start: Int) -> Int {
+	var n = start
+	while n < 100 {
+		if n == 3 {
+			return n
+		}
+		n = n + 1
+	}
+	explode()
+}
+count(1) --> 3
+
+--- test "Invalid Return" ---
+return true --> ! ResolutionError
+
+--- test "Closures" ---
+proc make_counter() -> proc() -> Int {
+	var i = 0
+	return proc () -> Int {
+		i = i + 1
+		return i
+	}
+}
+
+var counter1 = make_counter()
+counter1() --> 1
+counter1() --> 2
+counter1() --> 3
+
+var counter2 = make_counter()
+counter2() --> 1
+
+--- test "Returning Tuples" ---
+proc combine(x: Int, y: Bool) -> (Int, Bool) { (x + 1, !y) }
+combine(3, false) --> (4, true)

@@ -20,6 +20,7 @@ import {
 	ProcDecl,
 	ProcExpr,
 	ProcType,
+	Repl,
 	ReturnStmt,
 	Tuple,
 	TupleExpr,
@@ -33,6 +34,10 @@ import {
 import { Resolver } from "./resolver.ts";
 import { TypeChecker } from "./typechecker.ts";
 import { structurallyEq, Todo, Unreachable } from "./utils.ts";
+
+export class RuntimeError {
+	constructor(readonly note: string) {}
+}
 
 class Break {
 	constructor(readonly label?: string) {}
@@ -74,6 +79,10 @@ export const Builtins = {
 			return Type.print(Type.of(args[0]));
 		}
 	),
+	// TODO can be removed once we have throw
+	explode: Proc.create("explode", Type.proc([], Type.Never), () => {
+		throw new RuntimeError("Explode!");
+	}),
 };
 
 function create(r: Resolver, t: TypeChecker): Interpreter {
@@ -105,6 +114,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 	switch (ast.type) {
 		case AstType.Module:
 			return interperateModule(i, ast);
+		case AstType.Repl:
+			return interperateRepl(i, ast);
 		case AstType.VarDecl:
 			return interperateVarDecl(i, ast);
 		case AstType.ProcDecl:
@@ -149,9 +160,16 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 }
 
 function interperateModule(i: Interpreter, m: Module): unknown {
-	let acc: unknown = null;
 	for (const decl of m.decls) {
-		acc = interperate(i, decl);
+		interperate(i, decl);
+	}
+	return null;
+}
+
+function interperateRepl(i: Interpreter, r: Repl): unknown {
+	let acc: unknown = null;
+	for (const line of r.lines) {
+		acc = interperate(i, line);
 	}
 	return acc;
 }
@@ -214,7 +232,6 @@ function interperateLoopStmt(i: Interpreter, l: LoopStmt): unknown {
 			throw e;
 		}
 	}
-	return null;
 }
 
 function interperateWhileStmt(i: Interpreter, w: WhileStmt): unknown {
@@ -252,6 +269,9 @@ function interperateBlockExpr(i: Interpreter, b: BlockExpr): unknown {
 }
 
 function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
+	if (t.items.length === 0) {
+		return null;
+	}
 	return Tuple.create(
 		t.resolvedType as TupleType,
 		t.items.map((item) => interperate(i, item))

@@ -61,6 +61,7 @@ false --> false
 1e1 --> 10.0
 78e14 --> 78e14
 4.4e55 --> 4.4e55
+99e-12 --> 99e-12
 -0.0 --> -0.0
 -1.0 --> -1.0
 -28.97 --> -28.97
@@ -69,17 +70,30 @@ false --> false
 -1e1 --> -10.0
 -78e14 --> -78e14
 -4.4e55 --> -4.4e55
+-99e-12 --> -99e-12
+4E5 --> ! ResolutionError
 
 --- test "Str Literals" ---
 "" --> ""
 "Hello, World!" --> "Hello, World!" 
 "\t\t\"\"" --> "\t\t\"\""
+"\j" --> ! ParseError
+
+--- test "Tuple Literals" ---
+() --> ()
+(1, 2) --> (1, 2)
+(true, 1, "t") --> (true, 1, "t")
+(1, true).0 --> 1
+(1, true).1 --> true
+(1, true).2 --> ! TypeError
 
 --- test "Equality Operators" ---
 false == false --> true
 1 != 0 --> true
 "I" === "Myself" --> false
 "You" !== "Me" --> true
+!== 1 --> ! ParseError
+1 == true --> ! TypeError
 
 --- test "Logical Operators" ---
 true | true --> true
@@ -90,18 +104,29 @@ true & true --> true
 true & false --> false
 false & true --> false
 false & false --> false
+& true --> ! ParseError
+1 | 2 --> ! TypeError
+
+--- test "Side Effects of Logical Operators" ---
+true | explode() --> true
+false & explode() --> false
+explode() | true --> ! RuntimeError
 
 --- test "Comparison Operators" ---
 100 > 4 --> true
 3.5 < 1.5 --> false
 5 >= 5.0 --> true
 0xff <= 0b11111 --> false
+> 1 --> ! ParseError
+1 < true --> ! TypeError
 
 --- test "Term Operators" ---
 1 + 2 --> 3
 3.5 + 1e5 --> 100003.5
 4 + 6.5 --> 10.5
 5 - 12 --> -7
++ 1 --> ! ParseError
+1 - true --> ! TypeError
 
 --- test "Factor Operatprs" ---
 6 * 7 --> 42
@@ -109,17 +134,22 @@ false & false --> false
 9.0 / 2 --> 4.5
 9 / 2.0 --> 4.5
 12 % 10 --> 2
+* 1 --> ! ParseError
+1 / true --> ! TypeError
 
 --- test "Power Operators" ---
 2^2 --> 4
 3.5^3 --> 42.875
 2^3^2 --> 512
+^1 --> ! ParseError
+1^true --> ! TypeError
 
 --- test "Unary Operators" ---
 -(42) --> -42
 -(99.99) --> -99.99
 !true --> false
 !false --> true
+!1 --> ! TypeError
 
 --- test "Order of Operations" ---
 false | true & false --> false | (true & false)

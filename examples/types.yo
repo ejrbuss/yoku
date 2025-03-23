@@ -1,7 +1,0 @@
-const x: Int = 4;
-
-proc inc(n: Int) -> Int { n + 1 }
-
-inc(x);
-
-const y: Any = 0xff;
