@@ -36,10 +36,6 @@
 			"end": "\n"
 		},
 		{
-			"name": "variable.language",
-			"match": "\\b(True|False|print|clock|cat)\\b"
-		},
-		{
 			"name": "variable",
 			"match": "\\b(\\w+)\\b"
 		}

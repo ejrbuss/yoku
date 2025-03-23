@@ -1,8 +1,8 @@
 import { CodeSource } from "../src/codesource.ts";
-import { Span, structurallyEq, Todo, Unreachable } from "../src/utils.ts";
-import { RunOk, RunResultType, Runtime } from "../src/runtime.ts";
-import { assertEquals, assertNotEquals, fail } from "jsr:@std/assert";
-import { print, Type } from "../src/core.ts";
+import { Span, structurallyEq, Unreachable } from "../src/utils.ts";
+import { RunResultType, Runtime } from "../src/runtime.ts";
+import { assertEquals } from "jsr:@std/assert";
+import { print } from "../src/core.ts";
 
 const ModeDirective = /^--- mode (Repl|Module) ---/;
 const TestDirective = /^--- test "(.*)" ---/;
@@ -99,6 +99,7 @@ function runReplTest(source: string, path: string): void {
 				throw new Unreachable();
 			}
 			if (!structurallyEq(actualResult, expectedResult)) {
+				console.error(`%cFile: ${path}\nLine: ${line}`, "color: red");
 				const ap = print(actualResult.result);
 				const ep = print(expectedResult.result);
 				console.error(

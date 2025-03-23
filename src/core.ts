@@ -6,6 +6,7 @@ type YokuObject = {
 
 export enum Kind {
 	Primitive = "Primitive",
+	Spread = "Spread",
 	Proc = "Proc",
 	Tuple = "Tuple",
 }
@@ -13,6 +14,11 @@ export enum Kind {
 export type PrimitiveType = {
 	kind: Kind.Primitive;
 	name: string;
+} & YokuObject;
+
+export type SpreadType = {
+	kind: Kind.Spread;
+	spreading: Type;
 } & YokuObject;
 
 export type ProcType = {
@@ -26,7 +32,7 @@ export type TupleType = {
 	items: Type[];
 } & YokuObject;
 
-export type Type = PrimitiveType | ProcType | TupleType;
+export type Type = PrimitiveType | SpreadType | ProcType | TupleType;
 
 const TypeType: Type = {
 	$type: undefined as unknown as Type,
@@ -37,6 +43,7 @@ TypeType.$type = TypeType;
 
 export const Type = {
 	primitive: primitiveType,
+	spread: spreadType,
 	proc: procType,
 	tuple: tupleType,
 	Type: TypeType,
@@ -55,6 +62,10 @@ function primitiveType(name: string): PrimitiveType {
 	return { $type: TypeType, kind: Kind.Primitive, name };
 }
 
+function spreadType(spreading: Type): SpreadType {
+	return { $type: TypeType, kind: Kind.Spread, spreading };
+}
+
 function procType(params: Type[], returns: Type): ProcType {
 	return { $type: TypeType, kind: Kind.Proc, params, returns };
 }
@@ -67,6 +78,8 @@ function printType(t: Type): string {
 	switch (t.kind) {
 		case Kind.Primitive:
 			return t.name;
+		case Kind.Spread:
+			return `...${printType(t.spreading)}`;
 		case Kind.Proc:
 			return `proc (${t.params.map(printType).join(", ")}) -> ${printType(
 				t.returns
@@ -188,7 +201,6 @@ export enum BinaryOp {
 export enum UnaryOp {
 	Not = "!",
 	Neg = "-",
-	Spread = "...",
 }
 
 export enum Access {
@@ -221,6 +233,7 @@ export enum AstType {
 	CallExpr = "CallExpr",
 	LitExpr = "LitExpr",
 	IdExpr = "IdExpr",
+	SpreadExpr = "SpreadExpr",
 	ProcTypeExpr = "ProcTypeExpr",
 	WildCardExpr = "WildCardExpr",
 }
@@ -373,6 +386,12 @@ export type IdExpr = {
 	resolvedId?: number;
 } & Span;
 
+export type SpreadExpr = {
+	type: AstType.SpreadExpr;
+	spreading: Ast;
+	resolvedType?: Type;
+} & Span;
+
 export type ProcTypeExpr = {
 	type: AstType.ProcTypeExpr;
 	params: Ast[];
@@ -408,6 +427,7 @@ export type Ast =
 	| CallExpr
 	| LitExpr
 	| IdExpr
+	| SpreadExpr
 	| ProcTypeExpr
 	| WildCardExpr;
 

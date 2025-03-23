@@ -81,3 +81,9 @@ proc f((x, y, z): (Int, Int, Bool)) -> Int {
 }
 f((1, 2, true)) --> 3
 f((3, 4, false)) --> -1
+
+--- test "Spread Into Calls" ---
+proc f(x: Int, y: Bool) {}
+f(...(1, true))
+const t = (100, false)
+f(...t)

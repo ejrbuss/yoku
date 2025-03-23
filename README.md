@@ -249,24 +249,37 @@ trait Hash {
 }
 ```
 
+
+```
+-- Somewhat compact/data oriented model for tokenizer
+export struct TokenData {
+	export var ignore: Array[TokenType]
+	var position: Int
+	const tokens: Array[TokenType]
+	const positions: Array[Int]
+	const intValues: Array[(Int, Int)]
+	const floatValues: Array[(Int, Float)]
+	const strValues: Array[(Int, Float)]
+	const idValues: Array[(Int, Str)]
+	const noteValues: Array[(Int, Str)]
+}
+
+export type Token = Int
+
+impl TokenData {
+
+	proc spanOf(td: This, t: Token) -> Span {
+		return Span {
+			start = this.positions[t],
+			end = this.positions[t + 1],
+		}
+	}
+
+}
+```
+
 ### TODO
 ```yoku
--- spread in tuples
-const t1 = (1, 2);
-const t2 = (3, 4);
-const t3: (Int, Int, Bool, Int, Int) = (...t1, True, ...t2)
-
--- spread in calls
-const f(x: Int, y: Int) -> Int { x * y + y + x }
-f(...(3, 4));
-
--- spread in patterns
-const (x, ...yz) = (1, 2, 3)
-
--- spread in types
-type Point2D = (Int, Int)
-type Point3D = (Int, ...Point2D)
-
 -- match if/else
 const x = 5;
 const y = match {
@@ -284,7 +297,7 @@ match x {
 	else { "many" }
 }
 
--- parametrized tests (later)
+-- parametrized tests
 test "parameterized" for value in Array.of(1, 2, 3, 4) {
 
 }

@@ -1,5 +1,19 @@
 --- mode Repl ---
 
+--- test "Implicit Int Literal Conversions" ---
+const n = 1
+const n: Int = 2
+const n: Float = 3
+
+proc f(n: Float) {}
+f(4)
+
+const _: (Int, Float) = (5, 6)
+const _: (Float, Int) = (...(7, 8),)
+const _: (Bool, Int, Int) = (...(1, 2), 3) --> ! TypeError
+const t1 = (1, 2)
+const t2: (Int, Int, Bool, Int, Float) = (...t1, true, ...(3, 4))
+
 --- test "Type Declarations" ---
 type MyInt = Int
 const a: MyInt = 4
@@ -9,3 +23,14 @@ type MyInt = Bool --> ! TypeError
 
 type Point = (Int, Int)
 const p: Point = (5, 6)
+
+--- test "Spread in Types" ---
+type Point2D = (Int, Int)
+type Point3D = (Int, ...Point2D)
+const p: Point3D = (1, 2) --> ! TypeError
+const p: Point3D = (1, 2, 3)
+const p5: (...Point2D, ...Point3D, Bool) = (1, 2, 3, 4, 5, true)
+
+type P = proc (Bool, ...Point3D, Bool) -> ()
+proc p(a: Bool, b: Int, c: Int, d: Int, e: Bool) {}
+const ref: P = p

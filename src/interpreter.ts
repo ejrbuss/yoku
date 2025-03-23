@@ -110,8 +110,15 @@ function storeValue(i: Interpreter, pattern: Ast, value: unknown): void {
 		return;
 	}
 	if (pattern.type === AstType.TupleExpr) {
-		for (let j = 0; j < pattern.items.length; j++) {
-			storeValue(i, pattern.items[j], (value as Tuple).items[j]);
+		let j = 0;
+		for (const item of pattern.items) {
+			if (item.type === AstType.SpreadExpr) {
+				const spreadType = item.resolvedType as TupleType;
+				const tuple = Tuple.create(spreadType, (value as Tuple).items.slice(j));
+				storeValue(i, item.spreading, tuple);
+			} else {
+				storeValue(i, item, (value as Tuple).items[j++]);
+			}
 		}
 		return;
 	}
@@ -352,10 +359,15 @@ function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 	if (t.items.length === 0) {
 		return null;
 	}
-	return Tuple.create(
-		t.resolvedType as TupleType,
-		t.items.map((item) => interperate(i, item))
-	);
+	const items: unknown[] = [];
+	for (const item of t.items) {
+		if (item.type === AstType.SpreadExpr) {
+			items.push(...(interperate(i, item.spreading) as Tuple).items);
+		} else {
+			items.push(interperate(i, item));
+		}
+	}
+	return Tuple.create(t.resolvedType as TupleType, items);
 }
 
 function interperateGroupExpr(i: Interpreter, g: GroupExpr): unknown {
@@ -498,15 +510,19 @@ function interperateUnaryExpr(i: Interpreter, u: UnaryExpr): unknown {
 			const right = interperate(i, u.right);
 			return -(right as number);
 		}
-		case UnaryOp.Spread: {
-			throw new Todo();
-		}
 	}
 }
 
 function interperateCallExpr(i: Interpreter, c: CallExpr): unknown {
 	const proc = interperate(i, c.proc);
-	const args = c.args.map((arg) => interperate(i, arg));
+	const args: unknown[] = [];
+	for (const arg of c.args) {
+		if (arg.type === AstType.SpreadExpr) {
+			args.push(...(interperate(i, arg.spreading) as Tuple).items);
+		} else {
+			args.push(interperate(i, arg));
+		}
+	}
 	return (proc as Proc).impl(args);
 }
 

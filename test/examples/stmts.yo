@@ -20,6 +20,12 @@ const (a, b) as ab = ("a", "b")
 a --> "a"
 b --> "b"
 ab --> ("a", "b")
+const ...a = (1,) --> ! ParseError
+const (...a, b) = (1, 2) --> ! ParseError
+const (a, ...bc) = (1, 2, 3)
+a --> 1
+bc --> (2, 3)
+
 
 --- test "Assert Statments" ---
 assert 1 == 1

@@ -22,6 +22,7 @@ import {
 	ProcExpr,
 	Repl,
 	ReturnStmt,
+	SpreadExpr,
 	TestDecl,
 	TupleExpr,
 	TypeDecl,
@@ -97,7 +98,11 @@ function declarePattern(
 	}
 	if (pattern.type === AstType.TupleExpr) {
 		for (const item of pattern.items) {
-			declarePattern(r, item, access, assert);
+			if (item.type === AstType.SpreadExpr) {
+				declarePattern(r, item.spreading, access, assert);
+			} else {
+				declarePattern(r, item, access, assert);
+			}
 		}
 		return;
 	}
@@ -198,6 +203,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveLitExpr(r, ast);
 		case AstType.IdExpr:
 			return resolveIdExpr(r, ast);
+		case AstType.SpreadExpr:
+			return resolveSpreadExpr(r, ast);
 	}
 	throw new Unreachable();
 }
@@ -378,4 +385,8 @@ function resolveIdExpr(r: Resolver, i: IdExpr): void {
 		}
 	}
 	throw new ResolutionError("Undeclared variable!", i.start, i.end);
+}
+
+function resolveSpreadExpr(r: Resolver, s: SpreadExpr): void {
+	resolve(r, s.spreading);
 }

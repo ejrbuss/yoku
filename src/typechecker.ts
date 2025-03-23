@@ -17,10 +17,12 @@ import {
 	LitExpr,
 	LoopStmt,
 	Module,
+	print,
 	ProcDecl,
 	ProcExpr,
 	Repl,
 	ReturnStmt,
+	SpreadExpr,
 	TestDecl,
 	TupleExpr,
 	Type,
@@ -95,7 +97,12 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 				pattern.end
 			);
 		}
-		if (pattern.items.length !== type.items.length) {
+		const endInSpread =
+			pattern.items[pattern.items.length - 1].type === AstType.SpreadExpr;
+		if (
+			(!endInSpread && pattern.items.length !== type.items.length) ||
+			(endInSpread && pattern.items.length + 1 > type.items.length)
+		) {
 			const fl = type.items.length;
 			const dl = pattern.items.length;
 			throw new TypeError(
@@ -104,8 +111,15 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 				pattern.end
 			);
 		}
-		for (let i = 0; i < pattern.items.length; i++) {
-			storeTypes(t, pattern.items[i], type.items[i]);
+		let i = 0;
+		for (const item of pattern.items) {
+			if (item.type === AstType.SpreadExpr) {
+				const spreadType = Type.tuple(type.items.slice(i));
+				item.resolvedType = spreadType;
+				storeTypes(t, item.spreading, spreadType);
+			} else {
+				storeTypes(t, item, type.items[i++]);
+			}
 		}
 		return;
 	}
@@ -182,6 +196,8 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 			return checkLitExpr(t, ast, d);
 		case AstType.IdExpr:
 			return checkIdExpr(t, ast, d);
+		case AstType.SpreadExpr:
+			throw checkSpreadExpr(t, ast, d);
 		case AstType.ProcTypeExpr:
 			throw new Unreachable();
 		case AstType.WildCardExpr:
@@ -334,11 +350,26 @@ function checkBlockExpr(t: TypeChecker, b: BlockExpr, d?: Type): Type {
 
 function checkTupleExpr(t: TypeChecker, u: TupleExpr, d?: Type): Type {
 	const items: Type[] = [];
-	for (let i = 0; i < u.items.length; i++) {
-		if (d?.kind === Kind.Tuple) {
-			items.push(check(t, u.items[i], d.items[i]));
+	if (d === undefined || d.kind !== Kind.Tuple) {
+		d = Type.tuple([]);
+	}
+	let i = 0;
+	for (const item of u.items) {
+		if (item.type === AstType.SpreadExpr) {
+			const itemType = check(t, item.spreading, Type.tuple(d.items.slice(i)));
+			if (itemType.kind !== Kind.Tuple) {
+				const pt = Type.print(itemType);
+				throw new TypeError(
+					`Cannot spread ${pt} into a tuple!`,
+					item.start,
+					item.end
+				);
+			}
+			items.push(...itemType.items);
+			i += itemType.items.length;
 		} else {
-			items.push(check(t, u.items[i]));
+			items.push(check(t, item, d.items[i]));
+			i++;
 		}
 	}
 	const type = Type.tuple(items);
@@ -504,8 +535,6 @@ function checkUnaryExpr(t: TypeChecker, u: UnaryExpr, d?: Type): Type {
 			return checkUnaryExprHelper(t, u, [Type.Bool]);
 		case UnaryOp.Neg:
 			return checkUnaryExprHelper(t, u, [Type.Int, Type.Float], d);
-		case UnaryOp.Spread:
-			throw new Todo();
 	}
 }
 
@@ -542,27 +571,58 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: Type): Type {
 		const found = Type.print(procType);
 		throw new TypeError(`Cannot call type ${found}!`, c.proc.start, c.proc.end);
 	}
-	if (procType.params.length !== c.args.length) {
+	let i = 0;
+	for (const arg of c.args) {
+		if (arg.type === AstType.SpreadExpr) {
+			const argType = check(
+				t,
+				arg.spreading,
+				Type.tuple(procType.params.slice(i))
+			);
+			if (argType.kind !== Kind.Tuple) {
+				const pt = Type.print(argType);
+				throw new TypeError(
+					`Cannot spread ${pt} into a tuple!`,
+					arg.start,
+					arg.end
+				);
+			}
+			const paramType = Type.tuple(
+				procType.params.slice(i, i + argType.items.length)
+			);
+			if (!assignable(argType, paramType)) {
+				const found = Type.print(argType);
+				const declared = Type.print(paramType);
+				throw new TypeError(
+					`Type ${found} is not assignable to type ${declared}!`,
+					arg.start,
+					arg.end
+				);
+			}
+			i += argType.items.length;
+		} else {
+			const paramType = procType.params[i];
+			const argType = check(t, arg, paramType);
+			if (paramType !== undefined && !assignable(argType, paramType)) {
+				const found = Type.print(argType);
+				const declared = Type.print(paramType);
+				throw new TypeError(
+					`Type ${found} is not assignable to type ${declared}!`,
+					arg.start,
+					arg.end
+				);
+			}
+			i++;
+		}
+	}
+	if (i !== procType.params.length) {
 		const expected = procType.params.length;
-		const found = c.args.length;
+		const found = i;
 		throw new TypeError(
 			`Expected ${expected} arguments, but got ${found}!`,
 			c.start,
 			c.end
 		);
-	}
-	for (let i = 0; i < procType.params.length; i++) {
-		const paramType = procType.params[i];
-		const argType = check(t, c.args[i], paramType);
-		if (!assignable(argType, paramType)) {
-			const found = Type.print(argType);
-			const declared = Type.print(paramType);
-			throw new TypeError(
-				`Type ${found} is not assignable to type ${declared}!`,
-				c.args[i].start,
-				c.args[i].end
-			);
-		}
 	}
 	return procType.returns;
 }
@@ -583,6 +643,10 @@ function checkIdExpr(t: TypeChecker, i: IdExpr, _d?: Type): Type {
 	return t.values[resolveId(i)];
 }
 
+function checkSpreadExpr(t: TypeChecker, s: SpreadExpr, _d?: Type): Type {
+	throw new TypeError("Cannot spread here!", s.start, s.end);
+}
+
 function resolveId(id: IdExpr): number {
 	if (id.resolvedId === undefined) {
 		throw new Error(`Unresolved id! ${JSON.stringify(id)}`);
@@ -600,12 +664,36 @@ function reifyType(t: TypeChecker, ast: Ast): Type {
 			return type;
 		}
 		case AstType.ProcTypeExpr: {
-			const params = ast.params.map((p) => reifyType(t, p));
+			const params: Type[] = [];
+			for (const param of ast.params) {
+				if (param.type === AstType.SpreadExpr) {
+					const paramType = reifyType(t, param.spreading);
+					if (paramType.kind !== Kind.Tuple) {
+						const pt = Type.print(paramType);
+						throw new TypeError(`Cannot spread ${pt}!`, param.start, param.end);
+					}
+					params.push(...paramType.items);
+				} else {
+					params.push(reifyType(t, param));
+				}
+			}
 			const returns = reifyType(t, ast.returnType);
 			return Type.proc(params, returns);
 		}
 		case AstType.TupleExpr: {
-			const items = ast.items.map((i) => reifyType(t, i));
+			const items: Type[] = [];
+			for (const item of ast.items) {
+				if (item.type === AstType.SpreadExpr) {
+					const itemType = reifyType(t, item.spreading);
+					if (itemType.kind !== Kind.Tuple) {
+						const pt = Type.print(itemType);
+						throw new TypeError(`Cannot spread ${pt}!`, item.start, item.end);
+					}
+					items.push(...itemType.items);
+				} else {
+					items.push(reifyType(t, item));
+				}
+			}
 			return Type.tuple(items);
 		}
 	}
@@ -617,5 +705,5 @@ function assignable(from: Type, into: Type): boolean {
 }
 
 function assertable(from: Type, into: Type): boolean {
-	return assignable(from, into) || from === Type.Any;
+	return from === Type.Any || assignable(from, into);
 }
