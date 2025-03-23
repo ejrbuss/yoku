@@ -24,6 +24,7 @@ import {
 	TestDecl,
 	TupleExpr,
 	Type,
+	TypeDecl,
 	UnaryExpr,
 	UnaryOp,
 	VarDecl,
@@ -49,7 +50,7 @@ export class TypeError extends Error {
 	}
 }
 
-export const TypeChecker = { create, check, declareGlobal, assignable };
+export const TypeChecker = { create, check, declareBuiltin, assignable };
 
 function create(): TypeChecker {
 	const t: TypeChecker = {
@@ -68,7 +69,7 @@ function create(): TypeChecker {
 	return t;
 }
 
-function declareGlobal(t: TypeChecker, id: number, type: Type): void {
+function declareBuiltin(t: TypeChecker, id: number, type: Type): void {
 	t.values[id] = type;
 }
 
@@ -141,6 +142,8 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 			return checkVarDecl(t, ast, d);
 		case AstType.ProcDecl:
 			return checkProcDecl(t, ast, d);
+		case AstType.TypeDecl:
+			return checkTypeDecl(t, ast, d);
 		case AstType.TestDecl:
 			return checkTestDecl(t, ast, d);
 		case AstType.BreakStmt:
@@ -222,6 +225,9 @@ function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: Type): Type {
 }
 
 function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
+	if (!t.inGlobalScope) {
+		throw new Unreachable();
+	}
 	const params: Type[] = [];
 	for (const param of p.initExpr.params) {
 		const paramType = reifyType(t, param.type);
@@ -229,12 +235,31 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
 		params.push(paramType);
 	}
 	const returns = reifyType(t, p.initExpr.returnType);
-	t.values[resolveId(p.id)] = Type.proc(params, returns);
+	storeTypes(t, p.id, Type.proc(params, returns));
 	check(t, p.initExpr, returns);
 	return Type.Unit;
 }
 
+function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: Type): Type {
+	if (!t.inGlobalScope) {
+		throw new Unreachable();
+	}
+	const type = reifyType(t, d.typeExpr);
+	if (t.types[d.id.value] !== undefined) {
+		throw new TypeError(
+			`Cannot redeclare type ${d.id.value}`,
+			d.id.start,
+			d.id.end
+		);
+	}
+	declareType(t, d.id.value, type);
+	return Type.Unit;
+}
+
 function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: Type): Type {
+	if (!t.inGlobalScope) {
+		throw new Unreachable();
+	}
 	check(t, d.thenExpr);
 	return Type.Unit;
 }

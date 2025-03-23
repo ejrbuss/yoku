@@ -7,11 +7,13 @@ x --> true
 const y = 12
 y --> 12
 const _ = 7
+const a: Int = "try again" --> ! TypeError
+const a: Bool = true
 
 --- test "Tuple destructuring" ---
 const (x, y, z) = (1, 2, 3)
 (x, y, z) --> (1, 2, 3)
-const (x, y) = (true, 1, 4) --> ! ResolutionError
+const (x, y) = (true, 1, 4) --> ! TypeError
 const (_, w) = (true, false)
 w --> false
 const (a, b) as ab = ("a", "b")
@@ -67,11 +69,10 @@ do {
 }
 collector --> "innerouter"
 
---- test "Cannot Shadow Globals" ---
-const x = 5
-const x = 10 --> ! ResolutionError
+--- test "Cannot Shadow Builtins" ---
+const print = 10 --> ! ResolutionError
 do {
-	const x = 7
+	const cat = 7
 } --> ! ResolutionError
 
 --- test "If Statements" ---

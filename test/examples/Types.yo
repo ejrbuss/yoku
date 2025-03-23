@@ -1,0 +1,11 @@
+--- mode Repl ---
+
+--- test "Type Declarations" ---
+type MyInt = Int
+const a: MyInt = 4
+const b: MyInt = true --> ! TypeError
+const c: Int = a
+type MyInt = Bool --> ! TypeError
+
+type Point = (Int, Int)
+const p: Point = (5, 6)

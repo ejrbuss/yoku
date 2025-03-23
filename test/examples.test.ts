@@ -48,7 +48,7 @@ for await (const file of Deno.readDir("./test/examples")) {
 						end++;
 					}
 					Deno.test(`${suite} - ${name}`, () =>
-						runReplTest(content.substring(start, end))
+						runReplTest(content.substring(start, end), path)
 					);
 					i = end;
 				}
@@ -59,7 +59,7 @@ for await (const file of Deno.readDir("./test/examples")) {
 	}
 }
 
-function runReplTest(source: string): void {
+function runReplTest(source: string, path: string): void {
 	const art = Runtime.create({ replMode: true });
 	const ert = Runtime.create({ replMode: true });
 	const s = CodeSource.fromString("", "actual");
@@ -69,12 +69,15 @@ function runReplTest(source: string): void {
 		if (line.includes("--> !")) {
 			const [_, expectedSource] = line.split("--> !");
 			if (actualResult.type !== RunResultType.Error) {
-				console.error(`%cLine: ${line}`, "color: red");
+				console.error(`%cFile: ${path}\nLine: ${line}`, "color: red");
 				assertEquals(actualResult.type, RunResultType.Error);
 				throw new Unreachable();
 			}
 			if (actualResult.name !== expectedSource.trim()) {
-				console.error(`%cLine: ${line}\n${actualResult.note}`, "color: red");
+				console.error(
+					`%cFile: ${path}\nLine: ${line}\n${actualResult.name}: ${actualResult.note}`,
+					"color: red"
+				);
 				assertEquals(actualResult.name, expectedSource.trim());
 			}
 			continue;
@@ -99,7 +102,7 @@ function runReplTest(source: string): void {
 				const ap = print(actualResult.result);
 				const ep = print(expectedResult.result);
 				console.error(
-					`%cLine: ${line}\nActual: ${ap}\nExpected: ${ep}`,
+					`%cFile: ${path}\nLine: ${line}\nActual: ${ap}\nExpected: ${ep}`,
 					"color: red"
 				);
 				assertEquals(actualResult, expectedResult);
@@ -110,7 +113,7 @@ function runReplTest(source: string): void {
 			actualResult.type !== RunResultType.Ok &&
 			!actualResult.needsMoreInput
 		) {
-			console.error(`%cLine: ${line}\n`, "color: red");
+			console.error(`%cFile: ${path}\nLine: ${line}\n`, "color: red");
 			Runtime.reportError(actualResult);
 			assertEquals(actualResult.type, RunResultType.Ok);
 		}

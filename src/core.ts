@@ -201,6 +201,7 @@ export enum AstType {
 	Repl = "Repl",
 	VarDecl = "VarDecl",
 	ProcDecl = "ProcDecl",
+	TypeDecl = "TypeDecl",
 	TestDecl = "TestDecl",
 	BreakStmt = "BreakStmt",
 	ContinueStmt = "ContinueStmt",
@@ -249,6 +250,12 @@ export type ProcDecl = {
 	type: AstType.ProcDecl;
 	id: IdExpr;
 	initExpr: ProcExpr;
+} & Span;
+
+export type TypeDecl = {
+	type: AstType.TypeDecl;
+	id: IdExpr;
+	typeExpr: Ast;
 } & Span;
 
 export type TestDecl = {
@@ -381,6 +388,7 @@ export type Ast =
 	| Repl
 	| VarDecl
 	| ProcDecl
+	| TypeDecl
 	| TestDecl
 	| BreakStmt
 	| ContinueStmt

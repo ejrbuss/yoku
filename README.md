@@ -251,9 +251,6 @@ trait Hash {
 
 ### TODO
 ```yoku
--- Type declarations
-type i64 = Int; 
-
 -- spread in tuples
 const t1 = (1, 2);
 const t2 = (3, 4);

@@ -1,3 +1,4 @@
+import { Checkpoint } from "./codesource.ts";
 import {
 	Access,
 	AssertStmt,
@@ -23,6 +24,7 @@ import {
 	ReturnStmt,
 	TestDecl,
 	TupleExpr,
+	TypeDecl,
 	UnaryExpr,
 	VarDecl,
 	WhileStmt,
@@ -31,6 +33,7 @@ import { Unreachable } from "./utils.ts";
 
 type Decl = {
 	access: Access;
+	builtin: boolean;
 	resolvedId: number;
 };
 
@@ -53,22 +56,28 @@ export type Resolver = {
 	scopes: Scope[];
 	loopStack: (string | undefined)[];
 	procStack: number;
+	allowShadowGlobals: boolean;
 };
 
-export const Resolver = { create, resolve, declareGlobal };
+export const Resolver = {
+	create,
+	resolve,
+	declareBuiltin,
+};
 
 function create(): Resolver {
 	return {
 		scopes: [{ nextId: 0, decls: {} }],
 		loopStack: [],
 		procStack: 0,
+		allowShadowGlobals: false,
 	};
 }
 
-function declareGlobal(r: Resolver, id: string): number {
+function declareBuiltin(r: Resolver, id: string): number {
 	const globalScope = r.scopes[0];
 	const resolvedId = globalScope.nextId++;
-	globalScope.decls[id] = { resolvedId, access: Access.Const };
+	globalScope.decls[id] = { resolvedId, access: Access.Const, builtin: true };
 	return resolvedId;
 }
 
@@ -107,16 +116,24 @@ function declarePattern(
 	}
 	if (pattern.type === AstType.IdExpr) {
 		const globalScope = r.scopes[0];
-		if (globalScope.decls[pattern.value] !== undefined) {
+		const priorDecl = globalScope.decls[pattern.value];
+		if (
+			priorDecl !== undefined &&
+			(!r.allowShadowGlobals || priorDecl.builtin)
+		) {
 			throw new ResolutionError(
-				"You cannot redeclare global!",
+				`You cannot redeclare a ${priorDecl.builtin ? "builtin" : "global"}!`,
 				pattern.start,
 				pattern.end
 			);
 		}
 		const scope = r.scopes[r.scopes.length - 1];
 		pattern.resolvedId = scope.nextId++;
-		scope.decls[pattern.value] = { resolvedId: pattern.resolvedId, access };
+		scope.decls[pattern.value] = {
+			resolvedId: pattern.resolvedId,
+			access,
+			builtin: false,
+		};
 		return;
 	}
 	throw new Unreachable();
@@ -141,6 +158,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveVarDecl(r, ast);
 		case AstType.ProcDecl:
 			return resolveProcDecl(r, ast);
+		case AstType.TypeDecl:
+			return resolveTypeDecl(r, ast);
 		case AstType.TestDecl:
 			return resolveTestDecl(r, ast);
 		case AstType.BreakStmt:
@@ -186,6 +205,9 @@ function resolve(r: Resolver, ast: Ast): void {
 function resolveModule(r: Resolver, m: Module): void {
 	// TODO: the repl needs to keep a module open during execution, and module
 	// scope needs to be enforced.
+	if (r.procStack !== 0) {
+		throw new Unreachable();
+	}
 	for (const decl of m.decls) {
 		resolve(r, decl);
 	}
@@ -203,9 +225,14 @@ function resolveVarDecl(r: Resolver, v: VarDecl): void {
 }
 
 function resolveProcDecl(r: Resolver, p: ProcDecl): void {
+	if (r.procStack !== 0) {
+		throw new Unreachable();
+	}
 	declarePattern(r, p.id, Access.Const, false);
 	resolveProcExpr(r, p.initExpr);
 }
+
+function resolveTypeDecl(_r: Resolver, _t: TypeDecl): void {}
 
 function resolveTestDecl(r: Resolver, t: TestDecl): void {
 	resolve(r, t.thenExpr);

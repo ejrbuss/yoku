@@ -24,8 +24,10 @@ import {
 	Repl,
 	TestDecl,
 	LitExpr,
+	TypeDecl,
 } from "./core.ts";
 import { CodeSource } from "./codesource.ts";
+import { Unreachable } from "./utils.ts";
 
 type TokenMatcher = TokenType | string;
 
@@ -124,6 +126,9 @@ function parseDecl(p: Parser): Ast {
 	if (lookAhead(p, "proc") && lookAhead(p, TokenType.Id, 1)) {
 		return parseProcDecl(p);
 	}
+	if (lookAhead(p, "type")) {
+		return praseTypeDecl(p);
+	}
 	if (lookAhead(p, "test")) {
 		return parseTestDecl(p);
 	}
@@ -194,12 +199,27 @@ function parseVarDecl(p: Parser): VarDecl {
 function parseProcDecl(p: Parser): ProcDecl {
 	pushStart(p);
 	consume(p, "proc");
-	const procId = parseIdExpr(p);
+	const id = parseIdExpr(p);
 	const initExpr = parseProcExpr(p);
 	return {
 		type: AstType.ProcDecl,
-		id: procId,
+		id,
 		initExpr,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function praseTypeDecl(p: Parser): TypeDecl {
+	pushStart(p);
+	consume(p, "type");
+	const id = parseIdExpr(p);
+	consume(p, "=");
+	const typeExpr = parseTypeExpr(p);
+	return {
+		type: AstType.TypeDecl,
+		id,
+		typeExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -565,7 +585,11 @@ function parsePrimary(p: Parser): Ast {
 	if (lookAhead(p, TokenType.Lit)) {
 		return parseLitExpr(p);
 	}
-	return parseIdExpr(p);
+	if (lookAhead(p, TokenType.Id)) {
+		return parseIdExpr(p);
+	}
+	consume(p, TokenType.Id, "Expected expression!");
+	throw new Unreachable();
 }
 
 function parseTupleExpr(p: Parser): Ast {
@@ -804,7 +828,11 @@ function parsePatternPrimary(p: Parser): Ast {
 	if (lookAhead(p, TokenType.Lit)) {
 		return parseLitExpr(p);
 	}
-	return parseIdExpr(p);
+	if (lookAhead(p, TokenType.Id)) {
+		return parseIdExpr(p);
+	}
+	consume(p, TokenType.Id, "Expected pattern!");
+	throw new Unreachable();
 }
 
 function parseTuplePattern(p: Parser): TupleExpr {

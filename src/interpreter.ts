@@ -28,6 +28,7 @@ import {
 	TupleExpr,
 	TupleType,
 	Type,
+	TypeDecl,
 	UnaryExpr,
 	UnaryOp,
 	VarDecl,
@@ -95,8 +96,8 @@ export const Builtins = {
 function create(r: Resolver, t: TypeChecker, test: boolean): Interpreter {
 	const globals = [];
 	for (const [id, builtin] of Object.entries(Builtins)) {
-		const resolvedId = Resolver.declareGlobal(r, id);
-		TypeChecker.declareGlobal(t, resolvedId, Type.of(builtin));
+		const resolvedId = Resolver.declareBuiltin(r, id);
+		TypeChecker.declareBuiltin(t, resolvedId, Type.of(builtin));
 		globals[resolvedId] = builtin;
 	}
 	return { inGlobalScope: true, globals, locals: [], closure: [], test };
@@ -104,9 +105,6 @@ function create(r: Resolver, t: TypeChecker, test: boolean): Interpreter {
 
 function storeValue(i: Interpreter, pattern: Ast, value: unknown): void {
 	if (pattern.type === AstType.BinaryExpr) {
-		if (pattern.op !== BinaryOp.As) {
-			throw new Unreachable();
-		}
 		storeValue(i, pattern.left, value);
 		storeValue(i, pattern.right, value);
 		return;
@@ -150,6 +148,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateVarDecl(i, ast);
 		case AstType.ProcDecl:
 			return interperateProcDecl(i, ast);
+		case AstType.TypeDecl:
+			return interperateTypeDecl(i, ast);
 		case AstType.TestDecl:
 			return interperateTestDecl(i, ast);
 		case AstType.BreakStmt:
@@ -227,6 +227,10 @@ function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
 
 function interperateProcDecl(i: Interpreter, p: ProcDecl): unknown {
 	storeValue(i, p.id, interperate(i, p.initExpr));
+	return null;
+}
+
+function interperateTypeDecl(_i: Interpreter, _t: TypeDecl): unknown {
 	return null;
 }
 

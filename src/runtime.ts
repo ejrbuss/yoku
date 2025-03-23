@@ -62,6 +62,7 @@ function run(rt: Runtime, s: CodeSource): RunResult {
 		if (rt.debug) {
 			printAst(ast);
 		}
+		rt.resolver.allowShadowGlobals = rt.replMode ?? false;
 		Resolver.resolve(rt.resolver, ast);
 		TypeChecker.check(rt.typeChecker, ast);
 		const result = Interpreter.interperate(rt.interpreter, ast);
