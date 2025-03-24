@@ -39,3 +39,69 @@ const e = Outer { Inner { true }, Inner { false }, "t" }
 e.y --> "t"
 e.i1.x --> true
 e.i2.x --> false
+
+--- test "Mutable fields" ---
+struct Point {
+	var x: Float
+	var y: Float
+}
+
+const p = Point { 0.5, 0.0 }
+p.y = p.x * 4.0
+p --> Point { 0.5, 2.0 }
+
+--- test "Struct Type Aliasing" ---
+struct Empty {}
+type Alt = Empty
+Alt {} --> Empty {}
+
+--- test "Initializer Shorthand" ---
+struct Point {
+	const x: Int
+	const y: Int
+}
+
+const x = -1
+const y = -2
+Point { x, y } --> Point { -1, -2 } 
+
+--- test "Spread Struct Initialization" ---
+struct Point {
+	const x: Int
+	const y: Int
+	const z: Int
+}
+
+const p1 = Point { 1, 2, 3 }
+const p2 = Point { z = 5, ...p1 }
+p2 --> { 1, 2, 5 }
+
+--- test "Struct Destructuring" ---
+struct Point {
+	const x: Int
+	const y: Int
+	const z: Int
+}
+
+const p = Point { 1, 2, 3 }
+const Point { x, y, z } = p
+x --> 1
+y --> 2
+z --> 3
+
+--- test "Tuple Struct" ---
+struct Email(Str)
+
+Email("test") --> Email("test")
+Email(4) --> ! TypeError
+Email(1, 2) --> ! TypeError
+
+const e = Email("t")
+if assert Email(s) = e { s } else { "_" } --> "t"
+
+e.0 --> "t"
+
+struct Color(Int, Int, Int)
+
+const rgb = Color(255, 0, 125)
+(rgb.0, rgb.1, rgb.2) --> (255, 0, 125)

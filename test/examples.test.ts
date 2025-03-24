@@ -3,6 +3,7 @@ import { Span, structurallyEq, Unreachable } from "../src/utils.ts";
 import { RunResultType, Runtime } from "../src/runtime.ts";
 import { assertEquals } from "jsr:@std/assert";
 import { print } from "../src/core.ts";
+import { AssertionError } from "node:assert";
 
 const ModeDirective = /^--- mode (Repl|Module) ---/;
 const TestDirective = /^--- test "(.*)" ---/;
@@ -47,7 +48,7 @@ for await (const file of Deno.readDir("./test/examples")) {
 					while (end < content.length && !content.startsWith("\n--", end)) {
 						end++;
 					}
-					Deno.test(`${suite} - ${name}`, () =>
+					Deno.test(`${suite} - ${name}`, {}, () =>
 						runReplTest(content.substring(start, end), path)
 					);
 					i = end;
@@ -69,7 +70,10 @@ function runReplTest(source: string, path: string): void {
 			const [_, expectedSource] = line.split("--> !");
 			if (actualResult.type !== RunResultType.Error) {
 				console.error(`%cFile: ${path}\nLine: ${line}`, "color: red");
-				assertEquals(actualResult.type, RunResultType.Error);
+				assertEquals(
+					`${actualResult.type} ${print(actualResult.result)}`,
+					`${expectedSource.trim()}`
+				);
 				throw new Unreachable();
 			}
 			if (actualResult.name !== expectedSource.trim()) {
@@ -114,7 +118,10 @@ function runReplTest(source: string, path: string): void {
 		) {
 			console.error(`%cFile: ${path}\nLine: ${line}\n`, "color: red");
 			Runtime.reportError(actualResult);
-			assertEquals(actualResult.type, RunResultType.Ok);
+			assertEquals(
+				`${actualResult.name}: ${actualResult.note}`,
+				RunResultType.Ok
+			);
 		}
 	}
 }
