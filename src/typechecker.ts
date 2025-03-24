@@ -4,14 +4,12 @@ import {
 	Ast,
 	AstType,
 	BinaryExpr,
-	BinaryOp,
 	BlockExpr,
 	CallExpr,
 	ExprStmt,
 	GroupExpr,
 	IdExpr,
 	IfExpr,
-	Kind,
 	LitExpr,
 	LoopStmt,
 	MatchExpr,
@@ -20,25 +18,29 @@ import {
 	ProcExpr,
 	Repl,
 	ReturnStmt,
-	SpreadExpr,
 	StructDecl,
 	StructExpr,
 	TestDecl,
+	ThrowExpr,
 	TupleExpr,
-	TupleType,
-	Type,
 	TypeDecl,
 	TypeExpr,
 	UnaryExpr,
-	UnaryOp,
 	VarDecl,
 	WhileStmt,
 } from "./core.ts";
-import { ArrayIter, Span, Todo, Unreachable } from "./utils.ts";
+import { BinaryOp, UnaryOp } from "./ops.ts";
+import {
+	Kind,
+	Type,
+	TypePattern,
+	TupleTypePattern,
+	ProcTypePattern,
+} from "./types.ts";
+import { Span, Unreachable, zip } from "./utils.ts";
 
 export type TypeChecker = {
 	inGlobalScope: boolean;
-	// TODO this should probably be soemthing like global > module > local
 	types: Record<string, Type>;
 	values: Type[];
 	returns: Type[];
@@ -54,7 +56,12 @@ export class TypeError extends Error {
 	}
 }
 
-export const TypeChecker = { create, check, declareBuiltin };
+export const TypeChecker = {
+	create,
+	check,
+	declareBuiltinType,
+	declareBuiltin,
+};
 
 function create(): TypeChecker {
 	const t: TypeChecker = {
@@ -63,31 +70,35 @@ function create(): TypeChecker {
 		values: [],
 		returns: [],
 	};
-	declareType(t, "Unit", Type.Unit);
-	declareType(t, "Bool", Type.Bool);
-	declareType(t, "Int", Type.Int);
-	declareType(t, "Float", Type.Float);
-	declareType(t, "Str", Type.Str);
-	declareType(t, "Any", Type.Any);
-	declareType(t, "Type", Type.Type);
+	declareBuiltinType(t, "Type", Type.Type);
+	declareBuiltinType(t, "Any", Type.Any);
+	declareBuiltinType(t, "Never", Type.Never);
+	declareBuiltinType(t, "Unit", Type.Unit);
+	declareBuiltinType(t, "Bool", Type.Bool);
+	declareBuiltinType(t, "Int", Type.Int);
+	declareBuiltinType(t, "Float", Type.Float);
+	declareBuiltinType(t, "Str", Type.Str);
 	return t;
 }
 
-function declareBuiltin(t: TypeChecker, id: number, type: Type): void {
-	t.values[id] = type;
+function declareBuiltinType(t: TypeChecker, name: string, type: Type) {
+	t.types[name] = type as Type;
 }
 
 function declareType(
 	t: TypeChecker,
 	name: string,
 	type: Type,
-	start?: number,
-	end?: number
+	span: Span
 ): void {
 	if (t.types[name] !== undefined) {
-		throw new TypeError(`Cannot redeclare type ${name}`, start ?? 0, end ?? 0);
+		throw new TypeError(`Cannot redeclare type ${name}!`, span.start, span.end);
 	}
 	t.types[name] = type;
+}
+
+function declareBuiltin(t: TypeChecker, id: number, type: Type): void {
+	t.values[id] = type as Type;
 }
 
 function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
@@ -108,12 +119,7 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 				pattern.end
 			);
 		}
-		const endInSpread =
-			pattern.items[pattern.items.length - 1].type === AstType.SpreadExpr;
-		if (
-			(!endInSpread && pattern.items.length !== type.items.length) ||
-			(endInSpread && pattern.items.length + 1 > type.items.length)
-		) {
+		if (pattern.items.length !== type.items.length) {
 			const fl = type.items.length;
 			const dl = pattern.items.length;
 			throw new TypeError(
@@ -122,17 +128,8 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 				pattern.end
 			);
 		}
-		const patternIter = new ArrayIter(pattern.items);
-		const typeIter = new ArrayIter(type.items);
-		while (patternIter.hasNext) {
-			const item = patternIter.next();
-			if (item.type == AstType.SpreadExpr) {
-				const spreadType = Type.tuple(typeIter.rest());
-				item.resolvedType = spreadType;
-				storeTypes(t, item.spreading, spreadType);
-			} else {
-				storeTypes(t, item, typeIter.next());
-			}
+		for (const [pi, ti] of zip(pattern.items, type.items)) {
+			storeTypes(t, pi, ti);
 		}
 		return;
 	}
@@ -144,13 +141,13 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		return;
 	}
 	if (pattern.type === AstType.IdExpr) {
-		t.values[resolveId(pattern)] = type;
+		t.values[resolveId(pattern)] = assertReconciled(type, pattern);
 		return;
 	}
 	throw new Unreachable();
 }
 
-function check(t: TypeChecker, ast: Ast, d?: Type): Type {
+function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 	switch (ast.type) {
 		case AstType.Module:
 			return checkModule(t, ast, d);
@@ -194,6 +191,8 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 			return checkIfExpr(t, ast, d);
 		case AstType.MatchExpr:
 			return checkMatchExpr(t, ast, d);
+		case AstType.ThrowExpr:
+			return checkThrowExpr(t, ast, d);
 		case AstType.ProcExpr:
 			return checkProcExpr(t, ast, d);
 		case AstType.TypeExpr:
@@ -208,8 +207,6 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 			return checkLitExpr(t, ast, d);
 		case AstType.IdExpr:
 			return checkIdExpr(t, ast, d);
-		case AstType.SpreadExpr:
-			throw checkSpreadExpr(t, ast, d);
 		case AstType.ProcTypeExpr:
 			throw new Unreachable();
 		case AstType.WildCardExpr:
@@ -217,14 +214,14 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 	}
 }
 
-function checkModule(t: TypeChecker, m: Module, _d?: Type): Type {
+function checkModule(t: TypeChecker, m: Module, _d?: TypePattern): Type {
 	for (const decl of m.decls) {
 		check(t, decl);
 	}
 	return Type.Any;
 }
 
-function checkRepl(t: TypeChecker, r: Repl, d?: Type): Type {
+function checkRepl(t: TypeChecker, r: Repl, d?: TypePattern): Type {
 	let acc: Type = Type.Unit;
 	for (const line of r.lines) {
 		acc = check(t, line, d);
@@ -232,26 +229,28 @@ function checkRepl(t: TypeChecker, r: Repl, d?: Type): Type {
 	return acc;
 }
 
-function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: Type): Type {
-	let declType: undefined | Type;
+function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: TypePattern): Type {
+	let resolvedType: Type;
+	let declType: undefined | TypePattern;
 	if (d.declType !== undefined) {
-		declType = reifyType(t, d.declType);
+		declType = reifyType(t, d.declType, false);
 	}
 	const initType = check(t, d.initExpr, declType);
 	if (declType !== undefined) {
 		if (d.assert) {
-			assertAssertable(initType, declType, d.pattern);
+			resolvedType = assertAssertable(initType, declType, d.pattern);
 		} else {
-			assertAssignable(initType, declType, d.pattern);
+			resolvedType = assertAssignable(initType, declType, d.pattern);
 		}
+	} else {
+		resolvedType = assertReconciled(initType, d.initExpr);
 	}
-	const type = declType ?? initType;
-	d.resolvedType = type;
-	storeTypes(t, d.pattern, type);
+	d.resolvedType = resolvedType;
+	storeTypes(t, d.pattern, resolvedType);
 	return Type.Any;
 }
 
-function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
+function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: TypePattern): Type {
 	if (!t.inGlobalScope) {
 		throw new Unreachable();
 	}
@@ -264,39 +263,43 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: Type): Type {
 				param.pattern.end
 			);
 		}
-		const paramType = reifyType(t, param.declType);
+		const paramType = reifyType(t, param.declType, true);
 		storeTypes(t, param.pattern, paramType);
 		params.push(paramType);
 	}
 	let returns: Type = Type.Unit;
 	if (p.initExpr.returnType !== undefined) {
-		returns = reifyType(t, p.initExpr.returnType);
+		returns = reifyType(t, p.initExpr.returnType, true);
 	}
 	storeTypes(t, p.id, Type.proc(params, returns));
 	check(t, p.initExpr, returns);
 	return Type.Any;
 }
 
-function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: Type): Type {
+function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: TypePattern): Type {
 	if (!t.inGlobalScope) {
 		throw new Unreachable();
 	}
-	const type = reifyType(t, d.typeExpr);
-
-	declareType(t, d.id.value, type, d.start, d.end);
+	const type = assertReconciled(reifyType(t, d.typeExpr, true), d.id);
+	declareType(t, d.id.value, type, d.id);
 	return Type.Any;
 }
 
-function checkStructDecl(t: TypeChecker, s: StructDecl, _d?: Type): Type {
+function checkStructDecl(
+	t: TypeChecker,
+	s: StructDecl,
+	_d?: TypePattern
+): Type {
 	if (!t.inGlobalScope) {
 		throw new Unreachable();
 	}
-	const type = Type.struct(s.id.value, []);
-	declareType(t, s.id.value, type, s.id.start, s.id.end);
+	// TODO fixme
+	const type = Type.struct(s.id.value, []) as Type;
+	declareType(t, s.id.value, type, s.id);
 	return Type.Any;
 }
 
-function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: Type): Type {
+function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: TypePattern): Type {
 	if (!t.inGlobalScope) {
 		throw new Unreachable();
 	}
@@ -304,18 +307,26 @@ function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: Type): Type {
 	return Type.Any;
 }
 
-function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: Type): Type {
+function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: TypePattern): Type {
 	const type = r.expr !== undefined ? check(t, r.expr, d) : Type.Unit;
 	t.returns.push(type);
 	return type;
 }
 
-function checkAssertStmt(t: TypeChecker, a: AssertStmt, _d?: Type): Type {
+function checkAssertStmt(
+	t: TypeChecker,
+	a: AssertStmt,
+	_d?: TypePattern
+): Type {
 	check(t, a.testExpr);
 	return Type.Unit;
 }
 
-function checkAssignStmt(t: TypeChecker, a: AssignStmt, _d?: Type): Type {
+function checkAssignStmt(
+	t: TypeChecker,
+	a: AssignStmt,
+	_d?: TypePattern
+): Type {
 	const resolvedId = resolveId(a.id);
 	const into = t.values[resolvedId];
 	const from = check(t, a.expr, into);
@@ -323,23 +334,23 @@ function checkAssignStmt(t: TypeChecker, a: AssignStmt, _d?: Type): Type {
 	return Type.Unit;
 }
 
-function checkLoopStmt(t: TypeChecker, l: LoopStmt, _d?: Type): Type {
+function checkLoopStmt(t: TypeChecker, l: LoopStmt, _d?: TypePattern): Type {
 	check(t, l.thenExpr);
 	return Type.Unit;
 }
 
-function checkWhileStmt(t: TypeChecker, w: WhileStmt, _d?: Type): Type {
+function checkWhileStmt(t: TypeChecker, w: WhileStmt, _d?: TypePattern): Type {
 	const from = check(t, w.testExpr, Type.Bool);
 	assertAssignable(from, Type.Bool, w.testExpr);
 	check(t, w.thenExpr);
 	return Type.Any;
 }
 
-function checkExprStmt(t: TypeChecker, e: ExprStmt, d?: Type): Type {
+function checkExprStmt(t: TypeChecker, e: ExprStmt, d?: TypePattern): Type {
 	return check(t, e.expr, d);
 }
 
-function checkBlockExpr(t: TypeChecker, b: BlockExpr, d?: Type): Type {
+function checkBlockExpr(t: TypeChecker, b: BlockExpr, d?: TypePattern): Type {
 	for (const stmt of b.stmts) {
 		check(t, stmt);
 	}
@@ -349,31 +360,22 @@ function checkBlockExpr(t: TypeChecker, b: BlockExpr, d?: Type): Type {
 	return Type.Unit;
 }
 
-function checkTupleExpr(t: TypeChecker, u: TupleExpr, d?: Type): Type {
-	if (d === undefined || d.kind !== Kind.Tuple) {
-		d = Type.Unit;
-	}
+function checkTupleExpr(t: TypeChecker, u: TupleExpr, d?: TypePattern): Type {
 	const items: Type[] = [];
-	const itemIter = new ArrayIter(u.items);
-	const typeIter = new ArrayIter(d.items);
-	while (itemIter.hasNext) {
-		const item = itemIter.next();
-		if (item.type === AstType.SpreadExpr) {
-			const spreadType = check(t, item.spreading, Type.tuple(typeIter.rest()));
-			assertSpreadable(spreadType, item);
-			items.push(...spreadType.items);
-			typeIter.take(spreadType.items.length);
-		} else {
-			items.push(check(t, item, typeIter.next()));
-		}
+	for (const [ui, ti] of zip(u.items, closestTuple(d).items)) {
+		items.push(check(t, ui, ti));
 	}
 	const type = Type.tuple(items);
 	u.resolvedType = type;
 	return type;
 }
 
-function checkStructExpr(t: TypeChecker, s: StructExpr, _d?: Type): Type {
-	const type = reifyType(t, s.id);
+function checkStructExpr(
+	t: TypeChecker,
+	s: StructExpr,
+	_d?: TypePattern
+): Type {
+	const type = reifyType(t, s.id, true);
 	if (type.kind !== Kind.Struct) {
 		const tp = Type.print(type);
 		throw new TypeError(
@@ -386,22 +388,21 @@ function checkStructExpr(t: TypeChecker, s: StructExpr, _d?: Type): Type {
 	return type;
 }
 
-function checkGroupExpr(t: TypeChecker, g: GroupExpr, d?: Type): Type {
+function checkGroupExpr(t: TypeChecker, g: GroupExpr, d?: TypePattern): Type {
 	return check(t, g.expr, d);
 }
 
-function checkIfExpr(t: TypeChecker, i: IfExpr, d?: Type): Type {
+function checkIfExpr(t: TypeChecker, i: IfExpr, d?: TypePattern): Type {
 	if (i.pattern !== undefined) {
-		let declType: undefined | Type;
+		let declType: undefined | TypePattern;
 		if (i.declType !== undefined) {
-			declType = reifyType(t, i.declType);
+			declType = reifyType(t, i.declType, false);
 		}
 		const from = check(t, i.testExpr, declType);
 		if (declType !== undefined) {
-			assertAssertable(from, declType, i.pattern);
+			i.resolvedDeclType = assertAssertable(from, declType, i.pattern);
 		}
 		storeTypes(t, i.pattern, from);
-		i.resolvedDeclType = declType;
 	} else {
 		const from = check(t, i.testExpr, Type.Bool);
 		assertAssignable(from, Type.Bool, i.testExpr);
@@ -414,7 +415,7 @@ function checkIfExpr(t: TypeChecker, i: IfExpr, d?: Type): Type {
 	return union([thenType, Type.Unit]);
 }
 
-function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: Type): Type {
+function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: TypePattern): Type {
 	let from: Type = Type.Unit;
 	if (m.testExpr !== undefined) {
 		from = check(t, m.testExpr, Type.Bool);
@@ -425,9 +426,8 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: Type): Type {
 		if (c.pattern !== undefined) {
 			storeTypes(t, c.pattern, from);
 			if (c.declType !== undefined) {
-				const into = reifyType(t, c.declType);
-				assertAssertable(from, into, c.pattern);
-				c.resolvedDeclType = into;
+				const into = reifyType(t, c.declType, false);
+				c.resolvedDeclType = assertAssertable(from, into, c.pattern);
 			}
 		}
 		if (c.testExpr !== undefined) {
@@ -444,7 +444,7 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: Type): Type {
 			c.pattern.type === AstType.WildCardExpr &&
 			c.testExpr === undefined &&
 			(c.declType === undefined ||
-				Type.assignable(from, reifyType(t, c.declType)))
+				Type.assignable(from, reifyType(t, c.declType, false)))
 		) {
 			exhausted = true;
 		}
@@ -456,69 +456,69 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: Type): Type {
 	return union(caseTypes);
 }
 
-function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: Type): Type {
+function checkThrowExpr(t: TypeChecker, e: ThrowExpr, _d?: TypePattern): Type {
+	check(t, e.expr);
+	return Type.Never;
+}
+
+function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: TypePattern): Type {
 	const params: Type[] = [];
-	for (const param of p.params) {
-		if (param.declType === undefined) {
-			if (d === undefined) {
-				throw new TypeError(
-					"Params require type annotations if there is no desintation type!",
-					param.pattern.start,
-					param.pattern.end
-				);
-			}
-			// TODO Fix this total hack of a solution ;_;
-			if (d.kind !== Kind.Proc || d.params.length !== p.params.length) {
-				const dt = Type.print(d);
-				throw new TypeError(
-					`Cannot refer param type from destination type ${dt}!`,
-					param.pattern.start,
-					param.pattern.end
-				);
-			}
-			const i = p.params.indexOf(param);
-			const paramType = d.params[i];
-			storeTypes(t, param.pattern, paramType);
-			params.push(paramType);
-		} else {
-			const paramType = reifyType(t, param.declType);
-			storeTypes(t, param.pattern, paramType);
-			params.push(paramType);
+	const destination = closestProc(d);
+	for (const [param, dParam] of zip(p.params, destination.params)) {
+		let paramType: undefined | TypePattern;
+		if (param.declType !== undefined) {
+			paramType = reifyType(t, param.declType, false);
 		}
+		paramType ??= dParam;
+		if (paramType === undefined) {
+			throw new TypeError(
+				"Params require type annotations if there is no destination type!",
+				param.pattern.start,
+				param.pattern.end
+			);
+		}
+		const type = assertReconciled(paramType, param.pattern);
+		storeTypes(t, param.pattern, type);
+		params.push(type);
 	}
-	let returns: Type = Type.Unit;
+	let returns: TypePattern = destination.returns;
 	if (p.returnType !== undefined) {
-		returns = reifyType(t, p.returnType);
+		returns = reifyType(t, p.returnType, false);
 	}
 	const returnsSave = t.returns;
 	t.returns = [];
 	const implicitReturn = check(t, p.implExpr, returns);
-	if (p.returnType === undefined) {
-		returns = implicitReturn;
-	}
-	if (t.returns.length === 0 && Type.assignable(returns, Type.Unit)) {
+	if (
+		t.returns.length === 0 &&
+		returns !== Type._ &&
+		Type.assignable(returns, Type.Unit)
+	) {
+		returns = Type.Unit;
 		p.discardReturn = true;
 	} else {
 		if (implicitReturn !== undefined) {
 			t.returns.push(implicitReturn);
 		}
+		if (returns === Type._) {
+			returns = union(t.returns);
+		}
 		for (const r of t.returns) {
 			assertAssignable(r, returns, p);
 		}
 	}
-	const type = Type.proc(params, returns);
+	const type = Type.proc(params, assertReconciled(returns, p));
 	t.returns = returnsSave;
 	p.resolvedType = type;
 	return type;
 }
 
-function checkTypeExpr(t: TypeChecker, e: TypeExpr, _d?: Type): Type {
-	e.resolvedType = reifyType(t, e);
+function checkTypeExpr(t: TypeChecker, e: TypeExpr, _d?: TypePattern): Type {
+	e.resolvedType = reifyType(t, e, true);
 	// TODO eventually, Type should be a parameterized type Type[T]
 	return Type.Type;
 }
 
-function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: Type): Type {
+function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 	switch (b.op) {
 		case BinaryOp.Add:
 		case BinaryOp.Sub:
@@ -545,8 +545,6 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: Type): Type {
 			checkBinaryExprHelper(t, b, [check(t, b.left)]);
 			return Type.Bool;
 		}
-		case BinaryOp.Default:
-			throw new Todo();
 		case BinaryOp.Member: {
 			const l = check(t, b.left);
 			if (l.kind !== Kind.Tuple) {
@@ -586,13 +584,13 @@ function checkBinaryExprHelper(
 	t: TypeChecker,
 	b: BinaryExpr,
 	v: Type[],
-	d?: Type
+	d?: TypePattern
 ): Type {
-	if (d !== undefined && v.includes(d)) {
+	if (d !== undefined && v.includes(d as Type)) {
 		const l = check(t, b.left, d);
 		const r = check(t, b.right, d);
 		if (Type.assignable(l, d) && Type.assignable(r, d)) {
-			return d;
+			return d as Type;
 		}
 	}
 	for (const vt of v) {
@@ -612,7 +610,7 @@ function checkBinaryExprHelper(
 	);
 }
 
-function checkUnaryExpr(t: TypeChecker, u: UnaryExpr, d?: Type): Type {
+function checkUnaryExpr(t: TypeChecker, u: UnaryExpr, d?: TypePattern): Type {
 	switch (u.op) {
 		case UnaryOp.Not:
 			return checkUnaryExprHelper(t, u, [Type.Bool]);
@@ -625,12 +623,12 @@ function checkUnaryExprHelper(
 	t: TypeChecker,
 	u: UnaryExpr,
 	v: Type[],
-	d?: Type
+	d?: TypePattern
 ): Type {
-	if (d !== undefined && v.includes(d)) {
+	if (d !== undefined && v.includes(d as Type)) {
 		const r = check(t, u.right, d);
 		if (Type.assignable(r, d)) {
-			return d;
+			return d as Type;
 		}
 	}
 	for (const vt of v) {
@@ -648,45 +646,29 @@ function checkUnaryExprHelper(
 	);
 }
 
-function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: Type): Type {
+function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: TypePattern): Type {
 	const procType = check(t, c.proc);
 	if (procType.kind !== Kind.Proc) {
 		const found = Type.print(procType);
 		throw new TypeError(`Cannot call type ${found}!`, c.proc.start, c.proc.end);
 	}
-	let argCount = 0;
-	const argIter = new ArrayIter(c.args);
-	const paramIter = new ArrayIter(procType.params);
-	while (argIter.hasNext) {
-		const arg = argIter.next();
-		if (arg.type === AstType.SpreadExpr) {
-			const argType = check(t, arg.spreading, Type.tuple(paramIter.rest()));
-			assertSpreadable(argType, arg);
-			const paramType = Type.tuple(paramIter.take(argType.items.length));
-			assertAssertable(argType, paramType, arg);
-			argCount += argType.items.length;
-		} else {
-			const paramType = paramIter.next();
-			const argType = check(t, arg, paramType);
-			if (paramType !== undefined) {
-				assertAssignable(argType, paramType, arg);
-			}
-			argCount += 1;
-		}
-	}
-	if (argCount !== procType.params.length) {
+	if (c.args.length !== procType.params.length) {
 		const expected = procType.params.length;
-		const found = argCount;
+		const found = c.args.length;
 		throw new TypeError(
 			`Expected ${expected} arguments, but got ${found}!`,
 			c.start,
 			c.end
 		);
 	}
+	for (const [arg, param] of zip(c.args, procType.params)) {
+		const argType = check(t, arg, param);
+		assertAssignable(argType, param, arg);
+	}
 	return procType.returns;
 }
 
-function checkLitExpr(_t: TypeChecker, l: LitExpr, d?: Type): Type {
+function checkLitExpr(_t: TypeChecker, l: LitExpr, d?: TypePattern): Type {
 	// Check for allowed implicit casts of numeric literals
 	if (
 		d === Type.Float &&
@@ -698,12 +680,8 @@ function checkLitExpr(_t: TypeChecker, l: LitExpr, d?: Type): Type {
 	return Type.of(l.value);
 }
 
-function checkIdExpr(t: TypeChecker, i: IdExpr, _d?: Type): Type {
+function checkIdExpr(t: TypeChecker, i: IdExpr, _d?: TypePattern): Type {
 	return t.values[resolveId(i)];
-}
-
-function checkSpreadExpr(_t: TypeChecker, s: SpreadExpr, _d?: Type): Type {
-	throw new TypeError("Cannot spread here!", s.start, s.end);
 }
 
 function resolveId(id: IdExpr): number {
@@ -713,36 +691,38 @@ function resolveId(id: IdExpr): number {
 	return id.resolvedId;
 }
 
-function reifyType(t: TypeChecker, ast: Ast): Type {
+function reifyType<B extends boolean>(
+	t: TypeChecker,
+	ast: Ast,
+	strict: B
+): B extends true ? Type : TypePattern {
 	if (ast.type === AstType.TypeExpr) {
-		return reifyType(t, ast.expr);
+		return reifyType(t, ast.expr, strict);
 	}
 	if (ast.type === AstType.TupleExpr) {
-		const items: Type[] = [];
+		const items: TypePattern[] = [];
 		for (const item of ast.items) {
-			if (item.type === AstType.SpreadExpr) {
-				const itemType = reifyType(t, item.spreading);
-				assertSpreadable(itemType, item);
-				items.push(...itemType.items);
-			} else {
-				items.push(reifyType(t, item));
-			}
+			items.push(reifyType(t, item, strict));
 		}
-		return Type.tuple(items);
+		return Type.tuple(items) as Type;
 	}
 	if (ast.type === AstType.ProcTypeExpr) {
-		const params: Type[] = [];
+		const params: TypePattern[] = [];
 		for (const param of ast.params) {
-			if (param.type === AstType.SpreadExpr) {
-				const paramType = reifyType(t, param.spreading);
-				assertSpreadable(paramType, param);
-				params.push(...paramType.items);
-			} else {
-				params.push(reifyType(t, param));
-			}
+			params.push(reifyType(t, param, strict));
 		}
-		const returns = reifyType(t, ast.returnType);
-		return Type.proc(params, returns);
+		const returns = reifyType(t, ast.returnType, strict);
+		return Type.proc(params, returns) as Type;
+	}
+	if (ast.type === AstType.WildCardExpr) {
+		if (strict) {
+			throw new TypeError(
+				"Cannot use a wildcard type here!",
+				ast.start,
+				ast.end
+			);
+		}
+		return Type._ as unknown as Type;
 	}
 	if (ast.type === AstType.IdExpr) {
 		const type = t.types[ast.value];
@@ -754,8 +734,17 @@ function reifyType(t: TypeChecker, ast: Ast): Type {
 	throw new Unreachable();
 }
 
-function assertAssignable(from: Type, into: Type, span: Span): void {
-	if (!Type.assignable(from, into)) {
+function assertReconciled(type: TypePattern, span: Span): Type {
+	return assertAssignable(type, type, span);
+}
+
+function assertAssignable(
+	from: TypePattern,
+	into: TypePattern,
+	span: Span
+): Type {
+	const reconciled = Type.assignable(from, into);
+	if (reconciled === undefined) {
 		const f = Type.print(from);
 		const t = Type.print(into);
 		throw new TypeError(
@@ -764,10 +753,16 @@ function assertAssignable(from: Type, into: Type, span: Span): void {
 			span.end
 		);
 	}
+	return reconciled;
 }
 
-function assertAssertable(from: Type, into: Type, span: Span): void {
-	if (!Type.assertable(from, into)) {
+function assertAssertable(
+	from: TypePattern,
+	into: TypePattern,
+	span: Span
+): Type {
+	const reconciled = Type.assertable(from, into);
+	if (reconciled === undefined) {
 		const f = Type.print(from);
 		const t = Type.print(into);
 		throw new TypeError(
@@ -776,13 +771,21 @@ function assertAssertable(from: Type, into: Type, span: Span): void {
 			span.end
 		);
 	}
+	return reconciled;
 }
 
-function assertSpreadable(type: Type, span: Span): asserts type is TupleType {
-	if (type.kind !== Kind.Tuple) {
-		const f = Type.print(type);
-		throw new TypeError(`Type ${f} cannot be spread!`, span.start, span.end);
+function closestTuple(type?: TypePattern): TupleTypePattern {
+	if (type === undefined || type.kind !== Kind.Tuple) {
+		return Type.Unit;
 	}
+	return type;
+}
+
+function closestProc(type?: TypePattern): ProcTypePattern {
+	if (type === undefined || type.kind !== Kind.Proc) {
+		return Type.proc([], Type._);
+	}
+	return type;
 }
 
 function union(types: Type[]): Type {

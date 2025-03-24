@@ -108,9 +108,9 @@ false & false --> false
 1 | 2 --> ! TypeError
 
 --- test "Side Effects of Logical Operators" ---
-true | explode() --> true
-false & explode() --> false
-explode() | true --> ! RuntimeError
+true | throw () --> true
+false & throw () --> false
+(throw ()) | true --> ! RuntimeError
 
 --- test "Comparison Operators" ---
 100 > 4 --> true
@@ -150,8 +150,6 @@ explode() | true --> ! RuntimeError
 !true --> false
 !false --> true
 !1 --> ! TypeError
-(1, ...(2, 3)) --> (1, 2, 3)
-(4, 5, ...(6, ...(7, 8)), 9, 10) --> (4, 5, 6, 7, 8, 9, 10)
 
 --- test "Order of Operations" ---
 false | true & false --> false | (true & false)

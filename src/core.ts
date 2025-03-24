@@ -1,152 +1,20 @@
-import { Span, Unreachable, sexpr, structurallyEq } from "./utils.ts";
-
-type YokuObject = {
-	$type: Type;
-};
-
-export enum Kind {
-	Primitive = "Primitive",
-	Proc = "Proc",
-	Tuple = "Tuple",
-	Struct = "Struct",
-}
-
-export type PrimitiveType = {
-	kind: Kind.Primitive;
-	name: string;
-} & YokuObject;
-
-export type ProcType = {
-	kind: Kind.Proc;
-	params: Type[];
-	returns: Type;
-} & YokuObject;
-
-export type TupleType = {
-	kind: Kind.Tuple;
-	items: Type[];
-} & YokuObject;
-
-export type Field = {
-	access: Access;
-	name: string;
-	type: Type;
-};
-
-export type StructType = {
-	kind: Kind.Struct;
-	name: string;
-	fields: Field[];
-} & YokuObject;
-
-export type Type = PrimitiveType | ProcType | TupleType | StructType;
-
-const TypeType: Type = {
-	$type: undefined as unknown as Type,
-	kind: Kind.Primitive,
-	name: "Type",
-};
-TypeType.$type = TypeType;
-
-export const Type = {
-	primitive: primitiveType,
-	proc: procType,
-	tuple: tupleType,
-	struct: structType,
-	Type: TypeType,
-	Unit: tupleType([]),
-	Bool: primitiveType("Bool"),
-	Int: primitiveType("Int"),
-	Float: primitiveType("Float"),
-	Str: primitiveType("Str"),
-	Any: primitiveType("Any"),
-	Never: primitiveType("Never"),
-	print: printType,
-	of: typeOf,
-	assignable,
-	assertable,
-};
-
-function primitiveType(name: string): PrimitiveType {
-	return { $type: TypeType, kind: Kind.Primitive, name };
-}
-
-function procType(params: Type[], returns: Type): ProcType {
-	return { $type: TypeType, kind: Kind.Proc, params, returns };
-}
-
-function tupleType(items: Type[]): TupleType {
-	return { $type: TypeType, kind: Kind.Tuple, items };
-}
-
-function structType(name: string, fields: Field[]): StructType {
-	return { $type: TypeType, kind: Kind.Struct, name, fields };
-}
-
-function printType(t: Type): string {
-	switch (t.kind) {
-		case Kind.Primitive: {
-			return t.name;
-		}
-		case Kind.Proc: {
-			const params = t.params.map(printType).join(", ");
-			const returns = printType(t.returns);
-			return `proc (${params}) -> ${returns}`;
-		}
-		case Kind.Tuple: {
-			const items = t.items.map(printType).join(", ");
-			return `(${items})`;
-		}
-		case Kind.Struct: {
-			if (t.fields.length === 0) {
-				return `struct ${t.name} {}`;
-			}
-			const fields = t.fields.map(
-				(field) => `${field.access} ${field.name}: ${printType(field.type)}`
-			);
-			return `struct ${t.name} {\n\t${fields.join("\n\t")}\n}`;
-		}
-	}
-}
-
-function typeOf(v: unknown): Type {
-	switch (typeof v) {
-		case "boolean":
-			return Type.Bool;
-		case "bigint":
-			return Type.Int;
-		case "number":
-			return Type.Float;
-		case "string":
-			return Type.Str;
-	}
-	if (v === Unit) {
-		return Type.Unit;
-	}
-	if (typeof v !== "object") {
-		throw new Error(`Cannot find type! ${v}`);
-	}
-	const type = (v as YokuObject).$type;
-	if (type !== undefined) {
-		return type;
-	}
-	throw new Error(`Cannot find type! ${v}`);
-}
-
-function assignable(from: Type, into: Type): boolean {
-	return into === Type.Any || from === Type.Never || structurallyEq(from, into);
-}
-
-function assertable(from: Type, into: Type): boolean {
-	return from === Type.Any || assignable(from, into);
-}
+import { BinaryOp, UnaryOp } from "./ops.ts";
+import {
+	NonPrimitive,
+	Kind,
+	ProcType,
+	StructType,
+	TupleType,
+	Type,
+} from "./types.ts";
+import { Span, Unreachable, sexpr } from "./utils.ts";
 
 export const Unit = null;
 
 export type Proc = {
 	name?: string;
 	impl: (args: unknown[]) => unknown;
-} & YokuObject;
+} & NonPrimitive;
 
 export const Proc = { create: createProc };
 
@@ -160,7 +28,7 @@ function createProc(
 
 export type Tuple = {
 	items: unknown[];
-} & YokuObject;
+} & NonPrimitive;
 
 export const Tuple = { create: createTuple };
 
@@ -168,7 +36,7 @@ function createTuple(type: TupleType, items: unknown[]): Tuple {
 	return { $type: type, items };
 }
 
-export type Struct = Record<string, unknown> & YokuObject;
+export type Struct = Record<string, unknown> & NonPrimitive;
 
 export const Struct = { create: createStruct };
 
@@ -180,7 +48,7 @@ function createStruct(
 }
 
 export function print(v: unknown): string {
-	const type = typeOf(v);
+	const type = Type.of(v);
 	if (type === Type.Unit) {
 		return "()";
 	}
@@ -197,11 +65,12 @@ export function print(v: unknown): string {
 		return v as string;
 	}
 	if (type === Type.Type) {
-		return `Type[${printType(v as Type)}]`;
+		return `Type[${Type.print(v as Type)}]`;
 	}
 	if (type.kind === Kind.Proc) {
-		const type = Type.print((v as Proc).$type);
-		const name = (v as Proc).name;
+		const proc = v as Proc;
+		const type = Type.print(proc.$type);
+		const name = proc.name;
 		if (name !== undefined) {
 			return type.replace("proc ", `proc ${name}`);
 		} else {
@@ -209,49 +78,22 @@ export function print(v: unknown): string {
 		}
 	}
 	if (type.kind === Kind.Tuple) {
-		const items = (v as Tuple).items.map(print).join(", ");
-		return `(${items}${items.length === 1 ? "," : ""})`;
+		const tuple = v as Tuple;
+		const items: string[] = [];
+		for (const item of tuple.items) {
+			items.push(print(item));
+		}
+		return `(${items.join(", ")}${items.length === 1 ? "," : ""})`;
 	}
 	if (type.kind === Kind.Struct) {
-		const fields = Object.entries(v as Struct)
-			.filter(([key]) => key !== "$type")
-			.map(([key, value]) => `${key} = ${print(value)}`)
-			.join(", ");
-		return `${((v as Struct).$type as StructType).name} { ${fields} }`;
+		const struct = v as Struct;
+		const fields: string[] = [];
+		for (const field of type.fields) {
+			fields.push(print(`${field.name} = ${print(struct[field.name])}`));
+		}
+		return `${type.name} { ${fields.join(", ")} }`;
 	}
 	throw new Unreachable();
-}
-
-export enum BinaryOp {
-	Add = "+",
-	Sub = "-",
-	Mul = "*",
-	Div = "/",
-	Rem = "%",
-	Pow = "^",
-	And = "&",
-	Or = "|",
-	Lt = "<",
-	Lte = "<=",
-	Gt = ">",
-	Gte = ">=",
-	Eq = "==",
-	NotEq = "!=",
-	Id = "===",
-	NotId = "!==",
-	Default = "?",
-	Member = ".",
-	As = "as",
-}
-
-export enum UnaryOp {
-	Not = "!",
-	Neg = "-",
-}
-
-export enum Access {
-	Var = "var",
-	Const = "const",
 }
 
 export enum AstType {
@@ -276,6 +118,7 @@ export enum AstType {
 	GroupExpr = "GroupExpr",
 	IfExpr = "IfExpr",
 	MatchExpr = "MatchExpr",
+	ThrowExpr = "ThrowExpr",
 	ProcExpr = "ProcExpr",
 	TypeExpr = "TypeExpr",
 	BinaryExpr = "BinaryExpr",
@@ -283,7 +126,6 @@ export enum AstType {
 	CallExpr = "CallExpr",
 	LitExpr = "LitExpr",
 	IdExpr = "IdExpr",
-	SpreadExpr = "SpreadExpr",
 	ProcTypeExpr = "ProcTypeExpr",
 	WildCardExpr = "WildCardExpr",
 }
@@ -301,7 +143,7 @@ export type Repl = {
 
 export type VarDecl = {
 	type: AstType.VarDecl;
-	access: Access;
+	mutable: boolean;
 	assert: boolean;
 	declType?: Ast;
 	pattern: Ast;
@@ -322,7 +164,7 @@ export type TypeDecl = {
 } & Span;
 
 export type StructDeclField = {
-	access: Access;
+	mutable: boolean;
 	id: IdExpr;
 	typeDecl: Ast;
 };
@@ -434,6 +276,11 @@ export type MatchExpr = {
 	cases: Case[];
 } & Span;
 
+export type ThrowExpr = {
+	type: AstType.ThrowExpr;
+	expr: Ast;
+} & Span;
+
 export type ProcExprParam = {
 	pattern: Ast;
 	declType?: Ast;
@@ -484,12 +331,6 @@ export type IdExpr = {
 	resolvedId?: number;
 } & Span;
 
-export type SpreadExpr = {
-	type: AstType.SpreadExpr;
-	spreading: Ast;
-	resolvedType?: Type;
-} & Span;
-
 export type ProcTypeExpr = {
 	type: AstType.ProcTypeExpr;
 	params: Ast[];
@@ -522,6 +363,7 @@ export type Ast =
 	| GroupExpr
 	| IfExpr
 	| MatchExpr
+	| ThrowExpr
 	| ProcExpr
 	| TypeExpr
 	| BinaryExpr
@@ -529,7 +371,6 @@ export type Ast =
 	| CallExpr
 	| LitExpr
 	| IdExpr
-	| SpreadExpr
 	| ProcTypeExpr
 	| WildCardExpr;
 

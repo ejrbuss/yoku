@@ -4,7 +4,6 @@ import {
 	Ast,
 	AstType,
 	BinaryExpr,
-	BinaryOp,
 	BlockExpr,
 	BreakStmt,
 	CallExpr,
@@ -21,27 +20,25 @@ import {
 	Proc,
 	ProcDecl,
 	ProcExpr,
-	ProcType,
 	Repl,
 	ReturnStmt,
 	Struct,
 	StructExpr,
-	StructType,
 	TestDecl,
+	ThrowExpr,
 	Tuple,
 	TupleExpr,
-	TupleType,
-	Type,
 	TypeExpr,
 	UnaryExpr,
-	UnaryOp,
 	Unit,
 	VarDecl,
 	WhileStmt,
 } from "./core.ts";
+import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Resolver } from "./resolver.ts";
 import { TypeChecker } from "./typechecker.ts";
-import { ArrayIter, structurallyEq, Todo, Unreachable } from "./utils.ts";
+import { ProcType, StructType, TupleType, Type } from "./types.ts";
+import { structurallyEq, Unreachable, zip } from "./utils.ts";
 
 export class RuntimeError {
 	constructor(
@@ -92,9 +89,9 @@ export const Builtins = {
 			return Type.print(Type.of(args[0]));
 		}
 	),
-	// TODO can be removed once we have throw
-	explode: Proc.create("explode", Type.proc([], Type.Never), () => {
-		throw new RuntimeError("Explode!");
+	// Testing
+	any: Proc.create("any", Type.proc([], Type.Any), () => {
+		return "*any*";
 	}),
 };
 
@@ -143,23 +140,11 @@ function unify(
 		}
 		return true;
 	}
-	// (...pattern.items) = (...value.items)
+	// (pattern.items,) = (value.items,)
 	if (pattern.type === AstType.TupleExpr) {
-		const tuple = value as Tuple;
-		const patternIter = new ArrayIter(pattern.items);
-		const tupleIter = new ArrayIter(tuple.items);
-		while (patternIter.hasNext) {
-			const item = patternIter.next();
-			if (item.type === AstType.SpreadExpr) {
-				const type = item.resolvedType as TupleType;
-				const value = Tuple.create(type, tupleIter.rest());
-				if (!unify(i, item.spreading, value, throwOnFailure)) {
-					return false;
-				}
-			} else {
-				if (!unify(i, item, tupleIter.next(), throwOnFailure)) {
-					return false;
-				}
+		for (const [pi, vi] of zip(pattern.items, (value as Tuple).items)) {
+			if (!unify(i, pi, vi, throwOnFailure)) {
+				return false;
 			}
 		}
 		return true;
@@ -238,6 +223,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateIfExpr(i, ast);
 		case AstType.MatchExpr:
 			return interperateMatchExpr(i, ast);
+		case AstType.ThrowExpr:
+			return interperateThrowExpr(i, ast);
 		case AstType.ProcExpr:
 			return interperateProcExpr(i, ast);
 		case AstType.TypeExpr:
@@ -252,8 +239,12 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateLitExpr(i, ast);
 		case AstType.IdExpr:
 			return interperateIdExpr(i, ast);
+		case AstType.ProcTypeExpr:
+			throw new Unreachable();
+		case AstType.WildCardExpr:
+			throw new Unreachable();
 	}
-	throw new Unreachable();
+	throw new Unreachable(ast satisfies never);
 }
 
 function interperateModule(i: Interpreter, m: Module): unknown {
@@ -402,11 +393,7 @@ function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 	}
 	const items: unknown[] = [];
 	for (const item of t.items) {
-		if (item.type === AstType.SpreadExpr) {
-			items.push(...(interperate(i, item.spreading) as Tuple).items);
-		} else {
-			items.push(interperate(i, item));
-		}
+		items.push(interperate(i, item));
 	}
 	return Tuple.create(t.resolvedType as TupleType, items);
 }
@@ -461,6 +448,11 @@ function interperateMatchExpr(i: Interpreter, m: MatchExpr): unknown {
 	return Unit;
 }
 
+function interperateThrowExpr(i: Interpreter, t: ThrowExpr): unknown {
+	const value = interperate(i, t.expr);
+	throw new RuntimeError(print(value), t.start, t.end);
+}
+
 function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 	const closure = [...i.locals];
 	return Proc.create(undefined, p.resolvedType as ProcType, (args) => {
@@ -471,10 +463,8 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 		i.closure = closure;
 		i.inGlobalScope = false;
 		try {
-			const paramsIter = new ArrayIter(p.params);
-			const argsIter = new ArrayIter(args);
-			while (paramsIter.hasNext) {
-				unify(i, paramsIter.next().pattern, argsIter.next(), true);
+			for (const [param, arg] of zip(p.params, args)) {
+				unify(i, param.pattern, arg, true);
 			}
 			const value = interperate(i, p.implExpr);
 			return p.discardReturn ? Unit : value;
@@ -573,9 +563,6 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 			const right = interperate(i, b.right);
 			return left !== right;
 		}
-		case BinaryOp.Default: {
-			throw new Todo();
-		}
 		case BinaryOp.Member: {
 			const left = interperate(i, b.left);
 			const right = interperate(i, b.right);
@@ -601,11 +588,7 @@ function interperateCallExpr(i: Interpreter, c: CallExpr): unknown {
 	const proc = interperate(i, c.proc);
 	const args: unknown[] = [];
 	for (const arg of c.args) {
-		if (arg.type === AstType.SpreadExpr) {
-			args.push(...(interperate(i, arg.spreading) as Tuple).items);
-		} else {
-			args.push(interperate(i, arg));
-		}
+		args.push(interperate(i, arg));
 	}
 	return (proc as Proc).impl(args);
 }

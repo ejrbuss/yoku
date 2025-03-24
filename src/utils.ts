@@ -52,6 +52,14 @@ export function clamp(n: number, min: number, max: number): number {
 	return Math.max(Math.min(n, max), min);
 }
 
+export function zip<A, B>(as: A[], bs: B[]): [A, B][] {
+	const zipped: [A, B][] = [];
+	for (let i = 0; i < as.length; i++) {
+		zipped.push([as[i], bs[i]]);
+	}
+	return zipped;
+}
+
 export class ArrayIter<T> {
 	#array: T[];
 	#position: number;

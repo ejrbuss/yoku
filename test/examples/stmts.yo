@@ -20,12 +20,6 @@ const (a, b) as ab = ("a", "b")
 a --> "a"
 b --> "b"
 ab --> ("a", "b")
-const ...a = (1,) --> ! ParseError
-const (...a, b) = (1, 2) --> ! ParseError
-const (a, ...bc) = (1, 2, 3)
-a --> 1
-bc --> (2, 3)
-
 
 --- test "Assert Statments" ---
 assert 1 == 1
@@ -82,8 +76,8 @@ do {
 } --> ! ResolutionError
 
 --- test "If Statements" ---
-if true { "then" } else { explode() } --> "then"
-if false { explode() } else { "else" } --> "else"
+if true { "then" } else { throw () } --> "then"
+if false { throw () } else { "else" } --> "else"
 const x = if 3 > 4 { "a" } else { "b"; "c" }
 x --> "c"
 
@@ -154,12 +148,12 @@ while true {
 --- test "Match Expressions" ---
 match {
 	if true => {}
-	else => { explode() }
+	else => { throw () }
 }
 
 match () {
 	_ => {}
-	_ => { explode() }
+	_ => { throw () }
 }
 
 const x = 5

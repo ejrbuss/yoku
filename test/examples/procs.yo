@@ -34,7 +34,7 @@ proc safe_if_negative(x: Int) -> () {
 	if x < 0 {
 		return
 	}
-	explode()
+	throw ()
 }
 safe_if_negative(-4)
 safe_if_negative(5) --> ! RuntimeError
@@ -47,7 +47,7 @@ proc count(start: Int) -> Int {
 		}
 		n = n + 1
 	}
-	explode()
+	throw ()
 }
 count(1) --> 3
 
@@ -81,12 +81,6 @@ proc f((x, y, z): (Int, Int, Bool)) -> Int {
 }
 f((1, 2, true)) --> 3
 f((3, 4, false)) --> -1
-
---- test "Spread Into Calls" ---
-proc f(x: Int, y: Bool) {}
-f(...(1, true))
-const t = (100, false)
-f(...t)
 
 --- test "Inferred Return Type for Proc Declarations" ---
 proc f { 1 }

@@ -387,4 +387,35 @@ use file = open("data.txt") -- will call close at end of scope
 test "parameterized" for value in Array.of(1, 2, 3, 4) {
 
 }
+
+-- Let's pretend we have type level unions ie.
+type Num = Int | Float
+var x: Num = 4
+x = 3.5 -- allowed
+
+-- How do we convert a result of one type to another?
+type Result1 = Result[Ok, A]
+type Result2 = Result[Ok, B | C]
+type Result3 = Result[Ok, A | B | C]
+
+const r1: Result1 = ...
+if assert Result.Error(e) = r1 {
+	-- e can convert to union, type decided by proc signature
+	return Result.Error(e) 
+}
+const r2: Result2 = ...
+const r2 = match r2 {
+	Ok(ok) => { ok },
+	Error(error) => { return Result.Error(error) }
+}
+
+const new = match old {
+	V1(new) => { new },
+	V2(bad) => { return V2(bad) }
+}
+
+const new = match catch V1
+
+-- Maybe ? really is the way to go
+
 ```

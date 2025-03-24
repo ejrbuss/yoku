@@ -1,11 +1,9 @@
 import {
-	Access,
 	AssertStmt,
 	AssignStmt,
 	Ast,
 	AstType,
 	BinaryExpr,
-	BinaryOp,
 	BlockExpr,
 	BreakStmt,
 	CallExpr,
@@ -21,18 +19,19 @@ import {
 	ProcExpr,
 	Repl,
 	ReturnStmt,
-	SpreadExpr,
 	StructExpr,
 	TestDecl,
+	ThrowExpr,
 	TupleExpr,
 	UnaryExpr,
 	VarDecl,
 	WhileStmt,
 } from "./core.ts";
+import { BinaryOp } from "./ops.ts";
 import { Unreachable } from "./utils.ts";
 
 type Decl = {
-	access: Access;
+	mutable: boolean;
 	builtin: boolean;
 	resolvedId: number;
 };
@@ -77,31 +76,27 @@ function create(): Resolver {
 function declareBuiltin(r: Resolver, id: string): number {
 	const globalScope = r.scopes[0];
 	const resolvedId = globalScope.nextId++;
-	globalScope.decls[id] = { resolvedId, access: Access.Const, builtin: true };
+	globalScope.decls[id] = { mutable: false, builtin: true, resolvedId };
 	return resolvedId;
 }
 
 function declarePattern(
 	r: Resolver,
 	pattern: Ast,
-	access: Access,
+	mutable: boolean,
 	assert: boolean
 ): void {
 	if (pattern.type === AstType.BinaryExpr) {
 		if (pattern.op !== BinaryOp.As) {
 			throw new Unreachable();
 		}
-		declarePattern(r, pattern.left, access, assert);
-		declarePattern(r, pattern.right, access, assert);
+		declarePattern(r, pattern.left, mutable, assert);
+		declarePattern(r, pattern.right, mutable, assert);
 		return;
 	}
 	if (pattern.type === AstType.TupleExpr) {
 		for (const item of pattern.items) {
-			if (item.type === AstType.SpreadExpr) {
-				declarePattern(r, item.spreading, access, assert);
-			} else {
-				declarePattern(r, item, access, assert);
-			}
+			declarePattern(r, item, mutable, assert);
 		}
 		return;
 	}
@@ -135,7 +130,7 @@ function declarePattern(
 		pattern.resolvedId = scope.nextId++;
 		scope.decls[pattern.value] = {
 			resolvedId: pattern.resolvedId,
-			access,
+			mutable,
 			builtin: false,
 		};
 		return;
@@ -196,6 +191,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveIfExpr(r, ast);
 		case AstType.MatchExpr:
 			return resolveMatchExpr(r, ast);
+		case AstType.ThrowExpr:
+			return resolveThrowExpr(r, ast);
 		case AstType.ProcExpr:
 			return resolveProcExpr(r, ast);
 		case AstType.TypeExpr:
@@ -210,10 +207,12 @@ function resolve(r: Resolver, ast: Ast): void {
 			return;
 		case AstType.IdExpr:
 			return resolveIdExpr(r, ast);
-		case AstType.SpreadExpr:
-			return resolveSpreadExpr(r, ast);
+		case AstType.ProcTypeExpr:
+			throw new Unreachable();
+		case AstType.WildCardExpr:
+			throw new Unreachable();
 	}
-	throw new Unreachable();
+	throw new Unreachable(ast satisfies never);
 }
 
 function resolveModule(r: Resolver, m: Module): void {
@@ -235,14 +234,14 @@ function resolveRepl(r: Resolver, e: Repl): void {
 
 function resolveVarDecl(r: Resolver, v: VarDecl): void {
 	resolve(r, v.initExpr);
-	declarePattern(r, v.pattern, v.access, v.assert);
+	declarePattern(r, v.pattern, v.mutable, v.assert);
 }
 
 function resolveProcDecl(r: Resolver, p: ProcDecl): void {
 	if (r.procStack !== 0) {
 		throw new Unreachable();
 	}
-	declarePattern(r, p.id, Access.Const, false);
+	declarePattern(r, p.id, false, false);
 	resolveProcExpr(r, p.initExpr);
 }
 
@@ -302,7 +301,7 @@ function resolveAssignStmt(r: Resolver, a: AssignStmt): void {
 	for (const scope of r.scopes.toReversed()) {
 		const decl = scope.decls[a.id.value];
 		if (decl !== undefined) {
-			if (decl.access === Access.Const) {
+			if (!decl.mutable) {
 				throw new ResolutionError(
 					"Cannot assign to a const!",
 					a.id.start,
@@ -348,7 +347,7 @@ function resolveGroupExpr(r: Resolver, g: GroupExpr): void {
 function resolveIfExpr(r: Resolver, i: IfExpr): void {
 	if (i.pattern !== undefined) {
 		pushScope(r);
-		declarePattern(r, i.pattern, Access.Const, true);
+		declarePattern(r, i.pattern, false, true);
 		resolve(r, i.testExpr);
 		resolve(r, i.thenExpr);
 		popScope(r);
@@ -368,7 +367,7 @@ function resolveMatchExpr(r: Resolver, m: MatchExpr): void {
 	for (const c of m.cases) {
 		pushScope(r);
 		if (c.pattern !== undefined) {
-			declarePattern(r, c.pattern, Access.Const, true);
+			declarePattern(r, c.pattern, false, true);
 		}
 		if (c.testExpr !== undefined) {
 			resolve(r, c.testExpr);
@@ -378,10 +377,14 @@ function resolveMatchExpr(r: Resolver, m: MatchExpr): void {
 	}
 }
 
+function resolveThrowExpr(r: Resolver, t: ThrowExpr): void {
+	resolve(r, t.expr);
+}
+
 function resolveProcExpr(r: Resolver, p: ProcExpr): void {
 	pushScope(r);
 	for (const param of p.params) {
-		declarePattern(r, param.pattern, Access.Const, false);
+		declarePattern(r, param.pattern, false, false);
 	}
 	const saveLoopStack = r.loopStack;
 	r.loopStack = [];
@@ -417,8 +420,4 @@ function resolveIdExpr(r: Resolver, i: IdExpr): void {
 		}
 	}
 	throw new ResolutionError("Undeclared variable!", i.start, i.end);
-}
-
-function resolveSpreadExpr(r: Resolver, s: SpreadExpr): void {
-	resolve(r, s.spreading);
 }

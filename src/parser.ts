@@ -2,8 +2,6 @@ import { Token, Tokenizer, TokenType } from "./tokens.ts";
 import {
 	Ast,
 	AstType,
-	BinaryOp,
-	UnaryOp,
 	ProcExpr,
 	IfExpr,
 	BlockExpr,
@@ -16,7 +14,6 @@ import {
 	AssertStmt,
 	IdExpr,
 	ProcExprParam,
-	Access,
 	ProcTypeExpr,
 	WhileStmt,
 	LoopStmt,
@@ -25,15 +22,15 @@ import {
 	TestDecl,
 	LitExpr,
 	TypeDecl,
-	SpreadExpr,
-	Type,
 	MatchExpr,
 	Case,
 	TypeExpr,
 	StructDecl,
+	ThrowExpr,
 } from "./core.ts";
 import { CodeSource } from "./codesource.ts";
-import { Todo, Unreachable } from "./utils.ts";
+import { Unreachable } from "./utils.ts";
+import { BinaryOp, UnaryOp } from "./ops.ts";
 
 type TokenMatcher = TokenType | string;
 
@@ -191,12 +188,9 @@ function parseStmt(p: Parser): Ast {
 
 function parseVarDecl(p: Parser): VarDecl {
 	pushStart(p);
-	let access: Access;
-	if (match(p, "const")) {
-		access = Access.Const;
-	} else {
+	const mutable = match(p, "const") === undefined;
+	if (mutable) {
 		consume(p, "var");
-		access = Access.Var;
 	}
 	const assert = match(p, "assert") !== undefined;
 	const pattern = parsePattern(p);
@@ -205,7 +199,7 @@ function parseVarDecl(p: Parser): VarDecl {
 	const initExpr = parseExpr(p);
 	return {
 		type: AstType.VarDecl,
-		access,
+		mutable,
 		assert,
 		declType,
 		pattern,
@@ -513,7 +507,7 @@ function parseFactor(p: Parser): Ast {
 
 function parsePower(p: Parser): Ast {
 	let left = parseUnary(p);
-	if (match(p, BinaryOp.Pow) || match(p, BinaryOp.Default)) {
+	if (match(p, BinaryOp.Pow)) {
 		const op = lookBehind(p)?.image as BinaryOp;
 		const right = parsePower(p);
 		left = {
@@ -537,15 +531,6 @@ function parseUnary(p: Parser): Ast {
 			type: AstType.UnaryExpr,
 			op: op?.image as UnaryOp,
 			right,
-			start: popStart(p),
-			end: getEnd(p),
-		};
-	}
-	if (match(p, "...")) {
-		const spreading = parseCall(p);
-		return {
-			type: AstType.SpreadExpr,
-			spreading,
 			start: popStart(p),
 			end: getEnd(p),
 		};
@@ -622,6 +607,9 @@ function parsePrimaryExpr(p: Parser): Ast {
 	}
 	if (lookAhead(p, "match")) {
 		return parseMatchExpr(p);
+	}
+	if (lookAhead(p, "throw")) {
+		return parseThrowExpr(p);
 	}
 	if (lookAhead(p, "proc")) {
 		return parseProcExpr(p);
@@ -795,6 +783,18 @@ function parseMatchExpr(p: Parser): MatchExpr {
 	};
 }
 
+function parseThrowExpr(p: Parser): ThrowExpr {
+	pushStart(p);
+	consume(p, "throw");
+	const expr = parseExpr(p);
+	return {
+		type: AstType.ThrowExpr,
+		expr,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
 function parseProcExpr(p: Parser): ProcExpr {
 	pushStart(p);
 	match(p, "proc");
@@ -884,6 +884,9 @@ function parsePrimaryTypeExpr(p: Parser): Ast {
 	if (lookAhead(p, "(")) {
 		return parseTupleTypeExpr(p);
 	}
+	if (lookAhead(p, "_")) {
+		return parseWildcardExpr(p);
+	}
 	if (lookAhead(p, TokenType.Id)) {
 		return parseIdExpr(p);
 	}
@@ -897,11 +900,7 @@ function parseProcTypeExpr(p: Parser): ProcTypeExpr {
 	consume(p, "(");
 	const params: Ast[] = [];
 	while (hasMore(p) && !lookAhead(p, ")")) {
-		if (lookAhead(p, "...")) {
-			params.push(parseSpreadTypeExpr(p));
-		} else {
-			params.push(parseTypeExpr(p));
-		}
+		params.push(parseTypeExpr(p));
 		if (!lookAhead(p, ")")) {
 			consume(p, ",");
 		}
@@ -932,11 +931,7 @@ function parseTupleTypeExpr(p: Parser): TupleExpr {
 	consume(p, "(");
 	const items: Ast[] = [];
 	while (hasMore(p) && !lookAhead(p, ")")) {
-		if (lookAhead(p, "...")) {
-			items.push(parseSpreadTypeExpr(p));
-		} else {
-			items.push(parseTypeExpr(p));
-		}
+		items.push(parseTypeExpr(p));
 		if (!lookAhead(p, ")")) {
 			consume(p, ",");
 		}
@@ -945,18 +940,6 @@ function parseTupleTypeExpr(p: Parser): TupleExpr {
 	return {
 		type: AstType.TupleExpr,
 		items,
-		start: popStart(p),
-		end: getEnd(p),
-	};
-}
-
-function parseSpreadTypeExpr(p: Parser): Ast {
-	pushStart(p);
-	consume(p, "...");
-	const spreading = parseTypeExpr(p);
-	return {
-		type: AstType.SpreadExpr,
-		spreading,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -1004,12 +987,7 @@ function parseTuplePattern(p: Parser): TupleExpr {
 	consume(p, "(");
 	const items: Ast[] = [];
 	while (hasMore(p) && !lookAhead(p, ")")) {
-		if (lookAhead(p, "...")) {
-			items.push(parseSpreadPattern(p));
-			break;
-		} else {
-			items.push(parsePattern(p));
-		}
+		items.push(parsePattern(p));
 		if (!lookAhead(p, ")")) {
 			consume(p, ",");
 		}
@@ -1018,18 +996,6 @@ function parseTuplePattern(p: Parser): TupleExpr {
 	return {
 		type: AstType.TupleExpr,
 		items,
-		start: popStart(p),
-		end: getEnd(p),
-	};
-}
-
-function parseSpreadPattern(p: Parser): SpreadExpr {
-	pushStart(p);
-	consume(p, "...");
-	const spreading = parsePrimaryPattern(p);
-	return {
-		type: AstType.SpreadExpr,
-		spreading,
 		start: popStart(p),
 		end: getEnd(p),
 	};
