@@ -8,6 +8,7 @@ export enum Kind {
 	Primitive = "Primitive",
 	Proc = "Proc",
 	Tuple = "Tuple",
+	Struct = "Struct",
 }
 
 export type PrimitiveType = {
@@ -26,7 +27,19 @@ export type TupleType = {
 	items: Type[];
 } & YokuObject;
 
-export type Type = PrimitiveType | ProcType | TupleType;
+export type Field = {
+	access: Access;
+	name: string;
+	type: Type;
+};
+
+export type StructType = {
+	kind: Kind.Struct;
+	name: string;
+	fields: Field[];
+} & YokuObject;
+
+export type Type = PrimitiveType | ProcType | TupleType | StructType;
 
 const TypeType: Type = {
 	$type: undefined as unknown as Type,
@@ -39,6 +52,7 @@ export const Type = {
 	primitive: primitiveType,
 	proc: procType,
 	tuple: tupleType,
+	struct: structType,
 	Type: TypeType,
 	Unit: tupleType([]),
 	Bool: primitiveType("Bool"),
@@ -65,6 +79,10 @@ function tupleType(items: Type[]): TupleType {
 	return { $type: TypeType, kind: Kind.Tuple, items };
 }
 
+function structType(name: string, fields: Field[]): StructType {
+	return { $type: TypeType, kind: Kind.Struct, name, fields };
+}
+
 function printType(t: Type): string {
 	switch (t.kind) {
 		case Kind.Primitive: {
@@ -78,6 +96,15 @@ function printType(t: Type): string {
 		case Kind.Tuple: {
 			const items = t.items.map(printType).join(", ");
 			return `(${items})`;
+		}
+		case Kind.Struct: {
+			if (t.fields.length === 0) {
+				return `struct ${t.name} {}`;
+			}
+			const fields = t.fields.map(
+				(field) => `${field.access} ${field.name}: ${printType(field.type)}`
+			);
+			return `struct ${t.name} {\n\t${fields.join("\n\t")}\n}`;
 		}
 	}
 }
@@ -93,7 +120,7 @@ function typeOf(v: unknown): Type {
 		case "string":
 			return Type.Str;
 	}
-	if (v === null) {
+	if (v === Unit) {
 		return Type.Unit;
 	}
 	if (typeof v !== "object") {
@@ -113,6 +140,8 @@ function assignable(from: Type, into: Type): boolean {
 function assertable(from: Type, into: Type): boolean {
 	return from === Type.Any || assignable(from, into);
 }
+
+export const Unit = null;
 
 export type Proc = {
 	name?: string;
@@ -137,6 +166,17 @@ export const Tuple = { create: createTuple };
 
 function createTuple(type: TupleType, items: unknown[]): Tuple {
 	return { $type: type, items };
+}
+
+export type Struct = Record<string, unknown> & YokuObject;
+
+export const Struct = { create: createStruct };
+
+function createStruct(
+	type: StructType,
+	values: Record<string, unknown>
+): Struct {
+	return { $type: type, ...values };
 }
 
 export function print(v: unknown): string {
@@ -172,6 +212,13 @@ export function print(v: unknown): string {
 		const items = (v as Tuple).items.map(print).join(", ");
 		return `(${items}${items.length === 1 ? "," : ""})`;
 	}
+	if (type.kind === Kind.Struct) {
+		const fields = Object.entries(v as Struct)
+			.filter(([key]) => key !== "$type")
+			.map(([key, value]) => `${key} = ${print(value)}`)
+			.join(", ");
+		return `${((v as Struct).$type as StructType).name} { ${fields} }`;
+	}
 	throw new Unreachable();
 }
 
@@ -203,8 +250,8 @@ export enum UnaryOp {
 }
 
 export enum Access {
-	Var = "Var",
-	Const = "Const",
+	Var = "var",
+	Const = "const",
 }
 
 export enum AstType {
@@ -213,6 +260,7 @@ export enum AstType {
 	VarDecl = "VarDecl",
 	ProcDecl = "ProcDecl",
 	TypeDecl = "TypeDecl",
+	StructDecl = "StructDecl",
 	TestDecl = "TestDecl",
 	BreakStmt = "BreakStmt",
 	ContinueStmt = "ContinueStmt",
@@ -224,10 +272,12 @@ export enum AstType {
 	ExprStmt = "ExprStmt",
 	BlockExpr = "BlockExpr",
 	TupleExpr = "TupleExpr",
+	StructExpr = "StructExpr",
 	GroupExpr = "GroupExpr",
 	IfExpr = "IfExpr",
 	MatchExpr = "MatchExpr",
 	ProcExpr = "ProcExpr",
+	TypeExpr = "TypeExpr",
 	BinaryExpr = "BinaryExpr",
 	UnaryExpr = "UnaryExpr",
 	CallExpr = "CallExpr",
@@ -269,6 +319,18 @@ export type TypeDecl = {
 	type: AstType.TypeDecl;
 	id: IdExpr;
 	typeExpr: Ast;
+} & Span;
+
+export type StructDeclField = {
+	access: Access;
+	id: IdExpr;
+	typeDecl: Ast;
+};
+
+export type StructDecl = {
+	type: AstType.StructDecl;
+	id: IdExpr;
+	fields: StructDeclField[];
 } & Span;
 
 export type TestDecl = {
@@ -331,6 +393,18 @@ export type TupleExpr = {
 	resolvedType?: TupleType;
 } & Span;
 
+export type StructExprFieldInit = {
+	id?: IdExpr;
+	expr: Ast;
+};
+
+export type StructExpr = {
+	type: AstType.StructExpr;
+	id: IdExpr;
+	fieldInits: StructExprFieldInit[];
+	resolvedType?: StructType;
+} & Span;
+
 export type GroupExpr = {
 	type: AstType.GroupExpr;
 	expr: Ast;
@@ -360,18 +434,24 @@ export type MatchExpr = {
 	cases: Case[];
 } & Span;
 
-export type ProcParam = {
+export type ProcExprParam = {
 	pattern: Ast;
 	declType?: Ast;
 };
 
 export type ProcExpr = {
 	type: AstType.ProcExpr;
-	params: ProcParam[];
+	params: ProcExprParam[];
 	returnType?: Ast;
 	implExpr: BlockExpr;
 	resolvedType?: ProcType;
 	discardReturn?: boolean;
+} & Span;
+
+export type TypeExpr = {
+	type: AstType.TypeExpr;
+	expr: Ast;
+	resolvedType?: Type;
 } & Span;
 
 export type BinaryExpr = {
@@ -426,6 +506,7 @@ export type Ast =
 	| VarDecl
 	| ProcDecl
 	| TypeDecl
+	| StructDecl
 	| TestDecl
 	| BreakStmt
 	| ContinueStmt
@@ -437,10 +518,12 @@ export type Ast =
 	| ExprStmt
 	| BlockExpr
 	| TupleExpr
+	| StructExpr
 	| GroupExpr
 	| IfExpr
 	| MatchExpr
 	| ProcExpr
+	| TypeExpr
 	| BinaryExpr
 	| UnaryExpr
 	| CallExpr

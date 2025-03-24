@@ -23,7 +23,7 @@
 		},
 		{
 			"name": "keyword.yoku",
-			"match": "\\b(import|export|module|as|var|const|inline|proc|struct|enum|type|impl|if|else|match|do|loop|break|continue|while|for|in|return|try|throw|throws|test|assert)\\b"
+			"match": "\\b(import|export|module|as|var|const|use|inline|proc|struct|enum|type|impl|if|else|match|do|loop|break|continue|while|for|in|return|try|throw|throws|test|assert)\\b"
 		},
 		{
 			"name": "comment.block",

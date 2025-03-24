@@ -1,0 +1,6 @@
+--- mode Repl ---
+
+--- test "Empty Struct" ---
+struct Empty {}
+const e = Empty {}
+e --> Empty {}

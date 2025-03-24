@@ -60,12 +60,11 @@ for await (const file of Deno.readDir("./test/examples")) {
 }
 
 function runReplTest(source: string, path: string): void {
-	const art = Runtime.create({ replMode: true });
-	const ert = Runtime.create({ replMode: true });
+	const rt = Runtime.create({ replMode: true });
 	const s = CodeSource.fromString("", "actual");
 	for (const line of source.split("\n")) {
 		CodeSource.append(s, line + "\n");
-		const actualResult = Runtime.run(art, s);
+		const actualResult = Runtime.run(rt, s);
 		if (line.includes("--> !")) {
 			const [_, expectedSource] = line.split("--> !");
 			if (actualResult.type !== RunResultType.Error) {
@@ -85,7 +84,7 @@ function runReplTest(source: string, path: string): void {
 		if (line.includes("-->")) {
 			const [_, expectedSource] = line.split("-->");
 			const expectedResult = Runtime.run(
-				ert,
+				rt,
 				CodeSource.fromString(expectedSource, "expected")
 			);
 			if (actualResult.type !== RunResultType.Ok) {

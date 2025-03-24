@@ -24,14 +24,18 @@ import {
 	ProcType,
 	Repl,
 	ReturnStmt,
+	Struct,
+	StructExpr,
+	StructType,
 	TestDecl,
 	Tuple,
 	TupleExpr,
 	TupleType,
 	Type,
-	TypeDecl,
+	TypeExpr,
 	UnaryExpr,
 	UnaryOp,
+	Unit,
 	VarDecl,
 	WhileStmt,
 } from "./core.ts";
@@ -73,7 +77,7 @@ export const Interpreter = { create, interperate };
 export const Builtins = {
 	print: Proc.create("print", Type.proc([Type.Any], Type.Unit), (args) => {
 		console.log(print(args[0]));
-		return null;
+		return Unit;
 	}),
 	clock: Proc.create("clock", Type.proc([], Type.Int), () => {
 		return BigInt(Date.now());
@@ -201,7 +205,9 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 		case AstType.ProcDecl:
 			return interperateProcDecl(i, ast);
 		case AstType.TypeDecl:
-			return interperateTypeDecl(i, ast);
+			return Unit;
+		case AstType.StructDecl:
+			return Unit;
 		case AstType.TestDecl:
 			return interperateTestDecl(i, ast);
 		case AstType.BreakStmt:
@@ -224,6 +230,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateBlockExpr(i, ast);
 		case AstType.TupleExpr:
 			return interperateTupleExpr(i, ast);
+		case AstType.StructExpr:
+			return interperateStructExpr(i, ast);
 		case AstType.GroupExpr:
 			return interperateGroupExpr(i, ast);
 		case AstType.IfExpr:
@@ -232,6 +240,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateMatchExpr(i, ast);
 		case AstType.ProcExpr:
 			return interperateProcExpr(i, ast);
+		case AstType.TypeExpr:
+			return interperateTypeExpr(i, ast);
 		case AstType.BinaryExpr:
 			return interperateBinaryExpr(i, ast);
 		case AstType.UnaryExpr:
@@ -250,11 +260,11 @@ function interperateModule(i: Interpreter, m: Module): unknown {
 	for (const decl of m.decls) {
 		interperate(i, decl);
 	}
-	return null;
+	return Unit;
 }
 
 function interperateRepl(i: Interpreter, r: Repl): unknown {
-	let acc: unknown = null;
+	let acc: unknown = Unit;
 	for (const line of r.lines) {
 		acc = interperate(i, line);
 	}
@@ -264,16 +274,12 @@ function interperateRepl(i: Interpreter, r: Repl): unknown {
 function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
 	const value = interperate(i, d.initExpr);
 	unify(i, d.pattern, value, true, d.assert ? d.resolvedType : undefined);
-	return null;
+	return Unit;
 }
 
 function interperateProcDecl(i: Interpreter, p: ProcDecl): unknown {
 	unify(i, p.id, interperate(i, p.initExpr), true);
-	return null;
-}
-
-function interperateTypeDecl(_i: Interpreter, _t: TypeDecl): unknown {
-	return null;
+	return Unit;
 }
 
 function interperateTestDecl(i: Interpreter, t: TestDecl): unknown {
@@ -286,7 +292,7 @@ function interperateTestDecl(i: Interpreter, t: TestDecl): unknown {
 			throw error;
 		}
 	}
-	return null;
+	return Unit;
 }
 
 function interperateBreakStmt(_i: Interpreter, b: BreakStmt): unknown {
@@ -298,7 +304,7 @@ function interperateContinueStmt(_i: Interpreter, c: ContinueStmt): unknown {
 }
 
 function interperateReturnStmt(i: Interpreter, r: ReturnStmt): unknown {
-	throw new Return(r.expr !== undefined ? interperate(i, r.expr) : null);
+	throw new Return(r.expr !== undefined ? interperate(i, r.expr) : Unit);
 }
 
 function interperateAssertStmt(i: Interpreter, a: AssertStmt): unknown {
@@ -316,7 +322,7 @@ function interperateAssertStmt(i: Interpreter, a: AssertStmt): unknown {
 		}
 		throw new RuntimeError(`Expected true!`, a.start, a.end);
 	}
-	return null;
+	return Unit;
 }
 
 function interperateLoopStmt(i: Interpreter, l: LoopStmt): unknown {
@@ -334,7 +340,7 @@ function interperateLoopStmt(i: Interpreter, l: LoopStmt): unknown {
 				e instanceof Break &&
 				(e.label === undefined || e.label === l.label?.value)
 			) {
-				return null;
+				return Unit;
 			}
 			throw e;
 		}
@@ -355,7 +361,7 @@ function interperateWhileStmt(i: Interpreter, w: WhileStmt): unknown {
 			throw e;
 		}
 	}
-	return null;
+	return Unit;
 }
 
 function interperateAssignStmt(i: Interpreter, a: AssignStmt): unknown {
@@ -363,14 +369,14 @@ function interperateAssignStmt(i: Interpreter, a: AssignStmt): unknown {
 	const resolvedId = resolveId(a.id);
 	if (i.locals[resolvedId] !== undefined) {
 		i.locals[resolvedId] = value;
-		return null;
+		return Unit;
 	}
 	if (i.closure[resolvedId] !== undefined) {
 		i.closure[resolvedId] = value;
-		return null;
+		return Unit;
 	}
 	i.globals[resolvedId] = value;
-	return null;
+	return Unit;
 }
 
 function interperateExprStmt(i: Interpreter, e: ExprStmt): unknown {
@@ -380,7 +386,7 @@ function interperateExprStmt(i: Interpreter, e: ExprStmt): unknown {
 function interperateBlockExpr(i: Interpreter, b: BlockExpr): unknown {
 	const localsLength = i.locals.length;
 	try {
-		let acc: unknown = null;
+		let acc: unknown = Unit;
 		for (const stmt of b.stmts) {
 			acc = interperate(i, stmt);
 		}
@@ -392,7 +398,7 @@ function interperateBlockExpr(i: Interpreter, b: BlockExpr): unknown {
 
 function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 	if (t.items.length === 0) {
-		return null;
+		return Unit;
 	}
 	const items: unknown[] = [];
 	for (const item of t.items) {
@@ -403,6 +409,10 @@ function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 		}
 	}
 	return Tuple.create(t.resolvedType as TupleType, items);
+}
+
+function interperateStructExpr(i: Interpreter, s: StructExpr): unknown {
+	return Struct.create(s.resolvedType as StructType, {});
 }
 
 function interperateGroupExpr(i: Interpreter, g: GroupExpr): unknown {
@@ -417,7 +427,7 @@ function interperateIfExpr(i: Interpreter, f: IfExpr): unknown {
 		} else if (f.elseExpr !== undefined) {
 			return interperate(i, f.elseExpr);
 		} else {
-			return null;
+			return Unit;
 		}
 	} else {
 		if (interperate(i, f.testExpr)) {
@@ -425,13 +435,13 @@ function interperateIfExpr(i: Interpreter, f: IfExpr): unknown {
 		} else if (f.elseExpr !== undefined) {
 			return interperate(i, f.elseExpr);
 		} else {
-			return null;
+			return Unit;
 		}
 	}
 }
 
 function interperateMatchExpr(i: Interpreter, m: MatchExpr): unknown {
-	let value: unknown = null;
+	let value: unknown = Unit;
 	if (m.testExpr !== undefined) {
 		value = interperate(i, m.testExpr);
 	}
@@ -448,7 +458,7 @@ function interperateMatchExpr(i: Interpreter, m: MatchExpr): unknown {
 		}
 		return interperate(i, c.thenExpr);
 	}
-	return null;
+	return Unit;
 }
 
 function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
@@ -467,10 +477,10 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 				unify(i, paramsIter.next().pattern, argsIter.next(), true);
 			}
 			const value = interperate(i, p.implExpr);
-			return p.discardReturn ? null : value;
+			return p.discardReturn ? Unit : value;
 		} catch (e) {
 			if (e instanceof Return) {
-				return p.discardReturn ? null : e.value;
+				return p.discardReturn ? Unit : e.value;
 			}
 			throw e;
 		} finally {
@@ -479,6 +489,10 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 			i.inGlobalScope = inGlobalScopeSave;
 		}
 	});
+}
+
+function interperateTypeExpr(_i: Interpreter, t: TypeExpr): unknown {
+	return t.resolvedType as Type;
 }
 
 function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {

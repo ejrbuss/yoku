@@ -14,7 +14,6 @@ import {
 	GroupExpr,
 	IdExpr,
 	IfExpr,
-	LitExpr,
 	LoopStmt,
 	MatchExpr,
 	Module,
@@ -23,9 +22,9 @@ import {
 	Repl,
 	ReturnStmt,
 	SpreadExpr,
+	StructExpr,
 	TestDecl,
 	TupleExpr,
-	TypeDecl,
 	UnaryExpr,
 	VarDecl,
 	WhileStmt,
@@ -164,7 +163,9 @@ function resolve(r: Resolver, ast: Ast): void {
 		case AstType.ProcDecl:
 			return resolveProcDecl(r, ast);
 		case AstType.TypeDecl:
-			return resolveTypeDecl(r, ast);
+			return;
+		case AstType.StructDecl:
+			return;
 		case AstType.TestDecl:
 			return resolveTestDecl(r, ast);
 		case AstType.BreakStmt:
@@ -187,6 +188,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolverBlockExpr(r, ast);
 		case AstType.TupleExpr:
 			return resolveTupleExpr(r, ast);
+		case AstType.StructExpr:
+			return resolveStructExpr(r, ast);
 		case AstType.GroupExpr:
 			return resolveGroupExpr(r, ast);
 		case AstType.IfExpr:
@@ -195,6 +198,8 @@ function resolve(r: Resolver, ast: Ast): void {
 			return resolveMatchExpr(r, ast);
 		case AstType.ProcExpr:
 			return resolveProcExpr(r, ast);
+		case AstType.TypeExpr:
+			return;
 		case AstType.BinaryExpr:
 			return resolveBinaryExpr(r, ast);
 		case AstType.UnaryExpr:
@@ -202,7 +207,7 @@ function resolve(r: Resolver, ast: Ast): void {
 		case AstType.CallExpr:
 			return resolveCallExpr(r, ast);
 		case AstType.LitExpr:
-			return resolveLitExpr(r, ast);
+			return;
 		case AstType.IdExpr:
 			return resolveIdExpr(r, ast);
 		case AstType.SpreadExpr:
@@ -240,8 +245,6 @@ function resolveProcDecl(r: Resolver, p: ProcDecl): void {
 	declarePattern(r, p.id, Access.Const, false);
 	resolveProcExpr(r, p.initExpr);
 }
-
-function resolveTypeDecl(_r: Resolver, _t: TypeDecl): void {}
 
 function resolveTestDecl(r: Resolver, t: TestDecl): void {
 	resolve(r, t.thenExpr);
@@ -332,6 +335,12 @@ function resolveTupleExpr(r: Resolver, t: TupleExpr): void {
 	}
 }
 
+function resolveStructExpr(r: Resolver, s: StructExpr): void {
+	for (const f of s.fieldInits) {
+		resolve(r, f.expr);
+	}
+}
+
 function resolveGroupExpr(r: Resolver, g: GroupExpr): void {
 	resolve(r, g.expr);
 }
@@ -398,8 +407,6 @@ function resolveCallExpr(r: Resolver, c: CallExpr): void {
 		resolve(r, arg);
 	}
 }
-
-function resolveLitExpr(_r: Resolver, _l: LitExpr): void {}
 
 function resolveIdExpr(r: Resolver, i: IdExpr): void {
 	for (const scope of r.scopes.toReversed()) {

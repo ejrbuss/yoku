@@ -6,9 +6,7 @@ import {
 	BinaryExpr,
 	BinaryOp,
 	BlockExpr,
-	BreakStmt,
 	CallExpr,
-	ContinueStmt,
 	ExprStmt,
 	GroupExpr,
 	IdExpr,
@@ -23,11 +21,14 @@ import {
 	Repl,
 	ReturnStmt,
 	SpreadExpr,
+	StructDecl,
+	StructExpr,
 	TestDecl,
 	TupleExpr,
 	TupleType,
 	Type,
 	TypeDecl,
+	TypeExpr,
 	UnaryExpr,
 	UnaryOp,
 	VarDecl,
@@ -76,7 +77,16 @@ function declareBuiltin(t: TypeChecker, id: number, type: Type): void {
 	t.values[id] = type;
 }
 
-function declareType(t: TypeChecker, name: string, type: Type): void {
+function declareType(
+	t: TypeChecker,
+	name: string,
+	type: Type,
+	start?: number,
+	end?: number
+): void {
+	if (t.types[name] !== undefined) {
+		throw new TypeError(`Cannot redeclare type ${name}`, start ?? 0, end ?? 0);
+	}
 	t.types[name] = type;
 }
 
@@ -152,12 +162,14 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 			return checkProcDecl(t, ast, d);
 		case AstType.TypeDecl:
 			return checkTypeDecl(t, ast, d);
+		case AstType.StructDecl:
+			return checkStructDecl(t, ast, d);
 		case AstType.TestDecl:
 			return checkTestDecl(t, ast, d);
 		case AstType.BreakStmt:
-			return checkBreakStmt(t, ast, d);
+			return Type.Unit;
 		case AstType.ContinueStmt:
-			return checkContinueStmt(t, ast, d);
+			return Type.Unit;
 		case AstType.ReturnStmt:
 			return checkReturnStmt(t, ast, d);
 		case AstType.AssertStmt:
@@ -174,6 +186,8 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 			return checkBlockExpr(t, ast, d);
 		case AstType.TupleExpr:
 			return checkTupleExpr(t, ast, d);
+		case AstType.StructExpr:
+			return checkStructExpr(t, ast, d);
 		case AstType.GroupExpr:
 			return checkGroupExpr(t, ast, d);
 		case AstType.IfExpr:
@@ -182,6 +196,8 @@ function check(t: TypeChecker, ast: Ast, d?: Type): Type {
 			return checkMatchExpr(t, ast, d);
 		case AstType.ProcExpr:
 			return checkProcExpr(t, ast, d);
+		case AstType.TypeExpr:
+			return checkTypeExpr(t, ast, d);
 		case AstType.BinaryExpr:
 			return checkBinaryExpr(t, ast, d);
 		case AstType.UnaryExpr:
@@ -266,14 +282,17 @@ function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: Type): Type {
 		throw new Unreachable();
 	}
 	const type = reifyType(t, d.typeExpr);
-	if (t.types[d.id.value] !== undefined) {
-		throw new TypeError(
-			`Cannot redeclare type ${d.id.value}`,
-			d.id.start,
-			d.id.end
-		);
+
+	declareType(t, d.id.value, type, d.start, d.end);
+	return Type.Any;
+}
+
+function checkStructDecl(t: TypeChecker, s: StructDecl, _d?: Type): Type {
+	if (!t.inGlobalScope) {
+		throw new Unreachable();
 	}
-	declareType(t, d.id.value, type);
+	const type = Type.struct(s.id.value, []);
+	declareType(t, s.id.value, type, s.id.start, s.id.end);
 	return Type.Any;
 }
 
@@ -285,14 +304,6 @@ function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: Type): Type {
 	return Type.Any;
 }
 
-function checkBreakStmt(_t: TypeChecker, _b: BreakStmt, _d?: Type): Type {
-	return Type.Any;
-}
-
-function checkContinueStmt(_t: TypeChecker, _c: ContinueStmt, _d?: Type): Type {
-	return Type.Any;
-}
-
 function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: Type): Type {
 	const type = r.expr !== undefined ? check(t, r.expr, d) : Type.Unit;
 	t.returns.push(type);
@@ -301,7 +312,7 @@ function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: Type): Type {
 
 function checkAssertStmt(t: TypeChecker, a: AssertStmt, _d?: Type): Type {
 	check(t, a.testExpr);
-	return Type.Any;
+	return Type.Unit;
 }
 
 function checkAssignStmt(t: TypeChecker, a: AssignStmt, _d?: Type): Type {
@@ -309,12 +320,12 @@ function checkAssignStmt(t: TypeChecker, a: AssignStmt, _d?: Type): Type {
 	const into = t.values[resolvedId];
 	const from = check(t, a.expr, into);
 	assertAssignable(from, into, a.id);
-	return Type.Any;
+	return Type.Unit;
 }
 
 function checkLoopStmt(t: TypeChecker, l: LoopStmt, _d?: Type): Type {
 	check(t, l.thenExpr);
-	return Type.Any;
+	return Type.Unit;
 }
 
 function checkWhileStmt(t: TypeChecker, w: WhileStmt, _d?: Type): Type {
@@ -358,6 +369,20 @@ function checkTupleExpr(t: TypeChecker, u: TupleExpr, d?: Type): Type {
 	}
 	const type = Type.tuple(items);
 	u.resolvedType = type;
+	return type;
+}
+
+function checkStructExpr(t: TypeChecker, s: StructExpr, _d?: Type): Type {
+	const type = reifyType(t, s.id);
+	if (type.kind !== Kind.Struct) {
+		const tp = Type.print(type);
+		throw new TypeError(
+			`Type ${tp} is not constructable!`,
+			s.id.start,
+			s.id.end
+		);
+	}
+	s.resolvedType = type;
 	return type;
 }
 
@@ -485,6 +510,12 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: Type): Type {
 	t.returns = returnsSave;
 	p.resolvedType = type;
 	return type;
+}
+
+function checkTypeExpr(t: TypeChecker, e: TypeExpr, _d?: Type): Type {
+	e.resolvedType = reifyType(t, e);
+	// TODO eventually, Type should be a parameterized type Type[T]
+	return Type.Type;
 }
 
 function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: Type): Type {
@@ -683,41 +714,42 @@ function resolveId(id: IdExpr): number {
 }
 
 function reifyType(t: TypeChecker, ast: Ast): Type {
-	switch (ast.type) {
-		case AstType.IdExpr: {
-			const type = t.types[ast.value];
-			if (type === undefined) {
-				throw new TypeError("Undefined type!", ast.start, ast.end);
+	if (ast.type === AstType.TypeExpr) {
+		return reifyType(t, ast.expr);
+	}
+	if (ast.type === AstType.TupleExpr) {
+		const items: Type[] = [];
+		for (const item of ast.items) {
+			if (item.type === AstType.SpreadExpr) {
+				const itemType = reifyType(t, item.spreading);
+				assertSpreadable(itemType, item);
+				items.push(...itemType.items);
+			} else {
+				items.push(reifyType(t, item));
 			}
-			return type;
 		}
-		case AstType.ProcTypeExpr: {
-			const params: Type[] = [];
-			for (const param of ast.params) {
-				if (param.type === AstType.SpreadExpr) {
-					const paramType = reifyType(t, param.spreading);
-					assertSpreadable(paramType, param);
-					params.push(...paramType.items);
-				} else {
-					params.push(reifyType(t, param));
-				}
+		return Type.tuple(items);
+	}
+	if (ast.type === AstType.ProcTypeExpr) {
+		const params: Type[] = [];
+		for (const param of ast.params) {
+			if (param.type === AstType.SpreadExpr) {
+				const paramType = reifyType(t, param.spreading);
+				assertSpreadable(paramType, param);
+				params.push(...paramType.items);
+			} else {
+				params.push(reifyType(t, param));
 			}
-			const returns = reifyType(t, ast.returnType);
-			return Type.proc(params, returns);
 		}
-		case AstType.TupleExpr: {
-			const items: Type[] = [];
-			for (const item of ast.items) {
-				if (item.type === AstType.SpreadExpr) {
-					const itemType = reifyType(t, item.spreading);
-					assertSpreadable(itemType, item);
-					items.push(...itemType.items);
-				} else {
-					items.push(reifyType(t, item));
-				}
-			}
-			return Type.tuple(items);
+		const returns = reifyType(t, ast.returnType);
+		return Type.proc(params, returns);
+	}
+	if (ast.type === AstType.IdExpr) {
+		const type = t.types[ast.value];
+		if (type === undefined) {
+			throw new TypeError("Undefined type!", ast.start, ast.end);
 		}
+		return type;
 	}
 	throw new Unreachable();
 }

@@ -15,7 +15,7 @@ import {
 	ReturnStmt,
 	AssertStmt,
 	IdExpr,
-	ProcParam,
+	ProcExprParam,
 	Access,
 	ProcTypeExpr,
 	WhileStmt,
@@ -29,6 +29,8 @@ import {
 	Type,
 	MatchExpr,
 	Case,
+	TypeExpr,
+	StructDecl,
 } from "./core.ts";
 import { CodeSource } from "./codesource.ts";
 import { Todo, Unreachable } from "./utils.ts";
@@ -146,6 +148,9 @@ function parseDecl(p: Parser): Ast {
 	if (lookAhead(p, "type")) {
 		return praseTypeDecl(p);
 	}
+	if (lookAhead(p, "struct")) {
+		return parseStructDecl(p);
+	}
 	if (lookAhead(p, "test")) {
 		return parseTestDecl(p);
 	}
@@ -234,6 +239,21 @@ function praseTypeDecl(p: Parser): TypeDecl {
 		type: AstType.TypeDecl,
 		id,
 		typeExpr,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseStructDecl(p: Parser): StructDecl {
+	pushStart(p);
+	consume(p, "struct");
+	const id = parseIdExpr(p);
+	consume(p, "{");
+	consume(p, "}");
+	return {
+		type: AstType.StructDecl,
+		id,
+		fields: [],
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -606,11 +626,14 @@ function parsePrimaryExpr(p: Parser): Ast {
 	if (lookAhead(p, "proc")) {
 		return parseProcExpr(p);
 	}
+	if (lookAhead(p, "type")) {
+		return parseTypeExpr(p);
+	}
 	if (lookAhead(p, TokenType.Lit)) {
 		return parseLitExpr(p);
 	}
 	if (lookAhead(p, TokenType.Id)) {
-		return parseIdExpr(p);
+		return parseStructExpr(p);
 	}
 	consume(p, TokenType.Id, "Expected expression!");
 	throw new Unreachable();
@@ -653,6 +676,31 @@ function parseTupleExpr(p: Parser): Ast {
 			};
 		}
 	}
+}
+
+function parseStructExpr(p: Parser): Ast {
+	pushStart(p);
+	const id = parseIdExpr(p);
+	const savedPosition = p.position;
+	if (match(p, "{")) {
+		try {
+			consume(p, "}");
+			return {
+				type: AstType.StructExpr,
+				id,
+				fieldInits: [],
+				start: popStart(p),
+				end: getEnd(p),
+			};
+		} catch (error) {
+			if (!(error instanceof ParseError)) {
+				throw error;
+			}
+			p.position = savedPosition;
+		}
+	}
+	popStart(p);
+	return id;
 }
 
 function parseBlockExpr(p: Parser): BlockExpr {
@@ -750,7 +798,7 @@ function parseMatchExpr(p: Parser): MatchExpr {
 function parseProcExpr(p: Parser): ProcExpr {
 	pushStart(p);
 	match(p, "proc");
-	const params: ProcParam[] = [];
+	const params: ProcExprParam[] = [];
 	if (match(p, "(")) {
 		while (hasMore(p) && !lookAhead(p, ")")) {
 			const pattern = parsePattern(p);
@@ -817,7 +865,19 @@ function parseTypeAnnotation(p: Parser): Ast {
 	return parseTypeExpr(p);
 }
 
-function parseTypeExpr(p: Parser): Ast {
+function parseTypeExpr(p: Parser): TypeExpr {
+	pushStart(p);
+	match(p, "type");
+	const expr = parsePrimaryTypeExpr(p);
+	return {
+		type: AstType.TypeExpr,
+		expr,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parsePrimaryTypeExpr(p: Parser): Ast {
 	if (lookAhead(p, "proc")) {
 		return parseProcTypeExpr(p);
 	}
