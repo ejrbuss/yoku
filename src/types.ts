@@ -165,16 +165,7 @@ function print(t: TypePattern): string {
 			return `(${items.join(", ")})`;
 		}
 		case Kind.Struct: {
-			if (t.fields.length === 0) {
-				return `struct ${t.name} {}`;
-			}
-			const fields: string[] = [];
-			for (const field of t.fields) {
-				const varConst = field.mutable ? "var" : "const";
-				const type = print(field.type);
-				fields.push(`${varConst} ${field.name} ${type}`);
-			}
-			return `struct ${t.name} {\n\t${fields.join("\n\t")}\n}`;
+			return t.name;
 		}
 	}
 }

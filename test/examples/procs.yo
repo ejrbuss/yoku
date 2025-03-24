@@ -77,7 +77,7 @@ combine(3, false) --> (4, true)
 
 --- test "Destructuring Params" ---
 proc f((x, y, z): (Int, Int, Bool)) -> Int { 
-	if z { x + y} else { x - y}
+	if z { x + y } else { x - y }
 }
 f((1, 2, true)) --> 3
 f((3, 4, false)) --> -1

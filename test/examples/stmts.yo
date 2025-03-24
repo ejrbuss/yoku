@@ -81,6 +81,9 @@ if false { throw () } else { "else" } --> "else"
 const x = if 3 > 4 { "a" } else { "b"; "c" }
 x --> "c"
 
+const Condition = true
+if Condition { 1 } else { 2 }
+
 --- test "Loop Statments" ---
 var count = 0
 var secret = 0

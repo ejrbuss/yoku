@@ -397,7 +397,9 @@ function resolveProcExpr(r: Resolver, p: ProcExpr): void {
 
 function resolveBinaryExpr(r: Resolver, b: BinaryExpr): void {
 	resolve(r, b.left);
-	resolve(r, b.right);
+	if (b.op !== BinaryOp.Member) {
+		resolve(r, b.right);
+	}
 }
 
 function resolveUnaryExpr(r: Resolver, u: UnaryExpr): void {

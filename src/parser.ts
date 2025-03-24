@@ -27,12 +27,16 @@ import {
 	TypeExpr,
 	StructDecl,
 	ThrowExpr,
+	StructDeclField,
+	StructExprFieldInit,
 } from "./core.ts";
 import { CodeSource } from "./codesource.ts";
 import { Unreachable } from "./utils.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 
 type TokenMatcher = TokenType | string;
+
+type Production = (p: Parser) => Ast;
 
 type Parser = {
 	tokens: Token[];
@@ -196,7 +200,7 @@ function parseVarDecl(p: Parser): VarDecl {
 	const pattern = parsePattern(p);
 	const declType = tryParseTypeAnnotation(p);
 	consume(p, "=");
-	const initExpr = parseExpr(p);
+	const initExpr = parseExpr(p, parsePrimaryExpr);
 	return {
 		type: AstType.VarDecl,
 		mutable,
@@ -243,11 +247,21 @@ function parseStructDecl(p: Parser): StructDecl {
 	consume(p, "struct");
 	const id = parseIdExpr(p);
 	consume(p, "{");
+	const fields: StructDeclField[] = [];
+	while (hasMore(p) && !lookAhead(p, "}")) {
+		const mutable = match(p, "const") === undefined;
+		if (mutable) {
+			consume(p, "var");
+		}
+		const id = parseIdExpr(p);
+		const typeDecl = parseTypeAnnotation(p);
+		fields.push({ mutable, id, typeDecl });
+	}
 	consume(p, "}");
 	return {
 		type: AstType.StructDecl,
 		id,
-		fields: [],
+		fields,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -290,7 +304,7 @@ function parseReturnStmt(p: Parser): ReturnStmt {
 	consume(p, "return");
 	let expr: Ast | undefined;
 	if (!lookAhead(p, "}")) {
-		expr = parseExpr(p);
+		expr = parseExpr(p, parsePrimaryExpr);
 	}
 	return {
 		type: AstType.ReturnStmt,
@@ -303,7 +317,7 @@ function parseReturnStmt(p: Parser): ReturnStmt {
 function parseAssertStmt(p: Parser): AssertStmt {
 	pushStart(p);
 	consume(p, "assert");
-	const testExpr = parseExpr(p);
+	const testExpr = parseExpr(p, parsePrimaryExpr);
 	return {
 		type: AstType.AssertStmt,
 		testExpr,
@@ -328,9 +342,9 @@ function parseContinueStmt(p: Parser): ContinueStmt {
 }
 
 function parseAssignStmt(p: Parser): Ast {
-	const target = parseExpr(p);
+	const target = parseExpr(p, parsePrimaryExpr);
 	if (match(p, "=")) {
-		const expr = parseExpr(p);
+		const expr = parseExpr(p, parsePrimaryExpr);
 		if (target.type === AstType.IdExpr) {
 			return {
 				type: AstType.AssignStmt,
@@ -376,7 +390,7 @@ function parseLoopStmt(p: Parser): LoopStmt {
 function parseWhileStmt(p: Parser): WhileStmt {
 	pushStart(p);
 	consume(p, "while");
-	const testExpr = parseExpr(p);
+	const testExpr = parseExpr(p, parseRestrictedExpr);
 	const thenExpr = parseBlockExpr(p);
 	return {
 		type: AstType.WhileStmt,
@@ -387,14 +401,14 @@ function parseWhileStmt(p: Parser): WhileStmt {
 	};
 }
 
-function parseExpr(p: Parser): Ast {
-	return parseLogicalOr(p);
+function parseExpr(p: Parser, r: Production): Ast {
+	return parseLogicalOr(p, r);
 }
 
-function parseLogicalOr(p: Parser): Ast {
-	let left = parseLogicalAnd(p);
+function parseLogicalOr(p: Parser, r: Production): Ast {
+	let left = parseLogicalAnd(p, r);
 	while (match(p, "|")) {
-		const right = parseLogicalAnd(p);
+		const right = parseLogicalAnd(p, r);
 		left = {
 			type: AstType.BinaryExpr,
 			op: BinaryOp.Or,
@@ -407,10 +421,10 @@ function parseLogicalOr(p: Parser): Ast {
 	return left;
 }
 
-function parseLogicalAnd(p: Parser): Ast {
-	let left = parseEquality(p);
+function parseLogicalAnd(p: Parser, r: Production): Ast {
+	let left = parseEquality(p, r);
 	while (match(p, "&")) {
-		const right = parseEquality(p);
+		const right = parseEquality(p, r);
 		left = {
 			type: AstType.BinaryExpr,
 			op: BinaryOp.And,
@@ -423,8 +437,8 @@ function parseLogicalAnd(p: Parser): Ast {
 	return left;
 }
 
-function parseEquality(p: Parser): Ast {
-	let left = parseComparison(p);
+function parseEquality(p: Parser, r: Production): Ast {
+	let left = parseComparison(p, r);
 	while (
 		match(p, BinaryOp.Eq) ||
 		match(p, BinaryOp.NotEq) ||
@@ -432,7 +446,7 @@ function parseEquality(p: Parser): Ast {
 		match(p, BinaryOp.NotId)
 	) {
 		const op = lookBehind(p)?.image as BinaryOp;
-		const right = parseComparison(p);
+		const right = parseComparison(p, r);
 		left = {
 			type: AstType.BinaryExpr,
 			op,
@@ -445,8 +459,8 @@ function parseEquality(p: Parser): Ast {
 	return left;
 }
 
-function parseComparison(p: Parser): Ast {
-	let left = parseTerm(p);
+function parseComparison(p: Parser, r: Production): Ast {
+	let left = parseTerm(p, r);
 	while (
 		match(p, BinaryOp.Gt) ||
 		match(p, BinaryOp.Lt) ||
@@ -454,7 +468,7 @@ function parseComparison(p: Parser): Ast {
 		match(p, BinaryOp.Lte)
 	) {
 		const op = lookBehind(p)?.image as BinaryOp;
-		const right = parseTerm(p);
+		const right = parseTerm(p, r);
 		left = {
 			type: AstType.BinaryExpr,
 			op,
@@ -467,11 +481,11 @@ function parseComparison(p: Parser): Ast {
 	return left;
 }
 
-function parseTerm(p: Parser): Ast {
-	let left = parseFactor(p);
+function parseTerm(p: Parser, r: Production): Ast {
+	let left = parseFactor(p, r);
 	while (match(p, BinaryOp.Add) || match(p, BinaryOp.Sub)) {
 		const op = lookBehind(p)?.image as BinaryOp;
-		const right = parseFactor(p);
+		const right = parseFactor(p, r);
 		left = {
 			type: AstType.BinaryExpr,
 			op,
@@ -484,15 +498,15 @@ function parseTerm(p: Parser): Ast {
 	return left;
 }
 
-function parseFactor(p: Parser): Ast {
-	let left = parsePower(p);
+function parseFactor(p: Parser, r: Production): Ast {
+	let left = parsePower(p, r);
 	while (
 		match(p, BinaryOp.Mul) ||
 		match(p, BinaryOp.Div) ||
 		match(p, BinaryOp.Rem)
 	) {
 		const op = lookBehind(p)?.image as BinaryOp;
-		const right = parsePower(p);
+		const right = parsePower(p, r);
 		left = {
 			type: AstType.BinaryExpr,
 			op,
@@ -505,11 +519,11 @@ function parseFactor(p: Parser): Ast {
 	return left;
 }
 
-function parsePower(p: Parser): Ast {
-	let left = parseUnary(p);
+function parsePower(p: Parser, r: Production): Ast {
+	let left = parseUnary(p, r);
 	if (match(p, BinaryOp.Pow)) {
 		const op = lookBehind(p)?.image as BinaryOp;
-		const right = parsePower(p);
+		const right = parsePower(p, r);
 		left = {
 			type: AstType.BinaryExpr,
 			op,
@@ -522,11 +536,11 @@ function parsePower(p: Parser): Ast {
 	return left;
 }
 
-function parseUnary(p: Parser): Ast {
+function parseUnary(p: Parser, r: Production): Ast {
 	pushStart(p);
 	if (match(p, UnaryOp.Neg) || match(p, UnaryOp.Not)) {
 		const op = lookBehind(p);
-		const right = parseCall(p);
+		const right = parseCall(p, r);
 		return {
 			type: AstType.UnaryExpr,
 			op: op?.image as UnaryOp,
@@ -536,16 +550,16 @@ function parseUnary(p: Parser): Ast {
 		};
 	}
 	popStart(p);
-	return parseCall(p);
+	return parseCall(p, r);
 }
 
-function parseCall(p: Parser): Ast {
-	let expr = parsePrimaryExpr(p);
+function parseCall(p: Parser, r: Production): Ast {
+	let expr = r(p);
 	for (;;) {
 		if (match(p, "(")) {
 			const args: Ast[] = [];
 			while (hasMore(p) && !lookAhead(p, ")")) {
-				args.push(parseExpr(p));
+				args.push(parseExpr(p, parsePrimaryExpr));
 				if (!lookAhead(p, ")")) {
 					consume(p, ",");
 				}
@@ -568,7 +582,7 @@ function parseCall(p: Parser): Ast {
 				end: getEnd(p),
 			};
 		} else if (match(p, ".")) {
-			const right = parsePrimaryExpr(p);
+			const right = parseRestrictedExpr(p);
 			if (
 				right.type !== AstType.IdExpr &&
 				(right.type !== AstType.LitExpr || typeof right.value !== "bigint")
@@ -627,6 +641,26 @@ function parsePrimaryExpr(p: Parser): Ast {
 	throw new Unreachable();
 }
 
+function parseRestrictedExpr(p: Parser): Ast {
+	if (lookAhead(p, "(")) {
+		return parseTupleExpr(p);
+	}
+	if (lookAhead(p, "proc")) {
+		return parseProcExpr(p);
+	}
+	if (lookAhead(p, "type")) {
+		return parseTypeExpr(p);
+	}
+	if (lookAhead(p, TokenType.Lit)) {
+		return parseLitExpr(p);
+	}
+	if (lookAhead(p, TokenType.Id)) {
+		return parseIdExpr(p);
+	}
+	consume(p, TokenType.Id, "Expected expression!");
+	throw new Unreachable();
+}
+
 function parseTupleExpr(p: Parser): Ast {
 	pushStart(p);
 	consume(p, "(");
@@ -638,11 +672,11 @@ function parseTupleExpr(p: Parser): Ast {
 			end: getEnd(p),
 		};
 	} else {
-		const expr = parseExpr(p);
+		const expr = parseExpr(p, parsePrimaryExpr);
 		if (match(p, ",")) {
 			const items = [expr];
 			while (hasMore(p) && !lookAhead(p, ")")) {
-				items.push(parseExpr(p));
+				items.push(parseExpr(p, parsePrimaryExpr));
 				if (!lookAhead(p, ")")) {
 					consume(p, ",");
 				}
@@ -672,11 +706,24 @@ function parseStructExpr(p: Parser): Ast {
 	const savedPosition = p.position;
 	if (match(p, "{")) {
 		try {
+			const fieldInits: StructExprFieldInit[] = [];
+			while (hasMore(p) && !lookAhead(p, "}")) {
+				let id: undefined | IdExpr;
+				if (lookAhead(p, TokenType.Id) && lookAhead(p, "=", 1)) {
+					id = parseIdExpr(p);
+					consume(p, "=");
+				}
+				const expr = parseExpr(p, parsePrimaryExpr);
+				fieldInits.push({ id, expr });
+				if (!lookAhead(p, "}")) {
+					consume(p, ",");
+				}
+			}
 			consume(p, "}");
 			return {
 				type: AstType.StructExpr,
 				id,
-				fieldInits: [],
+				fieldInits,
 				start: popStart(p),
 				end: getEnd(p),
 			};
@@ -719,7 +766,7 @@ function parseIfExpr(p: Parser): IfExpr {
 		declType = tryParseTypeAnnotation(p);
 		consume(p, "=");
 	}
-	const testExpr = parseExpr(p);
+	const testExpr = parseExpr(p, parseRestrictedExpr);
 	const thenExpr = parseBlockExpr(p);
 	let elseExpr: Ast | undefined;
 	if (match(p, "else")) {
@@ -746,7 +793,7 @@ function parseMatchExpr(p: Parser): MatchExpr {
 	consume(p, "match");
 	let testExpr: undefined | Ast;
 	if (!lookAhead(p, "{")) {
-		testExpr = parseExpr(p);
+		testExpr = parseExpr(p, parseRestrictedExpr);
 	}
 	consume(p, "{");
 	const cases: Case[] = [];
@@ -757,7 +804,7 @@ function parseMatchExpr(p: Parser): MatchExpr {
 			cases.push({ thenExpr });
 		} else if (testExpr === undefined) {
 			consume(p, "if");
-			const testExpr = parseExpr(p);
+			const testExpr = parseExpr(p, parseRestrictedExpr);
 			consume(p, "=>");
 			const thenExpr = parseBlockExpr(p);
 			cases.push({ testExpr, thenExpr });
@@ -766,7 +813,7 @@ function parseMatchExpr(p: Parser): MatchExpr {
 			const declType = tryParseTypeAnnotation(p);
 			let testExpr: undefined | Ast;
 			if (match(p, "if")) {
-				testExpr = parseExpr(p);
+				testExpr = parseExpr(p, parseRestrictedExpr);
 			}
 			consume(p, "=>");
 			const thenExpr = parseBlockExpr(p);
@@ -786,7 +833,7 @@ function parseMatchExpr(p: Parser): MatchExpr {
 function parseThrowExpr(p: Parser): ThrowExpr {
 	pushStart(p);
 	consume(p, "throw");
-	const expr = parseExpr(p);
+	const expr = parseExpr(p, parsePrimaryExpr);
 	return {
 		type: AstType.ThrowExpr,
 		expr,

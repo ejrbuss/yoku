@@ -19,6 +19,7 @@ import {
 	Repl,
 	ReturnStmt,
 	StructDecl,
+	StructDeclField,
 	StructExpr,
 	TestDecl,
 	ThrowExpr,
@@ -36,6 +37,7 @@ import {
 	TypePattern,
 	TupleTypePattern,
 	ProcTypePattern,
+	StructField,
 } from "./types.ts";
 import { Span, Unreachable, zip } from "./utils.ts";
 
@@ -293,8 +295,15 @@ function checkStructDecl(
 	if (!t.inGlobalScope) {
 		throw new Unreachable();
 	}
-	// TODO fixme
-	const type = Type.struct(s.id.value, []) as Type;
+	const fields: StructField[] = [];
+	for (const field of s.fields) {
+		fields.push({
+			mutable: field.mutable,
+			name: field.id.value,
+			type: reifyType(t, field.typeDecl, true),
+		});
+	}
+	const type = Type.struct(s.id.value, fields);
 	declareType(t, s.id.value, type, s.id);
 	return Type.Any;
 }
@@ -383,6 +392,45 @@ function checkStructExpr(
 			s.id.start,
 			s.id.end
 		);
+	}
+	if (s.fieldInits.length !== type.fields.length) {
+		const expects = type.fields.length;
+		const found = s.fieldInits.length;
+		throw new TypeError(
+			`Type ${type.name} expects ${expects} fields initializers, found ${found}!`,
+			s.start,
+			s.end
+		);
+	}
+	const initialized: string[] = [];
+	for (const fieldInit of s.fieldInits) {
+		if (fieldInit.id !== undefined) {
+			if (initialized.includes(fieldInit.id.value)) {
+				throw new TypeError(
+					`Duplicate field initializer!`,
+					fieldInit.id.start,
+					fieldInit.id.end
+				);
+			}
+			const field = type.fields.find((f) => f.name === fieldInit.id?.value);
+			if (field === undefined) {
+				throw new TypeError(
+					`Unknown field ${fieldInit.id.value}!`,
+					fieldInit.id.start,
+					fieldInit.id.end
+				);
+			}
+			initialized.push(fieldInit.id.value);
+			const fieldType = check(t, fieldInit.expr, field.type);
+			assertAssignable(fieldType, field.type, fieldInit.expr);
+		} else {
+			const field = type.fields.find(
+				(f) => !initialized.includes(f.name)
+			) as StructField;
+			initialized.push(field?.name);
+			const fieldType = check(t, fieldInit.expr, field.type);
+			assertAssignable(fieldType, field.type, fieldInit.expr);
+		}
 	}
 	s.resolvedType = type;
 	return type;
@@ -547,33 +595,53 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 		}
 		case BinaryOp.Member: {
 			const l = check(t, b.left);
-			if (l.kind !== Kind.Tuple) {
-				const lp = Type.print(l);
-				throw new TypeError(
-					`Operator . cannot be applied to non Tuple ${lp}!`,
-					b.start,
-					b.end
-				);
+			if (l.kind === Kind.Tuple) {
+				if (
+					b.right.type !== AstType.LitExpr ||
+					typeof b.right.value !== "bigint"
+				) {
+					const lp = Type.print(l);
+					const rp = Type.print(check(t, b.right));
+					throw new TypeError(
+						`Operator . cannot be applied to ${lp} and ${rp}!`,
+						b.start,
+						b.end
+					);
+				}
+				if (b.right.value >= l.items.length) {
+					throw new TypeError(
+						`Tuple of length ${l.items.length} has no item ${b.right.value}!`,
+						b.start,
+						b.end
+					);
+				}
+				return l.items[Number(b.right.value)];
 			}
-			if (
-				b.right.type !== AstType.LitExpr ||
-				typeof b.right.value !== "bigint"
-			) {
-				const rp = Type.print(Type.Int);
-				throw new TypeError(
-					`Operator . cannot be applied to Tuple and ${rp}!`,
-					b.start,
-					b.end
+			if (l.kind === Kind.Struct) {
+				if (b.right.type !== AstType.IdExpr) {
+					const lp = Type.print(l);
+					const rp = Type.print(check(t, b.right));
+					throw new TypeError(
+						`Operator . cannot be applied to ${lp} and ${rp}!`,
+						b.start,
+						b.end
+					);
+				}
+				const field = l.fields.find(
+					(f) => f.name === (b.right as IdExpr).value
 				);
+				if (field === undefined) {
+					const struct = l.name;
+					const field = b.right.value;
+					throw new TypeError(
+						`Struct ${struct} has no field ${field}!`,
+						b.start,
+						b.end
+					);
+				}
+				return field.type;
 			}
-			if (b.right.value >= l.items.length) {
-				throw new TypeError(
-					`Tuple of length ${l.items.length} has no item ${b.right.value}!`,
-					b.start,
-					b.end
-				);
-			}
-			return l.items[Number(b.right.value)];
+			return checkBinaryExprHelper(t, b, []);
 		}
 		case BinaryOp.As:
 			throw new Unreachable();

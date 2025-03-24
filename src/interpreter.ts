@@ -37,7 +37,15 @@ import {
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Resolver } from "./resolver.ts";
 import { TypeChecker } from "./typechecker.ts";
-import { ProcType, StructType, TupleType, Type } from "./types.ts";
+import {
+	Kind,
+	NonPrimitive,
+	ProcType,
+	StructField,
+	StructType,
+	TupleType,
+	Type,
+} from "./types.ts";
 import { structurallyEq, Unreachable, zip } from "./utils.ts";
 
 export class RuntimeError {
@@ -399,7 +407,21 @@ function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 }
 
 function interperateStructExpr(i: Interpreter, s: StructExpr): unknown {
-	return Struct.create(s.resolvedType as StructType, {});
+	const type = s.resolvedType as StructType;
+	const fields: Record<string, unknown> = {};
+	const initialized: string[] = [];
+	for (const fieldInit of s.fieldInits) {
+		if (fieldInit.id !== undefined) {
+			fields[fieldInit.id.value] = interperate(i, fieldInit.expr);
+		} else {
+			const field = type.fields.find(
+				(f) => !initialized.includes(f.name)
+			) as StructField;
+			initialized.push(field?.name);
+			fields[field.name] = interperate(i, fieldInit.expr);
+		}
+	}
+	return Struct.create(type, fields);
 }
 
 function interperateGroupExpr(i: Interpreter, g: GroupExpr): unknown {
@@ -565,8 +587,15 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 		}
 		case BinaryOp.Member: {
 			const left = interperate(i, b.left);
-			const right = interperate(i, b.right);
-			return (left as Tuple).items[Number(right as bigint)];
+			const type = Type.of(left);
+			if (type.kind === Kind.Tuple) {
+				const right = interperate(i, b.right);
+				return (left as Tuple).items[Number(right as bigint)];
+			}
+			if (type.kind === Kind.Struct) {
+				return (left as Struct)[(b.right as IdExpr).value];
+			}
+			throw new Unreachable();
 		}
 	}
 }
