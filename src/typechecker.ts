@@ -13,13 +13,12 @@ import {
 	LitExpr,
 	LoopStmt,
 	MatchExpr,
-	Module,
+	ModuleDecls,
 	ProcDecl,
 	ProcExpr,
-	Repl,
+	ReplExprs,
 	ReturnStmt,
 	StructDecl,
-	StructDeclField,
 	StructExpr,
 	TestDecl,
 	ThrowExpr,
@@ -38,6 +37,7 @@ import {
 	TupleTypePattern,
 	ProcTypePattern,
 	StructField,
+	StructType,
 } from "./types.ts";
 import { Span, Unreachable, zip } from "./utils.ts";
 
@@ -61,8 +61,8 @@ export class TypeError extends Error {
 export const TypeChecker = {
 	create,
 	check,
-	declareBuiltinType,
 	declareBuiltin,
+	declareBuiltinType,
 };
 
 function create(): TypeChecker {
@@ -72,35 +72,29 @@ function create(): TypeChecker {
 		values: [],
 		returns: [],
 	};
-	declareBuiltinType(t, "Type", Type.Type);
-	declareBuiltinType(t, "Any", Type.Any);
-	declareBuiltinType(t, "Never", Type.Never);
-	declareBuiltinType(t, "Unit", Type.Unit);
-	declareBuiltinType(t, "Bool", Type.Bool);
-	declareBuiltinType(t, "Int", Type.Int);
-	declareBuiltinType(t, "Float", Type.Float);
-	declareBuiltinType(t, "Str", Type.Str);
 	return t;
-}
-
-function declareBuiltinType(t: TypeChecker, name: string, type: Type) {
-	t.types[name] = type as Type;
-}
-
-function declareType(
-	t: TypeChecker,
-	name: string,
-	type: Type,
-	span: Span
-): void {
-	if (t.types[name] !== undefined) {
-		throw new TypeError(`Cannot redeclare type ${name}!`, span.start, span.end);
-	}
-	t.types[name] = type;
 }
 
 function declareBuiltin(t: TypeChecker, id: number, type: Type): void {
 	t.values[id] = type as Type;
+}
+
+function declareType(t: TypeChecker, id: IdExpr, type: Type): void {
+	if (t.types[id.value] !== undefined) {
+		throw new TypeError(`Cannot redeclare type ${id.value}!`, id.start, id.end);
+	}
+	t.types[id.value] = type;
+	t.values[resolveId(id)] = Type.Module;
+}
+
+function declareBuiltinType(
+	t: TypeChecker,
+	id: number,
+	name: string,
+	type: Type
+) {
+	t.types[name] = type;
+	t.values[id] = Type.Module;
 }
 
 function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
@@ -121,16 +115,32 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 				pattern.end
 			);
 		}
-		if (pattern.items.length !== type.items.length) {
-			const fl = type.items.length;
-			const dl = pattern.items.length;
-			throw new TypeError(
-				`Cannot assign a tuple of size ${fl} to a tuple of size ${dl}!`,
-				pattern.start,
-				pattern.end
-			);
-		}
+		assertCardinality(pattern.items, type.items, pattern, "items");
 		for (const [pi, ti] of zip(pattern.items, type.items)) {
+			storeTypes(t, pi, ti);
+		}
+		return;
+	}
+	if (pattern.type === AstType.StructExpr) {
+		const constructor = reifyType(t, pattern.id, true);
+		assertAssignable(type, constructor, pattern);
+		if (type.kind !== Kind.Struct) {
+			throw new Unreachable();
+		}
+		for (const pf of pattern.fieldInits) {
+			const sf = assertField(type, pf.id);
+			storeTypes(t, pf.expr ?? pf.id, sf.type);
+		}
+		return;
+	}
+	if (pattern.type === AstType.CallExpr) {
+		const constructor = reifyType(t, pattern.proc, true);
+		assertAssignable(type, constructor, pattern);
+		if (type.kind !== Kind.TupleStruct) {
+			throw new Unreachable();
+		}
+		assertCardinality(pattern.args, type.items, pattern, "items");
+		for (const [pi, ti] of zip(pattern.args, type.items)) {
 			storeTypes(t, pi, ti);
 		}
 		return;
@@ -146,14 +156,14 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		t.values[resolveId(pattern)] = assertReconciled(type, pattern);
 		return;
 	}
-	throw new Unreachable();
+	throw new Unreachable(Ast.print(pattern));
 }
 
 function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 	switch (ast.type) {
-		case AstType.Module:
+		case AstType.ModuleDecls:
 			return checkModule(t, ast, d);
-		case AstType.Repl:
+		case AstType.ReplExprs:
 			return checkRepl(t, ast, d);
 		case AstType.VarDecl:
 			return checkVarDecl(t, ast, d);
@@ -216,14 +226,14 @@ function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 	}
 }
 
-function checkModule(t: TypeChecker, m: Module, _d?: TypePattern): Type {
+function checkModule(t: TypeChecker, m: ModuleDecls, _d?: TypePattern): Type {
 	for (const decl of m.decls) {
 		check(t, decl);
 	}
 	return Type.Any;
 }
 
-function checkRepl(t: TypeChecker, r: Repl, d?: TypePattern): Type {
+function checkRepl(t: TypeChecker, r: ReplExprs, d?: TypePattern): Type {
 	let acc: Type = Type.Unit;
 	for (const line of r.lines) {
 		acc = check(t, line, d);
@@ -283,7 +293,8 @@ function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: TypePattern): Type {
 		throw new Unreachable();
 	}
 	const type = assertReconciled(reifyType(t, d.typeExpr, true), d.id);
-	declareType(t, d.id.value, type, d.id);
+	declareType(t, d.id, type);
+	d.resolvedType = type;
 	return Type.Any;
 }
 
@@ -295,16 +306,29 @@ function checkStructDecl(
 	if (!t.inGlobalScope) {
 		throw new Unreachable();
 	}
-	const fields: StructField[] = [];
-	for (const field of s.fields) {
-		fields.push({
-			mutable: field.mutable,
-			name: field.id.value,
-			type: reifyType(t, field.typeDecl, true),
-		});
+	if (s.fields !== undefined) {
+		const fields: StructField[] = [];
+		for (const field of s.fields) {
+			fields.push({
+				mutable: field.mutable,
+				name: field.id.value,
+				type: reifyType(t, field.typeDecl, true),
+			});
+		}
+		const type = Type.struct(s.id.value, fields);
+		declareType(t, s.id, type);
+		s.resolvedType = type;
+	} else if (s.tupleExpr !== undefined) {
+		const items: Type[] = [];
+		for (const item of s.tupleExpr.items) {
+			items.push(reifyType(t, item, true));
+		}
+		const type = Type.tupleStruct(s.id.value, items);
+		s.resolvedType = type;
+		declareType(t, s.id, type);
+	} else {
+		throw new Unreachable();
 	}
-	const type = Type.struct(s.id.value, fields);
-	declareType(t, s.id.value, type, s.id);
 	return Type.Any;
 }
 
@@ -393,44 +417,20 @@ function checkStructExpr(
 			s.id.end
 		);
 	}
-	if (s.fieldInits.length !== type.fields.length) {
-		const expects = type.fields.length;
-		const found = s.fieldInits.length;
-		throw new TypeError(
-			`Type ${type.name} expects ${expects} fields initializers, found ${found}!`,
-			s.start,
-			s.end
-		);
-	}
+	assertCardinality(s.fieldInits, type.fields, s, "field initializers");
 	const initialized: string[] = [];
 	for (const fieldInit of s.fieldInits) {
-		if (fieldInit.id !== undefined) {
-			if (initialized.includes(fieldInit.id.value)) {
-				throw new TypeError(
-					`Duplicate field initializer!`,
-					fieldInit.id.start,
-					fieldInit.id.end
-				);
-			}
-			const field = type.fields.find((f) => f.name === fieldInit.id?.value);
-			if (field === undefined) {
-				throw new TypeError(
-					`Unknown field ${fieldInit.id.value}!`,
-					fieldInit.id.start,
-					fieldInit.id.end
-				);
-			}
-			initialized.push(fieldInit.id.value);
-			const fieldType = check(t, fieldInit.expr, field.type);
-			assertAssignable(fieldType, field.type, fieldInit.expr);
-		} else {
-			const field = type.fields.find(
-				(f) => !initialized.includes(f.name)
-			) as StructField;
-			initialized.push(field?.name);
-			const fieldType = check(t, fieldInit.expr, field.type);
-			assertAssignable(fieldType, field.type, fieldInit.expr);
+		if (initialized.includes(fieldInit.id.value)) {
+			throw new TypeError(
+				`Duplicate field initializer!`,
+				fieldInit.id.start,
+				fieldInit.id.end
+			);
 		}
+		const field = assertField(type, fieldInit.id);
+		initialized.push(fieldInit.id.value);
+		const fieldType = check(t, fieldInit.expr ?? fieldInit.id, field.type);
+		assertAssignable(fieldType, field.type, fieldInit.expr ?? fieldInit.id);
 	}
 	s.resolvedType = type;
 	return type;
@@ -595,7 +595,7 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 		}
 		case BinaryOp.Member: {
 			const l = check(t, b.left);
-			if (l.kind === Kind.Tuple) {
+			if (l.kind === Kind.Tuple || l.kind === Kind.TupleStruct) {
 				if (
 					b.right.type !== AstType.LitExpr ||
 					typeof b.right.value !== "bigint"
@@ -715,25 +715,29 @@ function checkUnaryExprHelper(
 }
 
 function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: TypePattern): Type {
-	const procType = check(t, c.proc);
-	if (procType.kind !== Kind.Proc) {
-		const found = Type.print(procType);
-		throw new TypeError(`Cannot call type ${found}!`, c.proc.start, c.proc.end);
+	const callee = check(t, c.proc);
+	if (callee.kind === Kind.Proc) {
+		assertCardinality(c.args, callee.params, c, "arguments");
+		for (const [arg, param] of zip(c.args, callee.params)) {
+			const argType = check(t, arg, param);
+			assertAssignable(argType, param, arg);
+		}
+		c.resolvedType = callee.returns;
+		return callee.returns;
 	}
-	if (c.args.length !== procType.params.length) {
-		const expected = procType.params.length;
-		const found = c.args.length;
-		throw new TypeError(
-			`Expected ${expected} arguments, but got ${found}!`,
-			c.start,
-			c.end
-		);
+	if (callee === Type.Module && c.proc.type === AstType.IdExpr) {
+		const type = t.types[c.proc.value];
+		if (type !== undefined && type.kind === Kind.TupleStruct) {
+			for (const [arg, item] of zip(c.args, type.items)) {
+				const argType = check(t, arg, item);
+				assertAssignable(argType, item, arg);
+			}
+			c.resolvedType = type;
+			return type;
+		}
 	}
-	for (const [arg, param] of zip(c.args, procType.params)) {
-		const argType = check(t, arg, param);
-		assertAssignable(argType, param, arg);
-	}
-	return procType.returns;
+	const found = Type.print(callee);
+	throw new TypeError(`Cannot call type ${found}!`, c.proc.start, c.proc.end);
 }
 
 function checkLitExpr(_t: TypeChecker, l: LitExpr, d?: TypePattern): Type {
@@ -816,7 +820,7 @@ function assertAssignable(
 		const f = Type.print(from);
 		const t = Type.print(into);
 		throw new TypeError(
-			`Type ${f} is not assignable to ${t}`,
+			`Type ${f} is not assignable to ${t}!`,
 			span.start,
 			span.end
 		);
@@ -834,12 +838,38 @@ function assertAssertable(
 		const f = Type.print(from);
 		const t = Type.print(into);
 		throw new TypeError(
-			`Type ${f} cannot be asserted into ${t}`,
+			`Type ${f} cannot be asserted into ${t}!`,
 			span.start,
 			span.end
 		);
 	}
 	return reconciled;
+}
+
+function assertCardinality(
+	expected: unknown[],
+	found: unknown[],
+	span: Span,
+	subject: string
+): void {
+	if (expected.length !== found.length) {
+		const e = expected.length;
+		const f = found.length;
+		throw new TypeError(
+			`Expected ${e} ${subject}, found ${f}!`,
+			span.start,
+			span.end
+		);
+	}
+}
+
+function assertField(type: StructType, id: IdExpr): StructField {
+	for (const field of type.fields) {
+		if (field.name === id.value) {
+			return field;
+		}
+	}
+	throw new TypeError(`Undefined field ${id.value}!`, id.start, id.end);
 }
 
 function closestTuple(type?: TypePattern): TupleTypePattern {

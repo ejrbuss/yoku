@@ -1,6 +1,14 @@
-export class Todo extends Error {}
+export class Todo extends Error {
+	constructor() {
+		super("Todo!");
+	}
+}
 
-export class Unreachable extends Error {}
+export class Unreachable extends Error {
+	constructor(impossible?: unknown) {
+		super(`Reached the unreachable: ${impossible}`);
+	}
+}
 
 type NonNull = Record<string, unknown>;
 

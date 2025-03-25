@@ -99,53 +99,62 @@ function runReplTest2(content: string, path: string, span: Span): void {
 		}
 		if (r.type === RunResultType.Error) {
 			// Patch the error span to be the real file location
-			s.content = content.substring(0, span.start + s.content.length);
-			if (r.start !== undefined) {
-				r.start += span.start;
-			}
-			if (r.end !== undefined) {
-				r.end += span.start;
+			if (r.source.path === path) {
+				s.content = content.substring(0, span.start + s.content.length);
+				if (r.start !== undefined) {
+					r.start += span.start;
+				}
+				if (r.end !== undefined) {
+					r.end += span.start;
+				}
 			}
 			return Runtime.printError(r);
 		}
 		return fmt(print(r.result));
 	}
 
-	for (const line of content.substring(span.start, span.end).split("\n")) {
-		CodeSource.append(s, `${line}\n`);
-		const actualResult = Runtime.run(rt, s);
-		if (line.includes("--> !")) {
-			const expectedError = line.split("--> !")[1].trim();
-			if (
-				actualResult.type !== RunResultType.Error ||
-				actualResult.name !== expectedError
-			) {
-				throw new AssertionError(
-					`\n${source()}\n${expected(expectedError)}\n${found(actualResult)}`
+	try {
+		for (const line of content.substring(span.start, span.end).split("\n")) {
+			CodeSource.append(s, `${line}\n`);
+			const actualResult = Runtime.run(rt, s);
+			if (line.includes("--> !")) {
+				const expectedError = line.split("--> !")[1].trim();
+				if (
+					actualResult.type !== RunResultType.Error ||
+					actualResult.name !== expectedError
+				) {
+					throw new AssertionError(
+						`\n${source()}\n${expected(expectedError)}\n${found(actualResult)}`
+					);
+				}
+			} else if (line.includes("-->")) {
+				const expectedSource = line.split("-->")[1].trim();
+				const expectedResult = Runtime.run(
+					rt,
+					CodeSource.fromString(expectedSource, "Expectation")
 				);
-			}
-		} else if (line.includes("-->")) {
-			const expectedSource = line.split("-->")[1].trim();
-			const expectedResult = Runtime.run(
-				rt,
-				CodeSource.fromString(expectedSource, "Expectation")
-			);
-			if (expectedResult.type === RunResultType.Error) {
-				throw new AssertionError(`\n${source()}\n${error(expectedResult)}\n`);
-			}
-			if (!structurallyEq(actualResult, expectedResult)) {
-				throw new AssertionError(
-					`\n${source()}\n${expected(expectedResult)}\n${found(actualResult)}`
-				);
-			}
-		} else {
-			if (
-				actualResult.type !== RunResultType.Ok &&
-				!actualResult.needsMoreInput
-			) {
-				throw new AssertionError(`\n${source()}\n${error(actualResult)}\n`);
+				if (expectedResult.type === RunResultType.Error) {
+					throw new AssertionError(`\n${source()}\n${error(expectedResult)}\n`);
+				}
+				if (!structurallyEq(actualResult, expectedResult)) {
+					throw new AssertionError(
+						`\n${source()}\n${expected(expectedResult)}\n${found(actualResult)}`
+					);
+				}
+			} else {
+				if (
+					actualResult.type !== RunResultType.Ok &&
+					!actualResult.needsMoreInput
+				) {
+					throw new AssertionError(`\n${source()}\n${error(actualResult)}\n`);
+				}
 			}
 		}
+	} catch (cause) {
+		if (cause instanceof AssertionError) {
+			throw cause;
+		}
+		throw new AssertionError(`\n${source()}\n${error(`${cause}`)}`, { cause });
 	}
 }
 

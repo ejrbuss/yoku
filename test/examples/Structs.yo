@@ -49,9 +49,9 @@ struct Outer {
 	const y: Str
 }
 
-const e = Outer { 
-	i1 = Inner { true },
-	i2 = Inner { false },
+const e = Outer {
+	i1 = Inner { x = true },
+	i2 = Inner { x = false },
 	y = "t",
 }
 e.y --> "t"
@@ -81,7 +81,7 @@ struct Point {
 
 const x = -1
 const y = -2
-Point { x, y } --> Point { -1, -2 } 
+Point { x, y } --> Point { x = -1, y = -2 } 
 
 --- test "Spread Struct Initialization" ---
 struct Point {

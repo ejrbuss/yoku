@@ -16,18 +16,22 @@ import {
 	LoopStmt,
 	MatchExpr,
 	Module,
+	ModuleDecls,
 	print,
 	Proc,
 	ProcDecl,
 	ProcExpr,
-	Repl,
+	ReplExprs,
 	ReturnStmt,
 	Struct,
+	StructDecl,
 	StructExpr,
 	TestDecl,
 	ThrowExpr,
 	Tuple,
 	TupleExpr,
+	TupleStruct as TupleStruct,
+	TypeDecl,
 	TypeExpr,
 	UnaryExpr,
 	Unit,
@@ -39,10 +43,10 @@ import { Resolver } from "./resolver.ts";
 import { TypeChecker } from "./typechecker.ts";
 import {
 	Kind,
-	NonPrimitive,
 	ProcType,
 	StructField,
 	StructType,
+	TupleStructType,
 	TupleType,
 	Type,
 } from "./types.ts";
@@ -79,7 +83,18 @@ export type Interpreter = {
 
 export const Interpreter = { create, interperate };
 
-export const Builtins = {
+const BuiltinTypes = {
+	Type: Type.Type,
+	Any: Type.Any,
+	Never: Type.Never,
+	Bool: Type.Bool,
+	Int: Type.Int,
+	Float: Type.Float,
+	Str: Type.Str,
+	Module: Type.Module,
+};
+
+const Builtins = {
 	print: Proc.create("print", Type.proc([Type.Any], Type.Unit), (args) => {
 		console.log(print(args[0]));
 		return Unit;
@@ -109,6 +124,11 @@ function create(r: Resolver, t: TypeChecker, test: boolean): Interpreter {
 		const resolvedId = Resolver.declareBuiltin(r, id);
 		TypeChecker.declareBuiltin(t, resolvedId, Type.of(builtin));
 		globals[resolvedId] = builtin;
+	}
+	for (const [id, builtinType] of Object.entries(BuiltinTypes)) {
+		const resolvedId = Resolver.declareBuiltin(r, id);
+		TypeChecker.declareBuiltinType(t, resolvedId, id, builtinType);
+		globals[resolvedId] = Module.create(id, builtinType);
 	}
 	return { inGlobalScope: true, globals, locals: [], closure: [], test };
 }
@@ -150,7 +170,28 @@ function unify(
 	}
 	// (pattern.items,) = (value.items,)
 	if (pattern.type === AstType.TupleExpr) {
-		for (const [pi, vi] of zip(pattern.items, (value as Tuple).items)) {
+		const tuple = value as Tuple;
+		for (const [pi, vi] of zip(pattern.items, tuple.items)) {
+			if (!unify(i, pi, vi, throwOnFailure)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	// Struct { ... } = value
+	if (pattern.type === AstType.StructExpr) {
+		const struct = value as Struct;
+		for (const f of pattern.fieldInits) {
+			if (!unify(i, f.expr ?? f.id, struct[f.id.value], throwOnFailure)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	// TupleStruct(...) = value
+	if (pattern.type === AstType.CallExpr) {
+		const tupleStruct = value as TupleStruct;
+		for (const [pi, vi] of zip(pattern.args, tupleStruct.items)) {
 			if (!unify(i, pi, vi, throwOnFailure)) {
 				return false;
 			}
@@ -189,18 +230,18 @@ function unify(
 
 function interperate(i: Interpreter, ast: Ast): unknown {
 	switch (ast.type) {
-		case AstType.Module:
-			return interperateModule(i, ast);
-		case AstType.Repl:
-			return interperateRepl(i, ast);
+		case AstType.ModuleDecls:
+			return interperateModuleDecls(i, ast);
+		case AstType.ReplExprs:
+			return interperateReplExprs(i, ast);
 		case AstType.VarDecl:
 			return interperateVarDecl(i, ast);
 		case AstType.ProcDecl:
 			return interperateProcDecl(i, ast);
 		case AstType.TypeDecl:
-			return Unit;
+			return interperateTypeDecl(i, ast);
 		case AstType.StructDecl:
-			return Unit;
+			return interperateStructDecl(i, ast);
 		case AstType.TestDecl:
 			return interperateTestDecl(i, ast);
 		case AstType.BreakStmt:
@@ -255,14 +296,14 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 	throw new Unreachable(ast satisfies never);
 }
 
-function interperateModule(i: Interpreter, m: Module): unknown {
+function interperateModuleDecls(i: Interpreter, m: ModuleDecls): unknown {
 	for (const decl of m.decls) {
 		interperate(i, decl);
 	}
 	return Unit;
 }
 
-function interperateRepl(i: Interpreter, r: Repl): unknown {
+function interperateReplExprs(i: Interpreter, r: ReplExprs): unknown {
 	let acc: unknown = Unit;
 	for (const line of r.lines) {
 		acc = interperate(i, line);
@@ -278,6 +319,16 @@ function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
 
 function interperateProcDecl(i: Interpreter, p: ProcDecl): unknown {
 	unify(i, p.id, interperate(i, p.initExpr), true);
+	return Unit;
+}
+
+function interperateTypeDecl(i: Interpreter, t: TypeDecl): unknown {
+	unify(i, t.id, Module.create(t.id.value, t.resolvedType), true);
+	return Unit;
+}
+
+function interperateStructDecl(i: Interpreter, s: StructDecl): unknown {
+	unify(i, s.id, Module.create(s.id.value, s.resolvedType), true);
 	return Unit;
 }
 
@@ -409,17 +460,8 @@ function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 function interperateStructExpr(i: Interpreter, s: StructExpr): unknown {
 	const type = s.resolvedType as StructType;
 	const fields: Record<string, unknown> = {};
-	const initialized: string[] = [];
 	for (const fieldInit of s.fieldInits) {
-		if (fieldInit.id !== undefined) {
-			fields[fieldInit.id.value] = interperate(i, fieldInit.expr);
-		} else {
-			const field = type.fields.find(
-				(f) => !initialized.includes(f.name)
-			) as StructField;
-			initialized.push(field?.name);
-			fields[field.name] = interperate(i, fieldInit.expr);
-		}
+		fields[fieldInit.id.value] = interperate(i, fieldInit.expr ?? fieldInit.id);
 	}
 	return Struct.create(type, fields);
 }
@@ -588,7 +630,7 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 		case BinaryOp.Member: {
 			const left = interperate(i, b.left);
 			const type = Type.of(left);
-			if (type.kind === Kind.Tuple) {
+			if (type.kind === Kind.Tuple || type.kind === Kind.TupleStruct) {
 				const right = interperate(i, b.right);
 				return (left as Tuple).items[Number(right as bigint)];
 			}
@@ -618,6 +660,9 @@ function interperateCallExpr(i: Interpreter, c: CallExpr): unknown {
 	const args: unknown[] = [];
 	for (const arg of c.args) {
 		args.push(interperate(i, arg));
+	}
+	if (Type.of(proc) === Type.Module) {
+		return TupleStruct.create(c.resolvedType as TupleStructType, args);
 	}
 	return (proc as Proc).impl(args);
 }

@@ -14,20 +14,23 @@ import {
 	IfExpr,
 	LoopStmt,
 	MatchExpr,
-	Module,
+	ModuleDecls,
 	ProcDecl,
 	ProcExpr,
-	Repl,
+	ReplExprs,
 	ReturnStmt,
+	StructDecl,
 	StructExpr,
 	TestDecl,
 	ThrowExpr,
 	TupleExpr,
+	TypeDecl,
 	UnaryExpr,
 	VarDecl,
 	WhileStmt,
 } from "./core.ts";
 import { BinaryOp } from "./ops.ts";
+import { Type } from "./types.ts";
 import { Unreachable } from "./utils.ts";
 
 type Decl = {
@@ -100,6 +103,18 @@ function declarePattern(
 		}
 		return;
 	}
+	if (pattern.type === AstType.StructExpr) {
+		for (const field of pattern.fieldInits) {
+			declarePattern(r, field.expr ?? field.id, mutable, assert);
+		}
+		return;
+	}
+	if (pattern.type === AstType.CallExpr) {
+		for (const item of pattern.args) {
+			declarePattern(r, item, mutable, assert);
+		}
+		return;
+	}
 	if (pattern.type === AstType.WildCardExpr) {
 		return;
 	}
@@ -149,18 +164,18 @@ function popScope(r: Resolver): void {
 
 function resolve(r: Resolver, ast: Ast): void {
 	switch (ast.type) {
-		case AstType.Module:
-			return resolveModule(r, ast);
-		case AstType.Repl:
-			return resolveRepl(r, ast);
+		case AstType.ModuleDecls:
+			return resolveModuleDecls(r, ast);
+		case AstType.ReplExprs:
+			return resolveReplExprs(r, ast);
 		case AstType.VarDecl:
 			return resolveVarDecl(r, ast);
 		case AstType.ProcDecl:
 			return resolveProcDecl(r, ast);
 		case AstType.TypeDecl:
-			return;
+			return resolveTypeDecl(r, ast);
 		case AstType.StructDecl:
-			return;
+			return resolveStructDecl(r, ast);
 		case AstType.TestDecl:
 			return resolveTestDecl(r, ast);
 		case AstType.BreakStmt:
@@ -215,7 +230,7 @@ function resolve(r: Resolver, ast: Ast): void {
 	throw new Unreachable(ast satisfies never);
 }
 
-function resolveModule(r: Resolver, m: Module): void {
+function resolveModuleDecls(r: Resolver, m: ModuleDecls): void {
 	// TODO: the repl needs to keep a module open during execution, and module
 	// scope needs to be enforced.
 	if (r.procStack !== 0) {
@@ -226,7 +241,7 @@ function resolveModule(r: Resolver, m: Module): void {
 	}
 }
 
-function resolveRepl(r: Resolver, e: Repl): void {
+function resolveReplExprs(r: Resolver, e: ReplExprs): void {
 	for (const line of e.lines) {
 		resolve(r, line);
 	}
@@ -243,6 +258,20 @@ function resolveProcDecl(r: Resolver, p: ProcDecl): void {
 	}
 	declarePattern(r, p.id, false, false);
 	resolveProcExpr(r, p.initExpr);
+}
+
+function resolveTypeDecl(r: Resolver, t: TypeDecl): void {
+	if (r.procStack !== 0) {
+		throw new Unreachable();
+	}
+	declarePattern(r, t.id, false, false);
+}
+
+function resolveStructDecl(r: Resolver, s: StructDecl): void {
+	if (r.procStack !== 0) {
+		throw new Unreachable();
+	}
+	declarePattern(r, s.id, false, false);
 }
 
 function resolveTestDecl(r: Resolver, t: TestDecl): void {
@@ -336,7 +365,7 @@ function resolveTupleExpr(r: Resolver, t: TupleExpr): void {
 
 function resolveStructExpr(r: Resolver, s: StructExpr): void {
 	for (const f of s.fieldInits) {
-		resolve(r, f.expr);
+		resolve(r, f.expr ?? f.id);
 	}
 }
 

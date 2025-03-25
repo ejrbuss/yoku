@@ -1,11 +1,12 @@
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import {
-	NonPrimitive,
+	Typed,
 	Kind,
 	ProcType,
 	StructType,
 	TupleType,
 	Type,
+	TupleStructType,
 } from "./types.ts";
 import { Span, Unreachable, sexpr } from "./utils.ts";
 
@@ -14,7 +15,7 @@ export const Unit = null;
 export type Proc = {
 	name?: string;
 	impl: (args: unknown[]) => unknown;
-} & NonPrimitive;
+} & Typed;
 
 export const Proc = { create: createProc };
 
@@ -26,9 +27,7 @@ function createProc(
 	return { $type: type, name, impl };
 }
 
-export type Tuple = {
-	items: unknown[];
-} & NonPrimitive;
+export type Tuple = { items: unknown[] } & Typed;
 
 export const Tuple = { create: createTuple };
 
@@ -36,7 +35,7 @@ function createTuple(type: TupleType, items: unknown[]): Tuple {
 	return { $type: type, items };
 }
 
-export type Struct = Record<string, unknown> & NonPrimitive;
+export type Struct = Record<string, unknown> & Typed;
 
 export const Struct = { create: createStruct };
 
@@ -45,6 +44,25 @@ function createStruct(
 	values: Record<string, unknown>
 ): Struct {
 	return { $type: type, ...values };
+}
+
+export type TupleStruct = { items: unknown[] } & Typed;
+
+export const TupleStruct = { create: createTupleStruct };
+
+function createTupleStruct(
+	type: TupleStructType,
+	items: unknown[]
+): TupleStruct {
+	return { $type: type, items };
+}
+
+export type Module = { name: string; type?: Type } & Typed;
+
+export const Module = { create: createModule };
+
+function createModule(name: string, type?: Type) {
+	return { $type: Type.Module, name, type };
 }
 
 export function print(v: unknown): string {
@@ -66,6 +84,11 @@ export function print(v: unknown): string {
 	}
 	if (type === Type.Type) {
 		return `Type[${Type.print(v as Type)}]`;
+	}
+	if (type === Type.Module) {
+		const module = v as Module;
+		const name = module.type ? Type.print(module.type) : module.name;
+		return `Module[${name}]`;
 	}
 	if (type.kind === Kind.Proc) {
 		const proc = v as Proc;
@@ -93,12 +116,20 @@ export function print(v: unknown): string {
 		}
 		return `${type.name} { ${fields.join(", ")} }`;
 	}
+	if (type.kind === Kind.TupleStruct) {
+		const tupleStruct = v as TupleStruct;
+		const items: string[] = [];
+		for (const item of tupleStruct.items) {
+			items.push(print(item));
+		}
+		return `${type.name}(${items.join(", ")})`;
+	}
 	throw new Unreachable();
 }
 
 export enum AstType {
-	Module = "Module",
-	Repl = "Repl",
+	ModuleDecls = "ModuleDecls",
+	ReplExprs = "ReplExprs",
 	VarDecl = "VarDecl",
 	ProcDecl = "ProcDecl",
 	TypeDecl = "TypeDecl",
@@ -130,14 +161,14 @@ export enum AstType {
 	WildCardExpr = "WildCardExpr",
 }
 
-export type Module = {
-	type: AstType.Module;
+export type ModuleDecls = {
+	type: AstType.ModuleDecls;
 	id: string;
 	decls: Ast[];
 } & Span;
 
-export type Repl = {
-	type: AstType.Repl;
+export type ReplExprs = {
+	type: AstType.ReplExprs;
 	lines: Ast[];
 } & Span;
 
@@ -161,6 +192,7 @@ export type TypeDecl = {
 	type: AstType.TypeDecl;
 	id: IdExpr;
 	typeExpr: Ast;
+	resolvedType?: Type;
 } & Span;
 
 export type StructDeclField = {
@@ -172,7 +204,9 @@ export type StructDeclField = {
 export type StructDecl = {
 	type: AstType.StructDecl;
 	id: IdExpr;
-	fields: StructDeclField[];
+	fields?: StructDeclField[];
+	tupleExpr?: TupleExpr;
+	resolvedType?: Type;
 } & Span;
 
 export type TestDecl = {
@@ -237,7 +271,7 @@ export type TupleExpr = {
 
 export type StructExprFieldInit = {
 	id: IdExpr;
-	expr: Ast;
+	expr?: Ast;
 };
 
 export type StructExpr = {
@@ -318,6 +352,7 @@ export type CallExpr = {
 	type: AstType.CallExpr;
 	proc: Ast;
 	args: Ast[];
+	resolvedType?: Type;
 } & Span;
 
 export type LitExpr = {
@@ -342,8 +377,8 @@ export type WildCardExpr = {
 } & Span;
 
 export type Ast =
-	| Module
-	| Repl
+	| ModuleDecls
+	| ReplExprs
 	| VarDecl
 	| ProcDecl
 	| TypeDecl

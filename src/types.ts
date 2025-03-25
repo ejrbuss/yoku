@@ -1,6 +1,6 @@
 import { Unreachable, zip } from "./utils.ts";
 
-export type NonPrimitive = { $type: Type };
+export type Typed = { $type: Type };
 
 export enum Kind {
 	Wildcard = "Wildcard",
@@ -8,9 +8,16 @@ export enum Kind {
 	Proc = "Proc",
 	Tuple = "Tuple",
 	Struct = "Struct",
+	TupleStruct = "TupleStruct",
+	Module = "Module",
 }
 
-export type Type = PrimitiveType | ProcType | TupleType | StructType;
+export type Type =
+	| PrimitiveType
+	| ProcType
+	| TupleType
+	| StructType
+	| TupleStructType;
 
 export type TypePattern =
 	| Type
@@ -20,34 +27,34 @@ export type TypePattern =
 
 export type WildcardType = {
 	kind: Kind.Wildcard;
-} & NonPrimitive;
+} & Typed;
 
 export type PrimitiveType = {
 	kind: Kind.Primitive;
 	name: string;
-} & NonPrimitive;
+} & Typed;
 
 export type ProcType = {
 	kind: Kind.Proc;
 	params: Type[];
 	returns: Type;
-} & NonPrimitive;
+} & Typed;
 
 export type ProcTypePattern = {
 	kind: Kind.Proc;
 	params: TypePattern[];
 	returns: TypePattern;
-} & NonPrimitive;
+} & Typed;
 
 export type TupleType = {
 	kind: Kind.Tuple;
 	items: Type[];
-} & NonPrimitive;
+} & Typed;
 
 export type TupleTypePattern = {
 	kind: Kind.Tuple;
 	items: TypePattern[];
-} & NonPrimitive;
+} & Typed;
 
 export type StructField = {
 	mutable: boolean;
@@ -59,7 +66,13 @@ export type StructType = {
 	kind: Kind.Struct;
 	name: string;
 	fields: StructField[];
-} & NonPrimitive;
+} & Typed;
+
+export type TupleStructType = {
+	kind: Kind.TupleStruct;
+	name: string;
+	items: Type[];
+} & Typed;
 
 const Meta = {
 	kind: Kind.Primitive,
@@ -77,7 +90,8 @@ export const Type = {
 	proc,
 	tuple,
 	struct,
-	Type: Meta,
+	tupleStruct,
+	Type: Meta, // TODO Type[T]
 	_: Wildcard,
 	Any: primitive("Any"),
 	Never: primitive("Never"),
@@ -86,6 +100,7 @@ export const Type = {
 	Int: primitive("Int"),
 	Float: primitive("Float"),
 	Str: primitive("Str"),
+	Module: primitive("Module"), // TODO Module[T]
 	of,
 	print,
 	assignable,
@@ -117,6 +132,10 @@ function struct(name: string, fields: StructField[]): StructType {
 	return { $type: Meta, kind: Kind.Struct, name, fields };
 }
 
+function tupleStruct(name: string, items: Type[]): TupleStructType {
+	return { $type: Meta, kind: Kind.TupleStruct, name, items };
+}
+
 function of(v: unknown): Type {
 	switch (typeof v) {
 		case "boolean":
@@ -134,7 +153,7 @@ function of(v: unknown): Type {
 	if (typeof v !== "object") {
 		throw new Error(`Cannot find type! ${v}`);
 	}
-	const type = (v as NonPrimitive).$type;
+	const type = (v as Typed).$type;
 	if (type !== undefined) {
 		return type;
 	}
@@ -166,6 +185,13 @@ function print(t: TypePattern): string {
 		}
 		case Kind.Struct: {
 			return t.name;
+		}
+		case Kind.TupleStruct: {
+			const items: string[] = [];
+			for (const item of t.items) {
+				items.push(print(item));
+			}
+			return `${t.name}(${items.join(", ")})`;
 		}
 	}
 }
@@ -268,6 +294,12 @@ function reconcile(from: TypePattern, into: TypePattern): Type | undefined {
 		}
 		// Structs are nominal, and so must be identical
 		if (from.kind === Kind.Struct && into.kind === Kind.Struct) {
+			if (from !== into) {
+				return undefined;
+			}
+			return into;
+		}
+		if (from.kind === Kind.TupleStruct && into.kind === Kind.TupleStruct) {
 			if (from !== into) {
 				return undefined;
 			}

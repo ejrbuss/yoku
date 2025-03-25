@@ -9,7 +9,7 @@ import {
 	BreakStmt,
 	ProcDecl,
 	VarDecl,
-	Module,
+	ModuleDecls,
 	ReturnStmt,
 	AssertStmt,
 	IdExpr,
@@ -18,7 +18,7 @@ import {
 	WhileStmt,
 	LoopStmt,
 	TupleExpr,
-	Repl,
+	ReplExprs,
 	TestDecl,
 	LitExpr,
 	TypeDecl,
@@ -70,10 +70,10 @@ function parse(source: CodeSource, replMode?: boolean) {
 	const p: Parser = { tokens, position: 0, starts: [] };
 	try {
 		if (replMode) {
-			return parseRepl(p);
+			return parseRexplExprs(p);
 		} else {
 			// TODO how should module ID relate to path?
-			return parseModule(p, source.path);
+			return parseModuleDecls(p, source.path);
 		}
 	} catch (error) {
 		if (error instanceof ParseError && error.needsMoreInput) {
@@ -83,14 +83,14 @@ function parse(source: CodeSource, replMode?: boolean) {
 	}
 }
 
-function parseModule(p: Parser, moduleId: string): Module {
+function parseModuleDecls(p: Parser, moduleId: string): ModuleDecls {
 	pushStart(p);
 	const decls: Ast[] = [];
 	while (hasMore(p)) {
 		decls.push(parseDecl(p));
 	}
 	return {
-		type: AstType.Module,
+		type: AstType.ModuleDecls,
 		id: moduleId,
 		decls,
 		start: popStart(p),
@@ -98,7 +98,7 @@ function parseModule(p: Parser, moduleId: string): Module {
 	};
 }
 
-function parseRepl(p: Parser): Repl {
+function parseRexplExprs(p: Parser): ReplExprs {
 	pushStart(p);
 	const lines: Ast[] = [];
 	while (hasMore(p)) {
@@ -134,7 +134,7 @@ function parseRepl(p: Parser): Repl {
 		}
 	}
 	return {
-		type: AstType.Repl,
+		type: AstType.ReplExprs,
 		lines,
 		start: popStart(p),
 		end: getEnd(p),
@@ -248,22 +248,28 @@ function parseStructDecl(p: Parser): StructDecl {
 	pushStart(p);
 	consume(p, "struct");
 	const id = parseIdExpr(p);
-	consume(p, "{");
-	const fields: StructDeclField[] = [];
-	while (hasMore(p) && !lookAhead(p, "}")) {
-		const mutable = match(p, "const") === undefined;
-		if (mutable) {
-			consume(p, "var");
+	let fields: undefined | StructDeclField[];
+	let tupleExpr: undefined | TupleExpr;
+	if (match(p, "{")) {
+		fields = [];
+		while (hasMore(p) && !lookAhead(p, "}")) {
+			const mutable = match(p, "const") === undefined;
+			if (mutable) {
+				consume(p, "var");
+			}
+			const id = parseIdExpr(p);
+			const typeDecl = parseTypeAnnotation(p);
+			fields.push({ mutable, id, typeDecl });
 		}
-		const id = parseIdExpr(p);
-		const typeDecl = parseTypeAnnotation(p);
-		fields.push({ mutable, id, typeDecl });
+		consume(p, "}");
+	} else {
+		tupleExpr = parseTupleTypeExpr(p);
 	}
-	consume(p, "}");
 	return {
 		type: AstType.StructDecl,
 		id,
 		fields,
+		tupleExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -563,7 +569,7 @@ function parseUnary(p: Parser): Ast {
 	pushStart(p);
 	if (match(p, UnaryOp.Neg) || match(p, UnaryOp.Not)) {
 		const op = lookBehind(p);
-		const right = parseCall(p);
+		const right = parseCallExpr(p);
 		return {
 			type: AstType.UnaryExpr,
 			op: op?.image as UnaryOp,
@@ -573,10 +579,10 @@ function parseUnary(p: Parser): Ast {
 		};
 	}
 	popStart(p);
-	return parseCall(p);
+	return parseCallExpr(p);
 }
 
-function parseCall(p: Parser): Ast {
+function parseCallExpr(p: Parser): Ast {
 	let expr = parsePrimaryExpr(p);
 	for (;;) {
 		if (match(p, "(")) {
@@ -688,33 +694,27 @@ function parseTupleExpr(p: Parser): Ast {
 function parseStructExpr(p: Parser): Ast {
 	pushStart(p);
 	const id = parseIdExpr(p);
-	const savedPosition = p.position;
 	if (match(p, "{")) {
-		try {
-			const fieldInits: StructExprFieldInit[] = [];
-			while (hasMore(p) && !lookAhead(p, "}")) {
-				const id = parseIdExpr(p);
-				consume(p, "=");
-				const expr = parseExpr(p);
-				fieldInits.push({ id, expr });
-				if (!lookAhead(p, "}")) {
-					consume(p, ",");
-				}
+		const fieldInits: StructExprFieldInit[] = [];
+		while (hasMore(p) && !lookAhead(p, "}")) {
+			const id = parseIdExpr(p);
+			let expr: undefined | Ast;
+			if (match(p, "=")) {
+				expr = parseExpr(p);
 			}
-			consume(p, "}");
-			return {
-				type: AstType.StructExpr,
-				id,
-				fieldInits,
-				start: popStart(p),
-				end: getEnd(p),
-			};
-		} catch (error) {
-			if (!(error instanceof ParseError)) {
-				throw error;
+			fieldInits.push({ id, expr });
+			if (!lookAhead(p, "}")) {
+				consume(p, ",");
 			}
-			p.position = savedPosition;
 		}
+		consume(p, "}");
+		return {
+			type: AstType.StructExpr,
+			id,
+			fieldInits,
+			start: popStart(p),
+			end: getEnd(p),
+		};
 	}
 	popStart(p);
 	return id;
@@ -1005,7 +1005,7 @@ function parsePrimaryPattern(p: Parser): Ast {
 		return parseLitExpr(p);
 	}
 	if (lookAhead(p, TokenType.Id)) {
-		return parseIdExpr(p);
+		return parseStructPattern(p);
 	}
 	consume(p, TokenType.Id, "Expected pattern!");
 	throw new Unreachable();
@@ -1028,6 +1028,61 @@ function parseTuplePattern(p: Parser): TupleExpr {
 		start: popStart(p),
 		end: getEnd(p),
 	};
+}
+
+function parseStructPattern(p: Parser): Ast {
+	pushStart(p);
+	const id = parseIdExpr(p);
+	if (match(p, "{")) {
+		const fieldInits: StructExprFieldInit[] = [];
+		while (hasMore(p) && !lookAhead(p, "}")) {
+			const id = parseIdExpr(p);
+			let expr: undefined | Ast;
+			if (match(p, "=")) {
+				expr = parsePattern(p);
+			}
+			fieldInits.push({ id, expr });
+			if (!lookAhead(p, "}")) {
+				consume(p, ",");
+			}
+		}
+		consume(p, "}");
+		return {
+			type: AstType.StructExpr,
+			id,
+			fieldInits,
+			start: popStart(p),
+			end: getEnd(p),
+		};
+	}
+	if (match(p, "(")) {
+		const args: Ast[] = [];
+		while (hasMore(p) && !lookAhead(p, ")")) {
+			args.push(parsePattern(p));
+			if (!lookAhead(p, ")")) {
+				consume(p, ",");
+			}
+		}
+		if (args.length > 255) {
+			const arg = args[256];
+			throw new ParseError(
+				"More than 255 arguments!",
+				false,
+				arg.start,
+				arg.end
+			);
+		}
+		consume(p, ")");
+		return {
+			type: AstType.CallExpr,
+			proc: id,
+			args,
+			start: popStart(p),
+			end: getEnd(p),
+		};
+	}
+	popStart(p);
+	return id;
 }
 
 function parseWildcardExpr(p: Parser): Ast {

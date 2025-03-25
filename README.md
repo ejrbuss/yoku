@@ -419,3 +419,11 @@ const new = match catch V1
 -- Maybe ? really is the way to go
 
 ```
+
+When rewriting the language, consider that we really have three langauges
+ - Language of types
+ - Language of patterns
+ - Langauge of statements and expressions
+
+The first two can be parsed and understood almost entirely on their own. The 
+third requires integration with the other two.
