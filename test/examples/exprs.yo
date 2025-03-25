@@ -108,8 +108,8 @@ false & false --> false
 1 | 2 --> ! TypeError
 
 --- test "Side Effects of Logical Operators" ---
-true | throw () --> true
-false & throw () --> false
+true | (throw ()) --> true
+false & (throw ()) --> false
 (throw ()) | true --> ! RuntimeError
 
 --- test "Comparison Operators" ---

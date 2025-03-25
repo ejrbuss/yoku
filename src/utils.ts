@@ -103,7 +103,7 @@ export type Span = {
 	end: number;
 };
 
-export const Span = { lineOf, columnOf, highlight };
+export const Span = { lineOf, columnOf };
 
 function lineOf(source: string, span: Span): number {
 	let line = 0;
@@ -124,50 +124,6 @@ function columnOf(source: string, span: Span): number {
 		}
 	}
 	return column;
-}
-
-function highlight(source: string, span: Span, note?: string): string {
-	// TODO multiline spans
-	// TODO column correction for tabs
-	const column = columnOf(source, span);
-	const line = lineOf(source, span);
-	let lineContents = "";
-	for (let i = 0; i < source.length; i++) {
-		if (source[i] === "\n") {
-			if (i >= span.end) {
-				break;
-			}
-			lineContents = "";
-		} else {
-			lineContents += source[i];
-		}
-	}
-	// console.log({
-	// 	start: span.start,
-	// 	end: span.end,
-	// 	line,
-	// 	column,
-	// 	lineContents,
-	// 	note,
-	// });
-	const prefix = ` ${line + 1} | `;
-	let padding = `${" ".repeat(prefix.length - 2)}| ${" ".repeat(column)}`;
-	const spanLength = clamp(
-		span.end - span.start,
-		1,
-		lineContents.length - column
-	);
-	const highlight = "^".repeat(spanLength);
-	for (let i = prefix.length; i < padding.length; i++) {
-		if (lineContents[i - prefix.length] === "\t") {
-			padding = padding.substring(0, i) + "\t" + padding.substring(i + 1);
-		}
-	}
-	if (note !== undefined) {
-		return `${padding}\n${prefix}${lineContents}\n${padding}${highlight}\n${padding}${note}`;
-	} else {
-		return `${padding}\n${prefix}${lineContents}\n${padding}${highlight}`;
-	}
 }
 
 export function sexpr(v: unknown, ignoreKeys: string[] = []): string {

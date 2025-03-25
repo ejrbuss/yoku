@@ -7,7 +7,9 @@ export enum TokenType {
 	Keyword = "Keyword",
 	Id = "Id",
 	Lit = "Lit",
+	Comment = "Comment",
 	Doc = "Doc",
+	Whitespace = "Whitespace",
 	Error = "Error",
 }
 
@@ -78,11 +80,13 @@ const Digits = {
 
 export const Tokenizer = { tokenize, nextToken };
 
-function tokenize(s: CodeSource): Token[] {
+function tokenize(s: CodeSource, ignore?: TokenType[]): Token[] {
 	const tokens: Token[] = [];
 	let t = nextToken(s);
 	while (t !== undefined) {
-		tokens.push(t);
+		if (!ignore?.includes(t.type)) {
+			tokens.push(t);
+		}
 		t = nextToken(s);
 	}
 	return tokens;
@@ -97,14 +101,13 @@ function nextToken(s: CodeSource): Token | undefined {
 		while (CodeSource.hasMore(s) && !CodeSource.match(s, "---")) {
 			CodeSource.consume(s);
 		}
-		// TODO Doc comments
-		return nextToken(s);
+		return tokenHere(s, TokenType.Doc);
 	}
 	if (CodeSource.match(s, "--")) {
 		while (CodeSource.hasMore(s) && !CodeSource.match(s, "\n")) {
 			CodeSource.consume(s);
 		}
-		return nextToken(s);
+		return tokenHere(s, TokenType.Comment);
 	}
 	if (
 		CodeSource.match(s, "->") ||
@@ -175,8 +178,10 @@ function nextToken(s: CodeSource): Token | undefined {
 		return nextIdentifier(s);
 	}
 	if (isWhitespace(c)) {
-		CodeSource.consume(s);
-		return nextToken(s);
+		do {
+			CodeSource.consume(s);
+		} while (isWhitespace(CodeSource.peek(s) ?? "\0"));
+		return tokenHere(s, TokenType.Whitespace);
 	}
 	CodeSource.consume(s);
 	return errorHere(s, "Unexpected character!");

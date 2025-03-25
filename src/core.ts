@@ -236,7 +236,7 @@ export type TupleExpr = {
 } & Span;
 
 export type StructExprFieldInit = {
-	id?: IdExpr;
+	id: IdExpr;
 	expr: Ast;
 };
 

@@ -3,9 +3,10 @@ import { ParseError, Parser } from "./parser.ts";
 import { ResolutionError, Resolver } from "./resolver.ts";
 import { CodeSource } from "./codesource.ts";
 import { TypeChecker, TypeError } from "./typechecker.ts";
-import { Span } from "./utils.ts";
 import { Ast } from "./core.ts";
 import { Token, Tokenizer } from "./tokens.ts";
+import { annotate } from "./reporter.ts";
+import { red } from "@std/fmt/colors";
 
 export enum RunResultType {
 	Ok = "Ok",
@@ -38,7 +39,7 @@ export type Runtime = {
 	test?: boolean;
 };
 
-export const Runtime = { create: createRuntime, run, reportError };
+export const Runtime = { create: createRuntime, run, printError, reportError };
 
 function createRuntime(options: Partial<Runtime> = {}): Runtime {
 	const resolver = Resolver.create();
@@ -104,17 +105,22 @@ function run(rt: Runtime, s: CodeSource): RunResult {
 	}
 }
 
-function reportError(error: RunError): void {
+function printError(error: RunError): string {
 	if (error.start === undefined || error.end === undefined) {
-		console.error(`\n%c${error.name}: ${error.note}\n`, "color: red");
-		return;
+		return `${red(error.name)}: ${error.note}`;
 	}
-	const span = { start: error.start, end: error.end };
-	const line = Span.lineOf(error.source.content, span) + 1;
-	const column = Span.columnOf(error.source.content, span) + 1;
-	const headline = `--> ${error.source.path}:${line}:${column} ${error.name}`;
-	const highlight = Span.highlight(error.source.content, span, error.note);
-	console.error(`\n%c${headline}\n${highlight}\n`, "color: red");
+	const annotatedSource = annotate(error.source.content, {
+		path: error.source.path,
+		start: error.start,
+		end: error.end,
+		note: error.note,
+		fmt: red,
+	});
+	return `${red(error.name)}:\n${annotatedSource}\n`;
+}
+
+function reportError(error: RunError): void {
+	console.error(printError(error));
 }
 
 function printTokens(tokens: Token[]): void {

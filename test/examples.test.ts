@@ -1,9 +1,10 @@
 import { CodeSource } from "../src/codesource.ts";
-import { Span, structurallyEq, Unreachable } from "../src/utils.ts";
-import { RunResultType, Runtime } from "../src/runtime.ts";
-import { assertEquals } from "jsr:@std/assert";
+import { Span, structurallyEq } from "../src/utils.ts";
+import { RunResult, RunResultType, Runtime } from "../src/runtime.ts";
+import { assertEquals, AssertionError } from "jsr:@std/assert";
 import { print } from "../src/core.ts";
-import { AssertionError } from "node:assert";
+import { annotate, Fmt, highlight, tab } from "../src/reporter.ts";
+import { blue, bold, gray, red } from "@std/fmt/colors";
 
 const ModeDirective = /^--- mode (Repl|Module) ---/;
 const TestDirective = /^--- test "(.*)" ---/;
@@ -20,11 +21,14 @@ for await (const file of Deno.readDir("./test/examples")) {
 		if (!ModeDirective.test(content)) {
 			const end = content.indexOf("\n");
 			throw new Error(
-				`In '${path}':\n${Span.highlight(
-					content,
-					{ start: 0, end: end < 0 ? content.length : end },
-					"Expected mode directive!"
-				)}`
+				"\n" +
+					annotate(content, {
+						path,
+						start: 0,
+						end: end < 0 ? content.length : end,
+						note: "Expected mode directive!",
+						fmt: red,
+					})
 			);
 		}
 		const mode = (content.match(ModeDirective) as RegExpMatchArray)[1] as Mode;
@@ -35,13 +39,16 @@ for await (const file of Deno.readDir("./test/examples")) {
 					let end = start + "--".length;
 					const subContent = content.substring(start);
 					if (!TestDirective.test(subContent)) {
-						const end = content.indexOf("\n", start);
+						const end = subContent.indexOf("\n", start);
 						throw new Error(
-							`In '${path}':\n${Span.highlight(
-								content,
-								{ start: 0, end: end < 0 ? content.length : end },
-								"Expected test directive!"
-							)}`
+							"\n" +
+								annotate(content, {
+									path,
+									start,
+									end: start + (end < 0 ? subContent.length : end),
+									note: "Expected test directive!",
+									fmt: red,
+								})
 						);
 					}
 					const name = (subContent.match(TestDirective) as RegExpMatchArray)[1];
@@ -49,7 +56,7 @@ for await (const file of Deno.readDir("./test/examples")) {
 						end++;
 					}
 					Deno.test(`${suite} - ${name}`, {}, () =>
-						runReplTest(content.substring(start, end), path)
+						runReplTest2(content, path, { start, end })
 					);
 					i = end;
 				}
@@ -60,68 +67,84 @@ for await (const file of Deno.readDir("./test/examples")) {
 	}
 }
 
-function runReplTest(source: string, path: string): void {
+function runReplTest2(content: string, path: string, span: Span): void {
 	const rt = Runtime.create({ replMode: true });
-	const s = CodeSource.fromString("", "actual");
-	for (const line of source.split("\n")) {
-		CodeSource.append(s, line + "\n");
+	const s = CodeSource.fromString("", path);
+
+	function source(): string {
+		const lineNo = Span.lineOf(content, span) + 1;
+		const colNo = Span.columnOf(content, span) + 1;
+		const fileLink = `${path}:${lineNo}:${colNo}`;
+		return `\n  ${bold("Source:")} ${gray(fileLink)}\n\n${tab(
+			highlight(s.content).trim(),
+			"    "
+		)}`;
+	}
+
+	function expected(r: RunResult | string): string {
+		return `\n  ${bold("Expected:")}\n${tab(result(r, blue), "    ")}`;
+	}
+
+	function found(r: RunResult | string): string {
+		return `\n  ${bold("Found:")}\n${tab(result(r, red), "    ")}`;
+	}
+
+	function error(r: RunResult | string): string {
+		return `\n  ${bold("Error:")}\n${tab(result(r, red), "    ")}`;
+	}
+
+	function result(r: RunResult | string, fmt: Fmt): string {
+		if (typeof r === "string") {
+			return fmt(r);
+		}
+		if (r.type === RunResultType.Error) {
+			// Patch the error span to be the real file location
+			s.content = content.substring(0, span.start + s.content.length);
+			if (r.start !== undefined) {
+				r.start += span.start;
+			}
+			if (r.end !== undefined) {
+				r.end += span.start;
+			}
+			return Runtime.printError(r);
+		}
+		return fmt(print(r.result));
+	}
+
+	for (const line of content.substring(span.start, span.end).split("\n")) {
+		CodeSource.append(s, `${line}\n`);
 		const actualResult = Runtime.run(rt, s);
 		if (line.includes("--> !")) {
-			const [_, expectedSource] = line.split("--> !");
-			if (actualResult.type !== RunResultType.Error) {
-				console.error(`%cFile: ${path}\nLine: ${line}`, "color: red");
-				assertEquals(
-					`${actualResult.type} ${print(actualResult.result)}`,
-					`${expectedSource.trim()}`
+			const expectedError = line.split("--> !")[1].trim();
+			if (
+				actualResult.type !== RunResultType.Error ||
+				actualResult.name !== expectedError
+			) {
+				throw new AssertionError(
+					`\n${source()}\n${expected(expectedError)}\n${found(actualResult)}`
 				);
-				throw new Unreachable();
 			}
-			if (actualResult.name !== expectedSource.trim()) {
-				console.error(
-					`%cFile: ${path}\nLine: ${line}\n${actualResult.name}: ${actualResult.note}`,
-					"color: red"
-				);
-				assertEquals(actualResult.name, expectedSource.trim());
-			}
-			continue;
-		}
-		if (line.includes("-->")) {
-			const [_, expectedSource] = line.split("-->");
+		} else if (line.includes("-->")) {
+			const expectedSource = line.split("-->")[1].trim();
 			const expectedResult = Runtime.run(
 				rt,
-				CodeSource.fromString(expectedSource, "expected")
+				CodeSource.fromString(expectedSource, "Expectation")
 			);
-			if (actualResult.type !== RunResultType.Ok) {
-				Runtime.reportError(actualResult);
-				assertEquals(actualResult.type, RunResultType.Ok);
-				throw new Unreachable();
-			}
-			if (expectedResult.type !== RunResultType.Ok) {
-				Runtime.reportError(expectedResult);
-				assertEquals(expectedResult.type, RunResultType.Ok);
-				throw new Unreachable();
+			if (expectedResult.type === RunResultType.Error) {
+				throw new AssertionError(`\n${source()}\n${error(expectedResult)}\n`);
 			}
 			if (!structurallyEq(actualResult, expectedResult)) {
-				const ap = print(actualResult.result);
-				const ep = print(expectedResult.result);
-				console.error(
-					`%cFile: ${path}\nLine: ${line}\nActual: ${ap}\nExpected: ${ep}`,
-					"color: red"
+				throw new AssertionError(
+					`\n${source()}\n${expected(expectedResult)}\n${found(actualResult)}`
 				);
-				assertEquals(actualResult, expectedResult);
 			}
-			continue;
-		}
-		if (
-			actualResult.type !== RunResultType.Ok &&
-			!actualResult.needsMoreInput
-		) {
-			console.error(`%cFile: ${path}\nLine: ${line}\n`, "color: red");
-			Runtime.reportError(actualResult);
-			assertEquals(
-				`${actualResult.name}: ${actualResult.note}`,
-				RunResultType.Ok
-			);
+		} else {
+			if (
+				actualResult.type !== RunResultType.Ok &&
+				!actualResult.needsMoreInput
+			) {
+				throw new AssertionError(`\n${source()}\n${error(actualResult)}\n`);
+			}
 		}
 	}
 }

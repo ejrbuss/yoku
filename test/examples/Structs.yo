@@ -11,18 +11,32 @@ struct Point {
 	const y: Int
 }
 
-Point { 1, 2 } --> Point { 1, 2 }
-Point {} --> ! TypeError
-Point { 1.5, 4 } --> ! TypeError
-Point { 1 } --> ! TypeError
-Point { 1, 2, 3 } --> ! TypeError
+Point { 1, 2 } --> ! ParseError
+Point { x = 1 } --> ! TypeError
+Point { x = 1, y = 2, z = 3 } --> ! TypeError
+Point { x = true, y = 1 } --> ! TypeError
+Point { x = 1, y = 2}
+Point { y = 1, x = 2 }
 
-const p: Point = Point { x = 1, y = 5 }
-p.x --> 1
-p.y --> 5
+const p: Point = Point { x = 100, y = 50 }
+p.x --> 100
+p.y --> 50
 
-Point { 6, y = 7 } --> Point { 6, 7 }
-Point { y = 9, 99 } --> Point { 99, 9 }
+--- test "Struct Defaults" ---
+struct Unique {}
+
+struct Test {
+	var name: Str
+	var defaulted: Unique = Unique {}
+}
+
+const a = Test { name = "a" }
+const b = Test { name = "b" }
+const c = Test { name = "c", defaulted = a.defaulted }
+
+a.defaulted --> Unique {}
+a.defaulted !== b.defaulted --> true
+a.defaulted === c.defaulted --> true
 
 --- test "Nested Struct" ---
 struct Inner {
@@ -35,7 +49,11 @@ struct Outer {
 	const y: Str
 }
 
-const e = Outer { Inner { true }, Inner { false }, "t" }
+const e = Outer { 
+	i1 = Inner { true },
+	i2 = Inner { false },
+	y = "t",
+}
 e.y --> "t"
 e.i1.x --> true
 e.i2.x --> false
@@ -46,7 +64,7 @@ struct Point {
 	var y: Float
 }
 
-const p = Point { 0.5, 0.0 }
+const p = Point { x = 0.5, y = 0.0 }
 p.y = p.x * 4.0
 p --> Point { 0.5, 2.0 }
 
@@ -72,7 +90,7 @@ struct Point {
 	const z: Int
 }
 
-const p1 = Point { 1, 2, 3 }
+const p1 = Point { x = 1, y = 2, z = 3 }
 const p2 = Point { z = 5, ...p1 }
 p2 --> { 1, 2, 5 }
 
@@ -83,7 +101,7 @@ struct Point {
 	const z: Int
 }
 
-const p = Point { 1, 2, 3 }
+const p = Point { x = 1, y = 2, z = 3 }
 const Point { x, y, z } = p
 x --> 1
 y --> 2

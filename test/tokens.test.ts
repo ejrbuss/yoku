@@ -14,7 +14,9 @@ Deno.test("Comments", () => {
 		3
 		`,
 		[TokenType.Lit, "1"],
+		[TokenType.Comment],
 		[TokenType.Lit, "2"],
+		[TokenType.Doc],
 		[TokenType.Lit, "3"]
 	);
 });
@@ -104,7 +106,7 @@ Deno.test("Errors", () => {
 
 Deno.test("Examples", () => {
 	assertTokens(
-		`var x = f(3 * 4, true); -- ignored`,
+		`var x = f(3 * 4, true); -- what?`,
 		[TokenType.Keyword, "var"],
 		[TokenType.Id, "x"],
 		[TokenType.Op, "="],
@@ -116,19 +118,26 @@ Deno.test("Examples", () => {
 		[TokenType.Punc, ","],
 		[TokenType.Lit, "true"],
 		[TokenType.Punc, ")"],
-		[TokenType.Punc, ";"]
+		[TokenType.Punc, ";"],
+		[TokenType.Comment, "-- what?"]
 	);
 });
 
 function assertTokens(
 	source: string,
-	...expectedTokens: [TokenType, string][]
+	...expectedTokens: ([TokenType] | [TokenType, string])[]
 ) {
-	const actualTokens: [TokenType, string][] = [];
+	const actualTokens: ([TokenType] | [TokenType, string])[] = [];
 	const s = CodeSource.fromString(source, "test");
 	let t = Tokenizer.nextToken(s);
 	while (t !== undefined) {
-		actualTokens.push([t.type, t.image]);
+		if (t.type !== TokenType.Whitespace) {
+			if (expectedTokens[actualTokens.length][1]) {
+				actualTokens.push([t.type, t.image]);
+			} else {
+				actualTokens.push([t.type]);
+			}
+		}
 		t = Tokenizer.nextToken(s);
 	}
 	assertEquals(actualTokens, expectedTokens);
