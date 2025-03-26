@@ -198,7 +198,8 @@ export type TypeDecl = {
 export type StructDeclField = {
 	mutable: boolean;
 	id: IdExpr;
-	typeDecl: Ast;
+	typeDecl?: Ast;
+	expr?: Ast;
 };
 
 export type StructDecl = {
@@ -249,6 +250,7 @@ export type WhileStmt = {
 
 export type AssignStmt = {
 	type: AstType.AssignStmt;
+	target?: Ast;
 	id: IdExpr;
 	expr: Ast;
 } & Span;
@@ -278,6 +280,7 @@ export type StructExpr = {
 	type: AstType.StructExpr;
 	id: IdExpr;
 	fieldInits: StructExprFieldInit[];
+	spreadInit?: Ast;
 	resolvedType?: StructType;
 } & Span;
 
@@ -288,6 +291,7 @@ export type GroupExpr = {
 
 export type IfExpr = {
 	type: AstType.IfExpr;
+	mutable: boolean;
 	pattern?: Ast;
 	declType?: Ast;
 	testExpr: Ast;

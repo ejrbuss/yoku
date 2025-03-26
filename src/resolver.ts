@@ -30,7 +30,6 @@ import {
 	WhileStmt,
 } from "./core.ts";
 import { BinaryOp } from "./ops.ts";
-import { Type } from "./types.ts";
 import { Unreachable } from "./utils.ts";
 
 type Decl = {
@@ -272,6 +271,13 @@ function resolveStructDecl(r: Resolver, s: StructDecl): void {
 		throw new Unreachable();
 	}
 	declarePattern(r, s.id, false, false);
+	if (s.fields !== undefined) {
+		for (const field of s.fields) {
+			if (field.expr !== undefined) {
+				resolve(r, field.expr);
+			}
+		}
+	}
 }
 
 function resolveTestDecl(r: Resolver, t: TestDecl): void {
@@ -327,22 +333,27 @@ function resolveWhileStmt(r: Resolver, w: WhileStmt): void {
 }
 
 function resolveAssignStmt(r: Resolver, a: AssignStmt): void {
-	for (const scope of r.scopes.toReversed()) {
-		const decl = scope.decls[a.id.value];
-		if (decl !== undefined) {
-			if (!decl.mutable) {
-				throw new ResolutionError(
-					"Cannot assign to a const!",
-					a.id.start,
-					a.id.end
-				);
+	if (a.target === undefined) {
+		for (const scope of r.scopes.toReversed()) {
+			const decl = scope.decls[a.id.value];
+			if (decl !== undefined) {
+				if (!decl.mutable) {
+					throw new ResolutionError(
+						"Cannot assign to a const!",
+						a.id.start,
+						a.id.end
+					);
+				}
+				a.id.resolvedId = decl.resolvedId;
+				resolve(r, a.expr);
+				return;
 			}
-			a.id.resolvedId = decl.resolvedId;
-			resolve(r, a.expr);
-			return;
 		}
+		throw new ResolutionError("Undeclared variable!", a.id.start, a.id.end);
+	} else {
+		resolve(r, a.target);
+		resolve(r, a.expr);
 	}
-	throw new ResolutionError("Undeclared variable!", a.id.start, a.id.end);
 }
 
 function resolveExprStmt(r: Resolver, e: ExprStmt): void {
@@ -367,6 +378,9 @@ function resolveStructExpr(r: Resolver, s: StructExpr): void {
 	for (const f of s.fieldInits) {
 		resolve(r, f.expr ?? f.id);
 	}
+	if (s.spreadInit !== undefined) {
+		resolve(r, s.spreadInit);
+	}
 }
 
 function resolveGroupExpr(r: Resolver, g: GroupExpr): void {
@@ -376,7 +390,7 @@ function resolveGroupExpr(r: Resolver, g: GroupExpr): void {
 function resolveIfExpr(r: Resolver, i: IfExpr): void {
 	if (i.pattern !== undefined) {
 		pushScope(r);
-		declarePattern(r, i.pattern, false, true);
+		declarePattern(r, i.pattern, i.mutable, true);
 		resolve(r, i.testExpr);
 		resolve(r, i.thenExpr);
 		popScope(r);

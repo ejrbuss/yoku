@@ -142,7 +142,6 @@ function nextToken(s: CodeSource): Token | undefined {
 		CodeSource.match(s, "%=") ||
 		CodeSource.match(s, "&=") ||
 		CodeSource.match(s, "|=") ||
-		CodeSource.match(s, "?=") ||
 		CodeSource.match(s, "<") ||
 		CodeSource.match(s, ">") ||
 		CodeSource.match(s, "+") ||

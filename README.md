@@ -286,13 +286,6 @@ struct Person {
 	var age: Int
 }
 
-inline struct Complex {
-	const r: Float
-	const i: Float
-}
-
-inline proc p() {}
-
 -- enums 
 enum Alignment {
 	Good
@@ -332,17 +325,51 @@ Int.add(3, 4) --> 7
 -- String interpolation
 -- Try/Catch/Throw
 
+-- Unreachability
+-- AN unconditional throw, return, break, continue should mark the rest of its
+-- block as unreachable and warn in those cases
+
 -- Parameterized types
 enum Option[T] {
 	Some(T),
 	None
 }
+
+proc secretly_parameterized() -> _ {}
+-- this is really ->
+proc secretly_parameterized[T]() -> T {}
+
 -- Runtime types
 -- Modules, import/export
 -- Start Standard Library
 -- Doc comments
--- Annotations (main, deprecated, builtin, external, test, unspecialized, packed, align)
+-- Builtin Annotations
+@deprecated         -- marks a declaration as depreacted, warns on usage
+@builtin            -- builtin procs do not require implementations, structs do not require fields
+@inline             -- inlines procs, gives types value semantics
+@opaque             -- obscures all type information outside of this module
+@external           -- similar to builtin, but used for linking
+@test               -- code will be removed outside of tests
+@bake[(Bool, Byte)] -- used to specialize parameterized type
+@packed             -- use packed struct layout
+@align(8)           -- align a struct field
+@export("module")   -- export to a particular module scope
+@annotation         -- used to create a user defined annotation
 
+-- Limited type constraints
+@builtin
+export struct Ref[@TypeConstraint.inline T] {}
+
+@builtin
+export struct WeakRef[@TypeConstraint.ref T] {}
+
+@builtin
+export struct SharedRef[@TypeConstraint.send T]
+
+@builtin
+export struct RawRef[T]
+
+@annotation
 proc owned(t: TypeExpr) -> () { ... }
 
 -- The following will make a call to owned once per source code usage
@@ -417,6 +444,48 @@ const new = match old {
 const new = match catch V1
 
 -- Maybe ? really is the way to go
+
+-- Eventually only Exception should be throwable
+@builtin
+export struct Exception[T] {
+	export const payload: T
+	export const message: Str
+	export const stack_trace: Option[StackTrace]
+	export const caused_by: Option[Exception]
+	const suppressed: List[Exception]
+}
+
+throw Exception { payload = DivisionByZero(n, d) }
+
+throw myResult.toException("this message is optional")
+
+impl Exception {
+
+	proc unreachable() -> Exception[Unreachable] {}
+	proc todo() -> Exception[Todo] {}
+
+	proc new(
+		payload: T, 
+		message: Str = Type.of(payload).name, 
+		stack_trace: Bool = true,
+		caused_by: Option[Exception[_]] = Option.None,
+	) -> This {
+		return This {
+			payload,
+			message,
+			stack_trace: if stack_trace { Option.Some(Runtime.get_stack_trace()) } else { Option.None },
+			caused,
+			suppressed: List.empty(),
+		}
+	}
+
+	proc toResult(this: This) -> Result[_, T] {
+		Result.Error(error)
+	}
+
+}
+
+throw Exception.new(DivisionByZero(n, d))
 
 ```
 

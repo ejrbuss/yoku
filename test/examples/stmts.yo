@@ -75,6 +75,15 @@ do {
 	const cat = 7
 } --> ! ResolutionError
 
+--- test "Can Shadow Non-Builtins" ---
+const x = 1
+x --> 1
+const x = 2
+x --> 2
+const x = x * 2
+x --> 4
+const y = y --> ! ResolutionError
+
 --- test "If Statements" ---
 if true { "then" } else { throw () } --> "then"
 if false { throw () } else { "else" } --> "else"
@@ -179,11 +188,11 @@ match {
 	else => { 3 }
 } --> 2
 
---- test "If Assert Statments" ---
+--- test "If Declarations" ---
 proc f(x: Any) -> Str {
-	if assert y: Bool = x {
+	if const y: Bool = x {
 		cat("Bool ", y)
-	} else if assert y: Int = x {
+	} else if var y: Int = x {
 		cat("Int ", y)
 	} else {
 		cat("Dunno ", x)
@@ -192,3 +201,22 @@ proc f(x: Any) -> Str {
 f(true) --> "Bool true"
 f(1) --> "Int 1"
 f("test") --> "Dunno test"
+
+--- test "Combined Assignment Operators" ---
+var x = 1
+x += 1
+x --> 2
+x -= 7
+x --> -5
+x *= 4 
+x --> -20
+x /= 2
+x --> -10
+x %= 3
+x --> -1
+
+var y = true
+y &= false
+y --> false
+y |= true
+y --> true

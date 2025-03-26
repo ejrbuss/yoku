@@ -60,6 +60,8 @@ export type StructField = {
 	mutable: boolean;
 	name: string;
 	type: Type;
+	// This is a really gross hack
+	defaultExpr?: unknown;
 };
 
 export type StructType = {

@@ -415,17 +415,23 @@ function interperateWhileStmt(i: Interpreter, w: WhileStmt): unknown {
 }
 
 function interperateAssignStmt(i: Interpreter, a: AssignStmt): unknown {
-	const value = interperate(i, a.expr);
-	const resolvedId = resolveId(a.id);
-	if (i.locals[resolvedId] !== undefined) {
-		i.locals[resolvedId] = value;
-		return Unit;
+	if (a.target === undefined) {
+		const value = interperate(i, a.expr);
+		const resolvedId = resolveId(a.id);
+		if (i.locals[resolvedId] !== undefined) {
+			i.locals[resolvedId] = value;
+			return Unit;
+		}
+		if (i.closure[resolvedId] !== undefined) {
+			i.closure[resolvedId] = value;
+			return Unit;
+		}
+		i.globals[resolvedId] = value;
+	} else {
+		const target = interperate(i, a.target) as Struct;
+		const value = interperate(i, a.expr);
+		target[a.id.value] = value;
 	}
-	if (i.closure[resolvedId] !== undefined) {
-		i.closure[resolvedId] = value;
-		return Unit;
-	}
-	i.globals[resolvedId] = value;
 	return Unit;
 }
 
@@ -460,8 +466,22 @@ function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 function interperateStructExpr(i: Interpreter, s: StructExpr): unknown {
 	const type = s.resolvedType as StructType;
 	const fields: Record<string, unknown> = {};
+	const initialized: string[] = [];
+	if (s.spreadInit !== undefined) {
+		const spread = interperate(i, s.spreadInit) as Struct;
+		for (const field of type.fields) {
+			fields[field.name] = spread[field.name];
+			initialized.push(field.name);
+		}
+	}
 	for (const fieldInit of s.fieldInits) {
 		fields[fieldInit.id.value] = interperate(i, fieldInit.expr ?? fieldInit.id);
+		initialized.push(fieldInit.id.value);
+	}
+	for (const field of type.fields) {
+		if (!initialized.includes(field.name)) {
+			fields[field.name] = interperate(i, field.defaultExpr as Ast);
+		}
 	}
 	return Struct.create(type, fields);
 }

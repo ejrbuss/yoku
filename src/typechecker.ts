@@ -115,7 +115,7 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 				pattern.end
 			);
 		}
-		assertCardinality(pattern.items, type.items, pattern, "items");
+		assertCardinality(type.items, pattern.items, pattern, "items");
 		for (const [pi, ti] of zip(pattern.items, type.items)) {
 			storeTypes(t, pi, ti);
 		}
@@ -139,7 +139,7 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		if (type.kind !== Kind.TupleStruct) {
 			throw new Unreachable();
 		}
-		assertCardinality(pattern.args, type.items, pattern, "items");
+		assertCardinality(type.items, pattern.args, pattern, "items");
 		for (const [pi, ti] of zip(pattern.args, type.items)) {
 			storeTypes(t, pi, ti);
 		}
@@ -309,11 +309,33 @@ function checkStructDecl(
 	if (s.fields !== undefined) {
 		const fields: StructField[] = [];
 		for (const field of s.fields) {
-			fields.push({
-				mutable: field.mutable,
-				name: field.id.value,
-				type: reifyType(t, field.typeDecl, true),
-			});
+			if (field.expr) {
+				const declType =
+					field.typeDecl === undefined
+						? Type._
+						: reifyType(t, field.typeDecl, false);
+				const initType = check(t, field.expr);
+				const fieldType = assertAssignable(initType, declType, field.id);
+				fields.push({
+					mutable: field.mutable,
+					name: field.id.value,
+					type: fieldType,
+					defaultExpr: field.expr,
+				});
+			} else {
+				if (field.typeDecl === undefined) {
+					throw new TypeError(
+						"Field requires a type or initializer!",
+						field.id.start,
+						field.id.end
+					);
+				}
+				fields.push({
+					mutable: field.mutable,
+					name: field.id.value,
+					type: reifyType(t, field.typeDecl, true),
+				});
+			}
 		}
 		const type = Type.struct(s.id.value, fields);
 		declareType(t, s.id, type);
@@ -360,10 +382,30 @@ function checkAssignStmt(
 	a: AssignStmt,
 	_d?: TypePattern
 ): Type {
-	const resolvedId = resolveId(a.id);
-	const into = t.values[resolvedId];
-	const from = check(t, a.expr, into);
-	assertAssignable(from, into, a.id);
+	if (a.target === undefined) {
+		const resolvedId = resolveId(a.id);
+		const into = t.values[resolvedId];
+		const from = check(t, a.expr, into);
+		assertAssignable(from, into, a.id);
+	} else {
+		const targetType = check(t, a.target);
+		if (targetType.kind === Kind.Struct) {
+			const field = assertField(targetType, a.id);
+			if (!field.mutable) {
+				throw new TypeError("Cannot assign to a const!", a.id.start, a.id.end);
+			}
+			const into = field.type;
+			const from = check(t, a.expr, into);
+			assertAssignable(from, into, a.id);
+		} else {
+			const f = Type.print(targetType);
+			throw new TypeError(
+				`Expected a struct or enum, found ${f}!`,
+				a.target.start,
+				a.target.end
+			);
+		}
+	}
 	return Type.Unit;
 }
 
@@ -417,7 +459,6 @@ function checkStructExpr(
 			s.id.end
 		);
 	}
-	assertCardinality(s.fieldInits, type.fields, s, "field initializers");
 	const initialized: string[] = [];
 	for (const fieldInit of s.fieldInits) {
 		if (initialized.includes(fieldInit.id.value)) {
@@ -431,6 +472,27 @@ function checkStructExpr(
 		initialized.push(fieldInit.id.value);
 		const fieldType = check(t, fieldInit.expr ?? fieldInit.id, field.type);
 		assertAssignable(fieldType, field.type, fieldInit.expr ?? fieldInit.id);
+	}
+
+	if (s.spreadInit !== undefined) {
+		const spreadType = check(t, s.spreadInit, type);
+		assertAssignable(spreadType, type, s.spreadInit);
+	} else {
+		const unintialized: string[] = [];
+		for (const field of type.fields) {
+			if (!field.defaultExpr) {
+				unintialized.push(field.name);
+			}
+		}
+		for (const field of unintialized) {
+			if (!initialized.includes(field)) {
+				throw new TypeError(
+					`Missing initializer for ${field}!`,
+					s.start,
+					s.end
+				);
+			}
+		}
 	}
 	s.resolvedType = type;
 	return type;
@@ -717,7 +779,7 @@ function checkUnaryExprHelper(
 function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: TypePattern): Type {
 	const callee = check(t, c.proc);
 	if (callee.kind === Kind.Proc) {
-		assertCardinality(c.args, callee.params, c, "arguments");
+		assertCardinality(callee.params, c.args, c, "arguments");
 		for (const [arg, param] of zip(c.args, callee.params)) {
 			const argType = check(t, arg, param);
 			assertAssignable(argType, param, arg);
@@ -869,7 +931,9 @@ function assertField(type: StructType, id: IdExpr): StructField {
 			return field;
 		}
 	}
-	throw new TypeError(`Undefined field ${id.value}!`, id.start, id.end);
+	const f = id.value;
+	const s = Type.print(type);
+	throw new TypeError(`No field ${f} on type ${s}!`, id.start, id.end);
 }
 
 function closestTuple(type?: TypePattern): TupleTypePattern {

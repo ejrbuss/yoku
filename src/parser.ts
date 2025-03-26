@@ -32,7 +32,8 @@ import {
 } from "./core.ts";
 import { CodeSource } from "./codesource.ts";
 import { Todo, Unreachable } from "./utils.ts";
-import { BinaryOp, UnaryOp } from "./ops.ts";
+import { AssignOp, AssignToBinary, BinaryOp, UnaryOp } from "./ops.ts";
+import exp from "node:constants";
 
 type TokenMatcher = TokenType | string;
 
@@ -258,8 +259,12 @@ function parseStructDecl(p: Parser): StructDecl {
 				consume(p, "var");
 			}
 			const id = parseIdExpr(p);
-			const typeDecl = parseTypeAnnotation(p);
-			fields.push({ mutable, id, typeDecl });
+			const typeDecl = tryParseTypeAnnotation(p);
+			let expr: undefined | Ast;
+			if (match(p, "=")) {
+				expr = parseExpr(p);
+			}
+			fields.push({ mutable, id, typeDecl, expr });
 		}
 		consume(p, "}");
 	} else {
@@ -350,33 +355,55 @@ function parseContinueStmt(p: Parser): ContinueStmt {
 }
 
 function parseAssignStmt(p: Parser): Ast {
-	const target = parseExpr(p);
-	if (match(p, "=")) {
-		const expr = parseExpr(p);
-		if (target.type === AstType.IdExpr) {
-			return {
-				type: AstType.AssignStmt,
-				id: target,
-				expr,
+	pushStart(p);
+	let target: undefined | Ast = parseExpr(p);
+	if (matchAny(p, Object.values(AssignOp))) {
+		const assignOp = lookBehind(p)?.image as AssignOp;
+		const binOp = AssignToBinary[assignOp];
+		let expr = parseExpr(p);
+		if (binOp !== undefined) {
+			expr = {
+				type: AstType.BinaryExpr,
+				op: binOp,
+				left: target,
+				right: expr,
 				start: target.start,
 				end: expr.end,
 			};
 		}
-		if (target.type === AstType.BinaryExpr && target.op === BinaryOp.Member) {
-			throw new Todo();
+		let id: IdExpr;
+		if (target.type === AstType.IdExpr) {
+			id = target;
+			target = undefined;
+		} else if (
+			target.type === AstType.BinaryExpr &&
+			target.op === BinaryOp.Member &&
+			target.right.type === AstType.IdExpr
+		) {
+			id = target.right;
+			target = target.left;
+		} else {
+			throw new ParseError(
+				"Invalid assignment target!",
+				false,
+				target.start,
+				target.end
+			);
 		}
-		throw new ParseError(
-			"Invalid assignment target!",
-			false,
-			target.start,
-			target.end
-		);
+		return {
+			type: AstType.AssignStmt,
+			target,
+			id,
+			expr,
+			start: popStart(p),
+			end: getEnd(p),
+		};
 	}
 	return {
 		type: AstType.ExprStmt,
 		expr: target,
-		start: target.start,
-		end: target.end,
+		start: popStart(p),
+		end: getEnd(p),
 	};
 }
 
@@ -696,7 +723,13 @@ function parseStructExpr(p: Parser): Ast {
 	const id = parseIdExpr(p);
 	if (match(p, "{")) {
 		const fieldInits: StructExprFieldInit[] = [];
+		let spreadInit: undefined | Ast;
 		while (hasMore(p) && !lookAhead(p, "}")) {
+			if (match(p, "...")) {
+				spreadInit = parseExpr(p);
+				match(p, ",");
+				break;
+			}
 			const id = parseIdExpr(p);
 			let expr: undefined | Ast;
 			if (match(p, "=")) {
@@ -712,6 +745,7 @@ function parseStructExpr(p: Parser): Ast {
 			type: AstType.StructExpr,
 			id,
 			fieldInits,
+			spreadInit,
 			start: popStart(p),
 			end: getEnd(p),
 		};
@@ -743,7 +777,9 @@ function parseIfExpr(p: Parser): IfExpr {
 	consume(p, "if");
 	let pattern: undefined | Ast;
 	let declType: undefined | Ast;
-	if (match(p, "assert")) {
+	let mutable: boolean = false;
+	if (match(p, "const") || match(p, "var")) {
+		mutable = lookBehind(p, "const") === undefined;
 		pattern = parsePattern(p);
 		declType = tryParseTypeAnnotation(p);
 		consume(p, "=");
@@ -760,6 +796,7 @@ function parseIfExpr(p: Parser): IfExpr {
 	}
 	return {
 		type: AstType.IfExpr,
+		mutable,
 		pattern,
 		declType,
 		testExpr,
@@ -1127,6 +1164,16 @@ function match(p: Parser, m?: TokenMatcher): Token | undefined {
 	if (matches(token, m)) {
 		p.position++;
 		return token;
+	}
+	return undefined;
+}
+
+function matchAny(p: Parser, ms: TokenMatcher[]): Token | undefined {
+	for (const m of ms) {
+		const t = match(p, m);
+		if (t !== undefined) {
+			return t;
+		}
 	}
 	return undefined;
 }

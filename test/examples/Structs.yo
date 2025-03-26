@@ -22,6 +22,9 @@ const p: Point = Point { x = 100, y = 50 }
 p.x --> 100
 p.y --> 50
 
+--- test "Struct Errors" ---
+struct Bad { var x } --> ! TypeError
+
 --- test "Struct Defaults" ---
 struct Unique {}
 
@@ -37,6 +40,25 @@ const c = Test { name = "c", defaulted = a.defaulted }
 a.defaulted --> Unique {}
 a.defaulted !== b.defaulted --> true
 a.defaulted === c.defaulted --> true
+
+--- test "Complex Struct Defaults" ---
+var side_effect = 0
+
+struct Test {
+	var x: Int
+	var y = do {
+		side_effect += 1
+		8
+	}
+}
+
+Test { x = 1 } --> Test { x = 1, y = 8 }
+side_effect --> 1
+Test { x = 2 } --> Test { x = 2, y = 8 }
+side_effect --> 2
+Test { y = 1 } --> ! TypeError
+Test { x = 1, y = 2 } --> Test { x = 1, y = 2 }
+side_effect --> 2
 
 --- test "Nested Struct" ---
 struct Inner {
@@ -66,7 +88,7 @@ struct Point {
 
 const p = Point { x = 0.5, y = 0.0 }
 p.y = p.x * 4.0
-p --> Point { 0.5, 2.0 }
+p --> Point { x = 0.5, y = 2.0 }
 
 --- test "Struct Type Aliasing" ---
 struct Empty {}
@@ -92,7 +114,9 @@ struct Point {
 
 const p1 = Point { x = 1, y = 2, z = 3 }
 const p2 = Point { z = 5, ...p1 }
-p2 --> { 1, 2, 5 }
+p2 --> Point { x = 1, y = 2, z = 5 }
+
+Point { x = 1, ...p2, z = 3 } --> ! ParseError
 
 --- test "Struct Destructuring" ---
 struct Point {
@@ -102,9 +126,11 @@ struct Point {
 }
 
 const p = Point { x = 1, y = 2, z = 3 }
-const Point { x, y, z } = p
+const Point { x, y, z = zz } = p
 x --> 1
 y --> 2
+zz --> 3
+const Point { z } = p
 z --> 3
 
 --- test "Tuple Struct" ---
@@ -115,7 +141,7 @@ Email(4) --> ! TypeError
 Email(1, 2) --> ! TypeError
 
 const e = Email("t")
-if assert Email(s) = e { s } else { "_" } --> "t"
+if const Email(s) = e { s } else { "_" } --> "t"
 
 e.0 --> "t"
 
