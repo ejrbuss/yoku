@@ -164,6 +164,12 @@ function runReplTest2(content: string, path: string, span: Span): void {
 				cause,
 			});
 		}
+		throw new AssertionError(
+			`\n${source()}\n${error(`${JSON.stringify(cause)}`)}`,
+			{
+				cause,
+			}
+		);
 	}
 }
 

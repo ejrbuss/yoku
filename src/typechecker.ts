@@ -7,7 +7,9 @@ import {
 	AstType,
 	BinaryExpr,
 	BlockExpr,
+	BreakStmt,
 	CallExpr,
+	ContinueStmt,
 	ExprStmt,
 	GroupExpr,
 	IdExpr,
@@ -47,6 +49,7 @@ import { Span, Unreachable, zip } from "./utils.ts";
 export type TypeChecker = {
 	types: Scopes<Type>;
 	values: Scopes<Type>;
+	loops: Scopes<true>;
 	returns: Type[]; // TODO probably want to include source info
 };
 
@@ -62,12 +65,13 @@ export class TypeError extends Error {
 
 export const TypeChecker = {
 	create,
-	check,
+	check: checkExternal,
 };
 
 function create(): TypeChecker {
 	const values = new Scopes<Type>();
 	const types = new Scopes<Type>();
+	const loops = new Scopes<true>();
 	for (const [id, builtin] of Object.entries(Builtins)) {
 		assert(
 			values.declareGlobal(id, {
@@ -93,7 +97,19 @@ function create(): TypeChecker {
 			})
 		);
 	}
-	return { types, values, returns: [] };
+	return { types, values, loops, returns: [] };
+}
+
+function checkExternal(t: TypeChecker, a: Ast): Type {
+	const typesSaved = t.types.copy();
+	const valuesSaved = t.values.copy();
+	try {
+		return check(t, a);
+	} catch (error) {
+		t.types = typesSaved;
+		t.values = valuesSaved;
+		throw error;
+	}
 }
 
 function declareType(t: TypeChecker, id: IdExpr, type: Type): void {
@@ -214,9 +230,9 @@ function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 		case AstType.TestDecl:
 			return checkTestDecl(t, ast, d);
 		case AstType.BreakStmt:
-			return Type.Unit;
+			return checkBreakStmt(t, ast, d);
 		case AstType.ContinueStmt:
-			return Type.Unit;
+			return checkContinueStmt(t, ast, d);
 		case AstType.ReturnStmt:
 			return checkReturnStmt(t, ast, d);
 		case AstType.AssertStmt:
@@ -301,7 +317,9 @@ function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: TypePattern): Type {
 }
 
 function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: TypePattern): Type {
-	if (!t.types.inGlobalScope) {
+	if (!t.values.inGlobalScope) {
+		console.log(t.values);
+		console.log(Ast.print(p));
 		throw new Unreachable();
 	}
 	const params: Type[] = [];
@@ -314,7 +332,6 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: TypePattern): Type {
 			);
 		}
 		const paramType = reifyType(t, param.declType, true);
-		storeTypes(t, param.pattern, paramType, false, false);
 		params.push(paramType);
 	}
 	let returns: Type = Type.Unit;
@@ -327,7 +344,7 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: TypePattern): Type {
 }
 
 function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: TypePattern): Type {
-	if (!t.types.inGlobalScope) {
+	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
 	const type = assertReconciled(reifyType(t, d.typeExpr, true), d.id);
@@ -341,7 +358,7 @@ function checkStructDecl(
 	s: StructDecl,
 	_d?: TypePattern
 ): Type {
-	if (!t.types.inGlobalScope) {
+	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
 	if (s.fields !== undefined) {
@@ -393,14 +410,41 @@ function checkStructDecl(
 }
 
 function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: TypePattern): Type {
-	if (!t.types.inGlobalScope) {
+	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
 	check(t, d.thenExpr);
 	return Type.Any;
 }
 
+function checkBreakStmt(t: TypeChecker, b: BreakStmt, _d?: TypePattern): Type {
+	if (t.loops.inGlobalScope) {
+		throw new TypeError("Cannot break outside a loop!", b.start, b.end);
+	}
+	if (b.label !== undefined && t.loops.get(b.label.value) === undefined) {
+		throw new TypeError("Undeclared label!", b.start, b.end);
+	}
+	return Type.Unit;
+}
+
+function checkContinueStmt(
+	t: TypeChecker,
+	c: ContinueStmt,
+	_d?: TypePattern
+): Type {
+	if (t.loops.inGlobalScope) {
+		throw new TypeError("Cannot break continue a loop!", c.start, c.end);
+	}
+	if (c.label !== undefined && t.loops.get(c.label.value) === undefined) {
+		throw new TypeError("Undeclared label!", c.start, c.end);
+	}
+	return Type.Unit;
+}
+
 function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: TypePattern): Type {
+	if (t.values.inGlobalScope) {
+		throw new TypeError("Cannot return outside a proc!", r.start, r.end);
+	}
 	const type = r.expr !== undefined ? check(t, r.expr, d) : Type.Unit;
 	t.returns.push(type);
 	return type;
@@ -454,14 +498,25 @@ function checkAssignStmt(
 }
 
 function checkLoopStmt(t: TypeChecker, l: LoopStmt, _d?: TypePattern): Type {
+	t.loops.openScope();
+	if (l.label !== undefined) {
+		t.loops.declareLocal(l.label.value, {
+			mutable: false,
+			allowShadow: true,
+			value: true,
+		});
+	}
 	check(t, l.thenExpr);
+	t.loops.dropScope();
 	return Type.Unit;
 }
 
 function checkWhileStmt(t: TypeChecker, w: WhileStmt, _d?: TypePattern): Type {
 	const from = check(t, w.testExpr, Type.Bool);
 	assertAssignable(from, Type.Bool, w.testExpr);
+	t.loops.openScope();
 	check(t, w.thenExpr);
+	t.loops.dropScope();
 	return Type.Any;
 }
 
@@ -470,13 +525,16 @@ function checkExprStmt(t: TypeChecker, e: ExprStmt, d?: TypePattern): Type {
 }
 
 function checkBlockExpr(t: TypeChecker, b: BlockExpr, d?: TypePattern): Type {
+	let type: Type = Type.Unit;
+	t.values.openScope();
 	for (const stmt of b.stmts) {
 		check(t, stmt);
 	}
 	if (b.stmts.length > 0) {
-		return check(t, b.stmts[b.stmts.length - 1], d);
+		type = check(t, b.stmts[b.stmts.length - 1], d);
 	}
-	return Type.Unit;
+	t.values.dropScope();
+	return type;
 }
 
 function checkTupleExpr(t: TypeChecker, u: TupleExpr, d?: TypePattern): Type {
@@ -616,6 +674,7 @@ function checkThrowExpr(t: TypeChecker, e: ThrowExpr, _d?: TypePattern): Type {
 }
 
 function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: TypePattern): Type {
+	t.values.openScope();
 	const params: Type[] = [];
 	const destination = closestProc(d);
 	for (const [param, dParam] of zip(p.params, destination.params)) {
@@ -663,6 +722,7 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: TypePattern): Type {
 	const type = Type.proc(params, assertReconciled(returns, p));
 	t.returns = returnsSave;
 	p.resolvedType = type;
+	t.values.dropScope();
 	return type;
 }
 

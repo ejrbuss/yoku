@@ -148,14 +148,14 @@ loop outer {
 counter --> 5
 
 --- test "Invalid Control Flow" ---
-break --> ! ResolutionError
-continue --> ! ResolutionError
+break --> ! TypeError
+continue --> ! TypeError
 loop {
 	break outer
-} --> ! ResolutionError
+} --> ! TypeError
 while true {
 	continue outer
-} --> ! ResolutionError
+} --> ! TypeError
 
 --- test "Match Expressions" ---
 match {
@@ -220,3 +220,31 @@ y &= false
 y --> false
 y |= true
 y --> true
+
+--- test "Invalid Loop Constructs" ---
+break --> ! TypeError
+continue --> ! TypeError
+
+loop {
+	break undeclared
+} --> ! TypeError
+
+loop {
+	continue undeclared
+} --> ! TypeError
+
+while true {
+	break undeclared
+} --> ! TypeError
+
+while true {
+	continue undeclared
+} --> ! TypeError
+
+loop {
+	break undeclared
+} --> ! TypeError
+
+loop {
+	continue undeclared
+} --> ! TypeError

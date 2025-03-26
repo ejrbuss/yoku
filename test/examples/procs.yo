@@ -52,7 +52,7 @@ proc count(start: Int) -> Int {
 count(1) --> 3
 
 --- test "Invalid Return" ---
-return true --> ! ResolutionError
+return true --> ! TypeError
 
 --- test "Closures" ---
 proc make_counter() -> proc() -> Int {

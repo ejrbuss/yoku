@@ -77,6 +77,19 @@ export class Scopes<T> {
 		return captured;
 	}
 
+	copy(): Scopes<T> {
+		const copied = new Scopes<T>();
+		copied.scopes.pop();
+		for (const original of this.scopes) {
+			const copy: Scope<T> = {};
+			for (const [id, decl] of Object.entries(original)) {
+				copy[id] = { ...decl };
+			}
+			copied.scopes.push(copy);
+		}
+		return copied;
+	}
+
 	get inGlobalScope(): boolean {
 		return this.scopes.length === 1;
 	}

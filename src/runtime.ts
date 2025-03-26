@@ -1,6 +1,5 @@
 import { Interpreter, RuntimeError } from "./interpreter.ts";
 import { ParseError, Parser } from "./parser.ts";
-import { ResolutionError } from "./resolver.ts";
 import { CodeSource } from "./codesource.ts";
 import { TypeChecker, TypeError } from "./typechecker.ts";
 import { Ast } from "./core.ts";
@@ -67,11 +66,7 @@ function run(rt: Runtime, s: CodeSource): RunResult {
 		if (rt.debug && error instanceof Error) {
 			console.error(`Debug: Error\n%c${error.stack}`, "color: green");
 		}
-		if (
-			error instanceof ParseError ||
-			error instanceof ResolutionError ||
-			error instanceof TypeError
-		) {
+		if (error instanceof ParseError || error instanceof TypeError) {
 			const runError: RunError = {
 				type: RunResultType.Error,
 				source: s,
