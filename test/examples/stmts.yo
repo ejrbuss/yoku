@@ -1,7 +1,7 @@
 --- mode Repl ---
 
 --- test "Variable Declarations" ---
-z --> ! ResolutionError
+z --> ! TypeError
 var x = true
 x --> true
 const y = 12
@@ -41,7 +41,7 @@ const assert v: Any = z
 v --> 42
 
 --- test "Assert Destructuring" ---
-const 1 = 1 --> ! ResolutionError
+const 1 = 1 --> ! TypeError
 const assert 1 = 1
 const assert (1, 2) = (1, 2)
 const assert (true, x) = (true, "t")
@@ -55,7 +55,7 @@ a = "after"
 a --> "after"
 a = 4 --> ! TypeError
 const b = "constant"
-b = "oops!" --> ! ResolutionError
+b = "oops!" --> ! TypeError
 
 --- test "Block Scope" ---
 var collector = ""
@@ -70,10 +70,10 @@ do {
 collector --> "innerouter"
 
 --- test "Cannot Shadow Builtins" ---
-const print = 10 --> ! ResolutionError
+const print = 10 --> ! TypeError
 do {
 	const cat = 7
-} --> ! ResolutionError
+} --> ! TypeError
 
 --- test "Can Shadow Non-Builtins" ---
 const x = 1
@@ -82,7 +82,7 @@ const x = 2
 x --> 2
 const x = x * 2
 x --> 4
-const y = y --> ! ResolutionError
+const y = y --> ! TypeError
 
 --- test "If Statements" ---
 if true { "then" } else { throw () } --> "then"

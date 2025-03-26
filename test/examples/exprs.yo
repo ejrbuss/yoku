@@ -71,7 +71,7 @@ false --> false
 -78e14 --> -78e14
 -4.4e55 --> -4.4e55
 -99e-12 --> -99e-12
-4E5 --> ! ResolutionError
+4E5 --> ! TypeError
 
 --- test "Str Literals" ---
 "" --> ""

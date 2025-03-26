@@ -1,6 +1,6 @@
 import { Interpreter, RuntimeError } from "./interpreter.ts";
 import { ParseError, Parser } from "./parser.ts";
-import { ResolutionError, Resolver } from "./resolver.ts";
+import { ResolutionError } from "./resolver.ts";
 import { CodeSource } from "./codesource.ts";
 import { TypeChecker, TypeError } from "./typechecker.ts";
 import { Ast } from "./core.ts";
@@ -31,7 +31,6 @@ export type RunError = {
 export type RunResult = RunOk | RunError;
 
 export type Runtime = {
-	resolver: Resolver;
 	typeChecker: TypeChecker;
 	interpreter: Interpreter;
 	debug?: boolean;
@@ -42,14 +41,9 @@ export type Runtime = {
 export const Runtime = { create: createRuntime, run, printError, reportError };
 
 function createRuntime(options: Partial<Runtime> = {}): Runtime {
-	const resolver = Resolver.create();
 	const typeChecker = TypeChecker.create();
-	const interpreter = Interpreter.create(
-		resolver,
-		typeChecker,
-		options.test ?? false
-	);
-	return { resolver, typeChecker, interpreter, ...options };
+	const interpreter = Interpreter.create(options.test ?? false);
+	return { typeChecker, interpreter, ...options };
 }
 
 function run(rt: Runtime, s: CodeSource): RunResult {
@@ -63,8 +57,6 @@ function run(rt: Runtime, s: CodeSource): RunResult {
 		if (rt.debug) {
 			printAst(ast);
 		}
-		rt.resolver.allowShadowGlobals = rt.replMode ?? false;
-		Resolver.resolve(rt.resolver, ast);
 		TypeChecker.check(rt.typeChecker, ast);
 		const result = Interpreter.interperate(rt.interpreter, ast);
 		return {

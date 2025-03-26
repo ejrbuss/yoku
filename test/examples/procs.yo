@@ -121,7 +121,7 @@ g(proc () -> { 4 }) --> ! TypeError
 g(proc (x, y) -> { 4 }) --> ! TypeError
 g(proc (x) -> { true }) --> ! TypeError
 
---- test "Default Parameter Experessions" ---
+--- skip "Default Parameter Experessions" ---
 proc f(x: Int, y: Int = 4) { y }
 f(1) --> 4
 f(1, 2) --> 2

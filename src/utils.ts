@@ -163,3 +163,15 @@ export function sexpr(v: unknown, ignoreKeys: string[] = []): string {
 	}
 	return `(${mapped.join("\n")})`.replaceAll("\n", "\n  ");
 }
+
+// TODO extends me for syntax/type errors
+export class Problem extends Error {
+	readonly start: number;
+	readonly end: number;
+
+	constructor(message: string, span: Span, options: ErrorOptions | undefined) {
+		super(message, options);
+		this.start = span.start;
+		this.end = span.end;
+	}
+}

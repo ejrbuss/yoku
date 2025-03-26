@@ -348,6 +348,7 @@ proc secretly_parameterized[T]() -> T {}
 @packed             -- use packed struct layout
 @align(8)           -- align a struct field
 @export("module")   -- export to a particular module scope
+@acknowledge        -- value must be used in some way
 @annotation         -- used to create a user defined annotation
 
 -- Limited type constraints

@@ -1,3 +1,4 @@
+import { Builtins } from "./builtins.ts";
 import {
 	AssertStmt,
 	AssignStmt,
@@ -39,12 +40,10 @@ import {
 	WhileStmt,
 } from "./core.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
-import { Resolver } from "./resolver.ts";
-import { TypeChecker } from "./typechecker.ts";
+import { Scopes } from "./scopes.ts";
 import {
 	Kind,
 	ProcType,
-	StructField,
 	StructType,
 	TupleStructType,
 	TupleType,
@@ -73,11 +72,7 @@ class Return {
 }
 
 export type Interpreter = {
-	inGlobalScope: boolean;
-	// TODO this should probably be something like global > module > local
-	globals: unknown[];
-	closure: unknown[];
-	locals: unknown[];
+	scopes: Scopes<unknown>;
 	test: boolean;
 };
 
@@ -94,43 +89,23 @@ const BuiltinTypes = {
 	Module: Type.Module,
 };
 
-const Builtins = {
-	print: Proc.create("print", Type.proc([Type.Any], Type.Unit), (args) => {
-		console.log(print(args[0]));
-		return Unit;
-	}),
-	clock: Proc.create("clock", Type.proc([], Type.Int), () => {
-		return BigInt(Date.now());
-	}),
-	cat: Proc.create("cat", Type.proc([Type.Any, Type.Any], Type.Str), (args) => {
-		return args.map(print).join("");
-	}),
-	print_type: Proc.create(
-		"print_type",
-		Type.proc([Type.Any], Type.Str),
-		(args) => {
-			return Type.print(Type.of(args[0]));
-		}
-	),
-	// Testing
-	any: Proc.create("any", Type.proc([], Type.Any), () => {
-		return "*any*";
-	}),
-};
-
-function create(r: Resolver, t: TypeChecker, test: boolean): Interpreter {
-	const globals = [];
+function create(test: boolean): Interpreter {
+	const scopes = new Scopes();
 	for (const [id, builtin] of Object.entries(Builtins)) {
-		const resolvedId = Resolver.declareBuiltin(r, id);
-		TypeChecker.declareBuiltin(t, resolvedId, Type.of(builtin));
-		globals[resolvedId] = builtin;
+		scopes.declareGlobal(id, {
+			mutable: false,
+			allowShadow: false,
+			value: builtin,
+		});
 	}
 	for (const [id, builtinType] of Object.entries(BuiltinTypes)) {
-		const resolvedId = Resolver.declareBuiltin(r, id);
-		TypeChecker.declareBuiltinType(t, resolvedId, id, builtinType);
-		globals[resolvedId] = Module.create(id, builtinType);
+		scopes.declareGlobal(id, {
+			mutable: false,
+			allowShadow: false,
+			value: Module.create(id, builtinType),
+		});
 	}
-	return { inGlobalScope: true, globals, locals: [], closure: [], test };
+	return { scopes, test };
 }
 
 function unify(
@@ -204,8 +179,11 @@ function unify(
 	}
 	// pattern = value
 	if (pattern.type === AstType.IdExpr) {
-		const memory = i.inGlobalScope ? i.globals : i.locals;
-		memory[resolveId(pattern)] = value;
+		i.scopes.declareLocal(pattern.value, {
+			mutable: true,
+			allowShadow: true,
+			value,
+		});
 		return true;
 	}
 	// "literal" = value
@@ -417,16 +395,7 @@ function interperateWhileStmt(i: Interpreter, w: WhileStmt): unknown {
 function interperateAssignStmt(i: Interpreter, a: AssignStmt): unknown {
 	if (a.target === undefined) {
 		const value = interperate(i, a.expr);
-		const resolvedId = resolveId(a.id);
-		if (i.locals[resolvedId] !== undefined) {
-			i.locals[resolvedId] = value;
-			return Unit;
-		}
-		if (i.closure[resolvedId] !== undefined) {
-			i.closure[resolvedId] = value;
-			return Unit;
-		}
-		i.globals[resolvedId] = value;
+		i.scopes.set(a.id.value, value);
 	} else {
 		const target = interperate(i, a.target) as Struct;
 		const value = interperate(i, a.expr);
@@ -440,7 +409,7 @@ function interperateExprStmt(i: Interpreter, e: ExprStmt): unknown {
 }
 
 function interperateBlockExpr(i: Interpreter, b: BlockExpr): unknown {
-	const localsLength = i.locals.length;
+	i.scopes.openScope();
 	try {
 		let acc: unknown = Unit;
 		for (const stmt of b.stmts) {
@@ -448,7 +417,7 @@ function interperateBlockExpr(i: Interpreter, b: BlockExpr): unknown {
 		}
 		return acc;
 	} finally {
-		i.locals.length = localsLength;
+		i.scopes.dropScope();
 	}
 }
 
@@ -538,14 +507,11 @@ function interperateThrowExpr(i: Interpreter, t: ThrowExpr): unknown {
 }
 
 function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
-	const closure = [...i.locals];
+	const capture = i.scopes.capture();
 	return Proc.create(undefined, p.resolvedType as ProcType, (args) => {
-		const localsSave = i.locals;
-		const closureSave = i.closure;
-		const inGlobalScopeSave = i.inGlobalScope;
-		i.locals = [];
-		i.closure = closure;
-		i.inGlobalScope = false;
+		const scopesSave = i.scopes;
+		i.scopes = capture;
+		capture.openScope();
 		try {
 			for (const [param, arg] of zip(p.params, args)) {
 				unify(i, param.pattern, arg, true);
@@ -558,9 +524,8 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 			}
 			throw e;
 		} finally {
-			i.locals = localsSave;
-			i.closure = closureSave;
-			i.inGlobalScope = inGlobalScopeSave;
+			capture.dropScope();
+			i.scopes = scopesSave;
 		}
 	});
 }
@@ -692,21 +657,5 @@ function interperateLitExpr(_i: Interpreter, l: LitExpr): unknown {
 }
 
 function interperateIdExpr(i: Interpreter, id: IdExpr): unknown {
-	const resolvedId = resolveId(id);
-	const localValue = i.locals[resolvedId];
-	if (localValue !== undefined) {
-		return localValue;
-	}
-	const closureValue = i.closure[resolvedId];
-	if (closureValue !== undefined) {
-		return closureValue;
-	}
-	return i.globals[resolvedId];
-}
-
-function resolveId(id: IdExpr): number {
-	if (id.resolvedId === undefined) {
-		throw new Error(`Unresolved id! ${Ast.print(id)}`);
-	}
-	return id.resolvedId;
+	return i.scopes.get(id.value);
 }

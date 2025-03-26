@@ -1,3 +1,5 @@
+import { assert } from "@std/assert/assert";
+import { Builtins, BuiltinTypes } from "./builtins.ts";
 import {
 	AssertStmt,
 	AssignStmt,
@@ -30,6 +32,7 @@ import {
 	WhileStmt,
 } from "./core.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
+import { Scopes } from "./scopes.ts";
 import {
 	Kind,
 	Type,
@@ -42,10 +45,9 @@ import {
 import { Span, Unreachable, zip } from "./utils.ts";
 
 export type TypeChecker = {
-	inGlobalScope: boolean;
-	types: Record<string, Type>;
-	values: Type[];
-	returns: Type[];
+	types: Scopes<Type>;
+	values: Scopes<Type>;
+	returns: Type[]; // TODO probably want to include source info
 };
 
 export class TypeError extends Error {
@@ -61,49 +63,70 @@ export class TypeError extends Error {
 export const TypeChecker = {
 	create,
 	check,
-	declareBuiltin,
-	declareBuiltinType,
 };
 
 function create(): TypeChecker {
-	const t: TypeChecker = {
-		inGlobalScope: true,
-		types: {},
-		values: [],
-		returns: [],
-	};
-	return t;
-}
-
-function declareBuiltin(t: TypeChecker, id: number, type: Type): void {
-	t.values[id] = type as Type;
+	const values = new Scopes<Type>();
+	const types = new Scopes<Type>();
+	for (const [id, builtin] of Object.entries(Builtins)) {
+		assert(
+			values.declareGlobal(id, {
+				mutable: false,
+				allowShadow: false,
+				value: Type.of(builtin),
+			})
+		);
+	}
+	for (const [id, builtinType] of Object.entries(BuiltinTypes)) {
+		assert(
+			types.declareGlobal(id, {
+				mutable: false,
+				allowShadow: false,
+				value: builtinType,
+			})
+		);
+		assert(
+			values.declareGlobal(id, {
+				mutable: false,
+				allowShadow: false,
+				value: Type.Module,
+			})
+		);
+	}
+	return { types, values, returns: [] };
 }
 
 function declareType(t: TypeChecker, id: IdExpr, type: Type): void {
-	if (t.types[id.value] !== undefined) {
-		throw new TypeError(`Cannot redeclare type ${id.value}!`, id.start, id.end);
+	if (
+		!t.types.declareLocal(id.value, {
+			mutable: false,
+			allowShadow: false,
+			value: type,
+		}) ||
+		!t.values.declareLocal(id.value, {
+			mutable: false,
+			allowShadow: false,
+			value: Type.Module,
+		})
+	) {
+		// TODO link original decl
+		throw new TypeError("Cannot redeclare type!", id.start, id.end);
 	}
-	t.types[id.value] = type;
-	t.values[resolveId(id)] = Type.Module;
 }
 
-function declareBuiltinType(
+function storeTypes(
 	t: TypeChecker,
-	id: number,
-	name: string,
-	type: Type
-) {
-	t.types[name] = type;
-	t.values[id] = Type.Module;
-}
-
-function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
+	pattern: Ast,
+	type: Type,
+	mutable: boolean,
+	assert: boolean
+): void {
 	if (pattern.type === AstType.BinaryExpr) {
 		if (pattern.op !== BinaryOp.As) {
 			throw new Unreachable();
 		}
-		storeTypes(t, pattern.left, type);
-		storeTypes(t, pattern.right, type);
+		storeTypes(t, pattern.left, type, mutable, assert);
+		storeTypes(t, pattern.right, type, mutable, assert);
 		return;
 	}
 	if (pattern.type === AstType.TupleExpr) {
@@ -117,7 +140,7 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		}
 		assertCardinality(type.items, pattern.items, pattern, "items");
 		for (const [pi, ti] of zip(pattern.items, type.items)) {
-			storeTypes(t, pi, ti);
+			storeTypes(t, pi, ti, mutable, assert);
 		}
 		return;
 	}
@@ -129,7 +152,7 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		}
 		for (const pf of pattern.fieldInits) {
 			const sf = assertField(type, pf.id);
-			storeTypes(t, pf.expr ?? pf.id, sf.type);
+			storeTypes(t, pf.expr ?? pf.id, sf.type, mutable, assert);
 		}
 		return;
 	}
@@ -141,7 +164,7 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		}
 		assertCardinality(type.items, pattern.args, pattern, "items");
 		for (const [pi, ti] of zip(pattern.args, type.items)) {
-			storeTypes(t, pi, ti);
+			storeTypes(t, pi, ti, mutable, assert);
 		}
 		return;
 	}
@@ -149,11 +172,26 @@ function storeTypes(t: TypeChecker, pattern: Ast, type: Type): void {
 		return;
 	}
 	if (pattern.type === AstType.LitExpr) {
+		if (!assert) {
+			throw new TypeError(
+				"Cannot use literals outside an assert pattern!",
+				pattern.start,
+				pattern.end
+			);
+		}
 		assertAssignable(type, Type.of(pattern.value), pattern);
 		return;
 	}
 	if (pattern.type === AstType.IdExpr) {
-		t.values[resolveId(pattern)] = assertReconciled(type, pattern);
+		if (
+			!t.values.declareLocal(pattern.value, {
+				mutable,
+				allowShadow: true,
+				value: type,
+			})
+		) {
+			throw new TypeError("Cannot shadow builtin!", pattern.start, pattern.end);
+		}
 		return;
 	}
 	throw new Unreachable(Ast.print(pattern));
@@ -258,12 +296,12 @@ function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: TypePattern): Type {
 		resolvedType = assertReconciled(initType, d.initExpr);
 	}
 	d.resolvedType = resolvedType;
-	storeTypes(t, d.pattern, resolvedType);
+	storeTypes(t, d.pattern, resolvedType, d.mutable, d.assert);
 	return Type.Any;
 }
 
 function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: TypePattern): Type {
-	if (!t.inGlobalScope) {
+	if (!t.types.inGlobalScope) {
 		throw new Unreachable();
 	}
 	const params: Type[] = [];
@@ -276,20 +314,20 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: TypePattern): Type {
 			);
 		}
 		const paramType = reifyType(t, param.declType, true);
-		storeTypes(t, param.pattern, paramType);
+		storeTypes(t, param.pattern, paramType, false, false);
 		params.push(paramType);
 	}
 	let returns: Type = Type.Unit;
 	if (p.initExpr.returnType !== undefined) {
 		returns = reifyType(t, p.initExpr.returnType, true);
 	}
-	storeTypes(t, p.id, Type.proc(params, returns));
+	storeTypes(t, p.id, Type.proc(params, returns), false, false);
 	check(t, p.initExpr, returns);
 	return Type.Any;
 }
 
 function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: TypePattern): Type {
-	if (!t.inGlobalScope) {
+	if (!t.types.inGlobalScope) {
 		throw new Unreachable();
 	}
 	const type = assertReconciled(reifyType(t, d.typeExpr, true), d.id);
@@ -303,7 +341,7 @@ function checkStructDecl(
 	s: StructDecl,
 	_d?: TypePattern
 ): Type {
-	if (!t.inGlobalScope) {
+	if (!t.types.inGlobalScope) {
 		throw new Unreachable();
 	}
 	if (s.fields !== undefined) {
@@ -355,7 +393,7 @@ function checkStructDecl(
 }
 
 function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: TypePattern): Type {
-	if (!t.inGlobalScope) {
+	if (!t.types.inGlobalScope) {
 		throw new Unreachable();
 	}
 	check(t, d.thenExpr);
@@ -383,8 +421,14 @@ function checkAssignStmt(
 	_d?: TypePattern
 ): Type {
 	if (a.target === undefined) {
-		const resolvedId = resolveId(a.id);
-		const into = t.values[resolvedId];
+		const decl = t.values.getDecl(a.id.value);
+		if (decl === undefined) {
+			throw new TypeError("Undeclared variable!", a.id.start, a.id.end);
+		}
+		if (!decl.mutable) {
+			throw new TypeError("Cannot assign to a const!", a.id.start, a.id.end);
+		}
+		const into = check(t, a.id);
 		const from = check(t, a.expr, into);
 		assertAssignable(from, into, a.id);
 	} else {
@@ -512,7 +556,7 @@ function checkIfExpr(t: TypeChecker, i: IfExpr, d?: TypePattern): Type {
 		if (declType !== undefined) {
 			i.resolvedDeclType = assertAssertable(from, declType, i.pattern);
 		}
-		storeTypes(t, i.pattern, from);
+		storeTypes(t, i.pattern, from, i.mutable, true);
 	} else {
 		const from = check(t, i.testExpr, Type.Bool);
 		assertAssignable(from, Type.Bool, i.testExpr);
@@ -534,7 +578,7 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: TypePattern): Type {
 	let exhausted = false;
 	for (const c of m.cases) {
 		if (c.pattern !== undefined) {
-			storeTypes(t, c.pattern, from);
+			storeTypes(t, c.pattern, from, false, true);
 			if (c.declType !== undefined) {
 				const into = reifyType(t, c.declType, false);
 				c.resolvedDeclType = assertAssertable(from, into, c.pattern);
@@ -588,7 +632,7 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: TypePattern): Type {
 			);
 		}
 		const type = assertReconciled(paramType, param.pattern);
-		storeTypes(t, param.pattern, type);
+		storeTypes(t, param.pattern, type, false, false);
 		params.push(type);
 	}
 	let returns: TypePattern = destination.returns;
@@ -788,7 +832,7 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: TypePattern): Type {
 		return callee.returns;
 	}
 	if (callee === Type.Module && c.proc.type === AstType.IdExpr) {
-		const type = t.types[c.proc.value];
+		const type = t.types.get(c.proc.value);
 		if (type !== undefined && type.kind === Kind.TupleStruct) {
 			for (const [arg, item] of zip(c.args, type.items)) {
 				const argType = check(t, arg, item);
@@ -815,14 +859,11 @@ function checkLitExpr(_t: TypeChecker, l: LitExpr, d?: TypePattern): Type {
 }
 
 function checkIdExpr(t: TypeChecker, i: IdExpr, _d?: TypePattern): Type {
-	return t.values[resolveId(i)];
-}
-
-function resolveId(id: IdExpr): number {
-	if (id.resolvedId === undefined) {
-		throw new Error(`Unresolved id! ${Ast.print(id)}`);
+	const type = t.values.get(i.value);
+	if (type === undefined) {
+		throw new TypeError("Undeclared variable!", i.start, i.end);
 	}
-	return id.resolvedId;
+	return type;
 }
 
 function reifyType<B extends boolean>(
@@ -859,7 +900,7 @@ function reifyType<B extends boolean>(
 		return Type._ as unknown as Type;
 	}
 	if (ast.type === AstType.IdExpr) {
-		const type = t.types[ast.value];
+		const type = t.types.get(ast.value);
 		if (type === undefined) {
 			throw new TypeError("Undefined type!", ast.start, ast.end);
 		}

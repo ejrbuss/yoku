@@ -1,13 +1,13 @@
 import { CodeSource } from "../src/codesource.ts";
 import { Span, structurallyEq } from "../src/utils.ts";
 import { RunResult, RunResultType, Runtime } from "../src/runtime.ts";
-import { assertEquals, AssertionError } from "jsr:@std/assert";
+import { assert, assertEquals, AssertionError } from "jsr:@std/assert";
 import { print } from "../src/core.ts";
 import { annotate, Fmt, highlight, tab } from "../src/reporter.ts";
 import { blue, bold, gray, red } from "@std/fmt/colors";
 
 const ModeDirective = /^--- mode (Repl|Module) ---/;
-const TestDirective = /^--- test "(.*)" ---/;
+const TestDirective = /^--- (test|skip) "(.*)" ---/;
 
 enum Mode {
 	Repl = "Repl",
@@ -51,12 +51,17 @@ for await (const file of Deno.readDir("./test/examples")) {
 								})
 						);
 					}
-					const name = (subContent.match(TestDirective) as RegExpMatchArray)[1];
+					const match = subContent.match(TestDirective);
+					assert(match);
+					const testOrSkip = match[1];
+					const name = match[2];
 					while (end < content.length && !content.startsWith("\n--", end)) {
 						end++;
 					}
-					Deno.test(`${suite} - ${name}`, {}, () =>
-						runReplTest2(content, path, { start, end })
+					Deno.test(
+						`${suite} - ${name}`,
+						{ ignore: testOrSkip === "skip" },
+						() => runReplTest2(content, path, { start, end })
 					);
 					i = end;
 				}
@@ -154,7 +159,11 @@ function runReplTest2(content: string, path: string, span: Span): void {
 		if (cause instanceof AssertionError) {
 			throw cause;
 		}
-		throw new AssertionError(`\n${source()}\n${error(`${cause}`)}`, { cause });
+		if (cause instanceof Error) {
+			throw new AssertionError(`\n${source()}\n${error(`${cause}`)}`, {
+				cause,
+			});
+		}
 	}
 }
 

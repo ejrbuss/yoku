@@ -149,3 +149,22 @@ struct Color(Int, Int, Int)
 
 const rgb = Color(255, 0, 125)
 (rgb.0, rgb.1, rgb.2) --> (255, 0, 125)
+
+--- test "Sanity Check Scopes" ---
+const x: Bool = true
+
+struct StructScope {
+	var x: Int = 2
+}
+
+proc procScope(x: StructScope) -> Int {
+	return x.x + 5
+}
+
+proc localScope(y: Int) -> Int {
+	var x: Int = 10
+	return y + x
+}
+
+procScope(StructScope { x = 10 }) --> 15
+localScope(20) --> 30

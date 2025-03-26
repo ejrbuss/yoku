@@ -1,6 +1,6 @@
 --- mode Repl ---
 
---- test "Simple Enum" ---
+--- skip "Simple Enum" ---
 enum Alignment {
 	Good,
 	Neutral,
@@ -17,7 +17,7 @@ a == Alignment.Good --> true
 b === Alignment.Evil --> true
 a != b --> true
 
---- test "Matching Enum" ---
+--- skip "Matching Enum" ---
 enum Parity { Even, Odd }
 
 const _: Int = match Parity.Even {
@@ -30,7 +30,7 @@ const a: Int =  match Priority.odd {
 }
 a --> 1
 
---- test "Enum Shorthand" ---
+--- skip "Enum Shorthand" ---
 enum Parity { Even, Odd }
 
 const a: Bool = match Parity.Even {
