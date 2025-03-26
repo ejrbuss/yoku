@@ -280,12 +280,6 @@ impl TokenData {
 
 ### TODO
 ```yoku
--- structs
-struct Person {
-	const name: Str
-	var age: Int
-}
-
 -- enums 
 enum Alignment {
 	Good
@@ -339,9 +333,9 @@ proc secretly_parameterized() -> _ {}
 -- this is really ->
 proc secretly_parameterized[T]() -> T {}
 
--- Runtime types
 -- Modules, import/export
--- Start Standard Library
+-- Standard library
+-- Runtime types (defining these in typescript would be hellish, so we want the standard library started)
 -- Doc comments
 -- Builtin Annotations
 @deprecated         -- marks a declaration as depreacted, warns on usage
@@ -496,3 +490,8 @@ When rewriting the language, consider that we really have three langauges
 
 The first two can be parsed and understood almost entirely on their own. The 
 third requires integration with the other two.
+
+
+# Restructuring the Interpreter
+```ts
+```

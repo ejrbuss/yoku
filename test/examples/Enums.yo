@@ -1,0 +1,44 @@
+--- mode Repl ---
+
+--- test "Simple Enum" ---
+enum Alignment {
+	Good,
+	Neutral,
+	Evil
+}
+
+const a: Alignment = Alignment.Good
+a --> Alignment.Good
+
+const b = Alignment.Evil
+b --> Alignment.Evil
+
+a == Alignment.Good --> true
+b === Alignment.Evil --> true
+a != b --> true
+
+--- test "Matching Enum" ---
+enum Parity { Even, Odd }
+
+const _: Int = match Parity.Even {
+	Parity.Even => { 0 }
+} --> ! TypeError
+
+const a: Int =  match Priority.odd {
+	Parity.Even => { 0 }
+	Parity.Odd => { 1 }
+}
+a --> 1
+
+--- test "Enum Shorthand" ---
+enum Parity { Even, Odd }
+
+const a: Bool = match Parity.Even {
+	Even => { true }
+	Odd => { false }
+}
+a --> true
+
+--- test "Tuple Enum" ---
+
+--- test "Struct Enum" ---
