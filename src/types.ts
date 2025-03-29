@@ -8,16 +8,10 @@ export enum Kind {
 	Proc = "Proc",
 	Tuple = "Tuple",
 	Struct = "Struct",
-	TupleStruct = "TupleStruct",
 	Module = "Module",
 }
 
-export type Type =
-	| PrimitiveType
-	| ProcType
-	| TupleType
-	| StructType
-	| TupleStructType;
+export type Type = PrimitiveType | ProcType | TupleType | StructType;
 
 export type TypePattern =
 	| Type
@@ -58,7 +52,7 @@ export type TupleTypePattern = {
 
 export type StructField = {
 	mutable: boolean;
-	name: string;
+	name?: string;
 	type: Type;
 	// This is a really gross hack
 	defaultExpr?: unknown;
@@ -68,12 +62,6 @@ export type StructType = {
 	kind: Kind.Struct;
 	name: string;
 	fields: StructField[];
-} & Typed;
-
-export type TupleStructType = {
-	kind: Kind.TupleStruct;
-	name: string;
-	items: Type[];
 } & Typed;
 
 const Meta = {
@@ -92,7 +80,6 @@ export const Type = {
 	proc,
 	tuple,
 	struct,
-	tupleStruct,
 	Type: Meta, // TODO Type[T]
 	_: Wildcard,
 	Any: primitive("Any"),
@@ -103,6 +90,7 @@ export const Type = {
 	Float: primitive("Float"),
 	Str: primitive("Str"),
 	Module: primitive("Module"), // TODO Module[T]
+	findField,
 	of,
 	print,
 	assignable,
@@ -134,8 +122,19 @@ function struct(name: string, fields: StructField[]): StructType {
 	return { $type: Meta, kind: Kind.Struct, name, fields };
 }
 
-function tupleStruct(name: string, items: Type[]): TupleStructType {
-	return { $type: Meta, kind: Kind.TupleStruct, name, items };
+function findField(
+	type: StructType,
+	name: string | bigint
+): StructField | undefined {
+	if (typeof name === "bigint") {
+		return type.fields[Number(name)];
+	}
+	for (const field of type.fields) {
+		if (field.name === name) {
+			return field;
+		}
+	}
+	return undefined;
 }
 
 function of(v: unknown): Type {
@@ -187,13 +186,6 @@ function print(t: TypePattern): string {
 		}
 		case Kind.Struct: {
 			return t.name;
-		}
-		case Kind.TupleStruct: {
-			const items: string[] = [];
-			for (const item of t.items) {
-				items.push(print(item));
-			}
-			return `${t.name}(${items.join(", ")})`;
 		}
 	}
 }
@@ -296,12 +288,6 @@ function reconcile(from: TypePattern, into: TypePattern): Type | undefined {
 		}
 		// Structs are nominal, and so must be identical
 		if (from.kind === Kind.Struct && into.kind === Kind.Struct) {
-			if (from !== into) {
-				return undefined;
-			}
-			return into;
-		}
-		if (from.kind === Kind.TupleStruct && into.kind === Kind.TupleStruct) {
 			if (from !== into) {
 				return undefined;
 			}

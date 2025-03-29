@@ -3,10 +3,8 @@ import { Type, TupleType, StructType, ProcType } from "./types.ts";
 import { Span, sexpr } from "./utils.ts";
 
 export enum AstTag {
-	ModuleDecls = "ModuleDecls",
-	ReplExprs = "ReplExprs",
+	Module = "Module",
 	VarDecl = "VarDecl",
-	ProcDecl = "ProcDecl",
 	TypeDecl = "TypeDecl",
 	StructDecl = "StructDecl",
 	TestDecl = "TestDecl",
@@ -15,8 +13,8 @@ export enum AstTag {
 	ReturnStmt = "ReturnStmt",
 	AssertStmt = "AssertStmt",
 	LoopStmt = "LoopStmt",
-	WhileStmt = "WhileStmt",
-	AssignStmt = "AssignStmt",
+	AssignVarStmt = "AssignVarStmt",
+	AssignFieldStmt = "AssignFieldStmt",
 	ExprStmt = "ExprStmt",
 	BlockExpr = "BlockExpr",
 	TupleExpr = "TupleExpr",
@@ -36,31 +34,21 @@ export enum AstTag {
 	WildCardExpr = "WildCardExpr",
 }
 
-export type ModuleDecls = {
-	tag: AstTag.ModuleDecls;
+export type AstModule = {
+	tag: AstTag.Module;
 	id: string;
+	replMode: boolean;
 	decls: Ast[];
-} & Span;
-
-export type ReplExprs = {
-	tag: AstTag.ReplExprs;
-	lines: Ast[];
 } & Span;
 
 export type VarDecl = {
 	tag: AstTag.VarDecl;
 	mutable: boolean;
 	assert: boolean;
-	declType?: Ast;
+	typeAnnotation?: Ast;
 	pattern: Ast;
 	initExpr: Ast;
 	resolvedType?: Type;
-} & Span;
-
-export type ProcDecl = {
-	tag: AstTag.ProcDecl;
-	id: IdExpr;
-	initExpr: ProcExpr;
 } & Span;
 
 export type TypeDecl = {
@@ -70,19 +58,18 @@ export type TypeDecl = {
 	resolvedType?: Type;
 } & Span;
 
-export type StructDecl = {
+export type AstStructDecl = {
 	tag: AstTag.StructDecl;
 	id: IdExpr;
-	fields?: StructDeclField[];
-	tupleExpr?: TupleExpr;
+	fields: AstStructField[];
 	resolvedType?: Type;
 } & Span;
 
-export type StructDeclField = {
+export type AstStructField = {
 	mutable: boolean;
-	id: IdExpr;
-	typeDecl?: Ast;
-	expr?: Ast;
+	id?: IdExpr;
+	typeAnnotation?: Ast;
+	defaultExpr?: Ast;
 };
 
 export type TestDecl = {
@@ -91,49 +78,59 @@ export type TestDecl = {
 	thenExpr: Ast;
 } & Span;
 
-export type BreakStmt = {
+export type AstBreakStmt = {
 	tag: AstTag.BreakStmt;
 	label?: IdExpr;
 } & Span;
 
-export type ContinueStmt = {
+export type AstContinueStmt = {
 	tag: AstTag.ContinueStmt;
 	label?: IdExpr;
 } & Span;
 
-export type ReturnStmt = {
+export type AstReturnStmt = {
 	tag: AstTag.ReturnStmt;
 	expr?: Ast;
 } & Span;
 
-export type AssertStmt = {
+export type AstAssertStmt = {
 	tag: AstTag.AssertStmt;
 	testExpr: Ast;
 } & Span;
 
-export type LoopStmt = {
+export type AstLoopStmt = {
 	tag: AstTag.LoopStmt;
 	label?: IdExpr;
-	thenExpr: BlockExpr;
+	thenExpr: Ast;
 } & Span;
 
-export type WhileStmt = {
-	tag: AstTag.WhileStmt;
-	testExpr: Ast;
-	thenExpr: BlockExpr;
-} & Span;
-
-export type AssignStmt = {
-	tag: AstTag.AssignStmt;
-	target?: Ast;
-	id: IdExpr;
+export type AstAssignVarStmt = {
+	tag: AstTag.AssignVarStmt;
+	target: IdExpr;
 	expr: Ast;
 } & Span;
 
-export type ExprStmt = {
+export type AstAssignFieldStmt = {
+	tag: AstTag.AssignFieldStmt;
+	target: Ast;
+	field: IdExpr;
+	expr: Ast;
+} & Span;
+
+export type AstExprStmt = {
 	tag: AstTag.ExprStmt;
 	expr: Ast;
 } & Span;
+
+export type AstStmt =
+	| AstBreakStmt
+	| AstContinueStmt
+	| AstReturnStmt
+	| AstLoopStmt
+	| AstAssertStmt
+	| AstAssignVarStmt
+	| AstAssignFieldStmt
+	| AstExprStmt;
 
 export type BlockExpr = {
 	tag: AstTag.BlockExpr;
@@ -256,21 +253,12 @@ export type WildCardExpr = {
 } & Span;
 
 export type Ast =
-	| ModuleDecls
-	| ReplExprs
+	| AstModule
 	| VarDecl
-	| ProcDecl
 	| TypeDecl
-	| StructDecl
+	| AstStructDecl
 	| TestDecl
-	| BreakStmt
-	| ContinueStmt
-	| ReturnStmt
-	| AssertStmt
-	| AssignStmt
-	| LoopStmt
-	| WhileStmt
-	| ExprStmt
+	| AstStmt
 	| BlockExpr
 	| TupleExpr
 	| StructExpr

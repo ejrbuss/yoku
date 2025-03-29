@@ -1,28 +1,26 @@
 import { assert } from "@std/assert/assert";
 import { Builtins, BuiltinTypes } from "./builtins.ts";
 import {
-	AssertStmt,
-	AssignStmt,
+	AstAssertStmt,
+	AstAssignVarStmt,
 	Ast,
 	AstTag,
 	BinaryExpr,
 	BlockExpr,
-	BreakStmt,
+	AstBreakStmt,
 	CallExpr,
-	ContinueStmt,
-	ExprStmt,
+	AstContinueStmt,
+	AstExprStmt,
 	GroupExpr,
 	IdExpr,
 	IfExpr,
 	LitExpr,
-	LoopStmt,
+	AstLoopStmt,
 	MatchExpr,
-	ModuleDecls,
-	ProcDecl,
+	AstModule,
 	ProcExpr,
-	ReplExprs,
-	ReturnStmt,
-	StructDecl,
+	AstReturnStmt,
+	AstStructDecl,
 	StructExpr,
 	TestDecl,
 	ThrowExpr,
@@ -31,7 +29,7 @@ import {
 	TypeExpr,
 	UnaryExpr,
 	VarDecl,
-	WhileStmt,
+	AstAssignFieldStmt,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -44,7 +42,7 @@ import {
 	StructField,
 	StructType,
 } from "./types.ts";
-import { Span, Unreachable, zip } from "./utils.ts";
+import { Span, Unreachable, zip, zipLeft } from "./utils.ts";
 
 export type TypeChecker = {
 	types: Scopes<Type>;
@@ -175,12 +173,12 @@ function storeTypes(
 	if (pattern.tag === AstTag.CallExpr) {
 		const constructor = reifyType(t, pattern.proc, true);
 		assertAssignable(type, constructor, pattern);
-		if (type.kind !== Kind.TupleStruct) {
+		if (type.kind !== Kind.Struct) {
 			throw new Unreachable();
 		}
-		assertCardinality(type.items, pattern.args, pattern, "items");
-		for (const [pi, ti] of zip(pattern.args, type.items)) {
-			storeTypes(t, pi, ti, mutable, assert);
+		assertCardinality(type.fields, pattern.args, pattern, "fields");
+		for (const [pf, tf] of zip(pattern.args, type.fields)) {
+			storeTypes(t, pf, tf.type, mutable, assert);
 		}
 		return;
 	}
@@ -215,14 +213,10 @@ function storeTypes(
 
 function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 	switch (ast.tag) {
-		case AstTag.ModuleDecls:
+		case AstTag.Module:
 			return checkModule(t, ast, d);
-		case AstTag.ReplExprs:
-			return checkRepl(t, ast, d);
 		case AstTag.VarDecl:
 			return checkVarDecl(t, ast, d);
-		case AstTag.ProcDecl:
-			return checkProcDecl(t, ast, d);
 		case AstTag.TypeDecl:
 			return checkTypeDecl(t, ast, d);
 		case AstTag.StructDecl:
@@ -237,12 +231,12 @@ function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 			return checkReturnStmt(t, ast, d);
 		case AstTag.AssertStmt:
 			return checkAssertStmt(t, ast, d);
-		case AstTag.AssignStmt:
-			return checkAssignStmt(t, ast, d);
+		case AstTag.AssignVarStmt:
+			return checkAssignVarStmt(t, ast, d);
+		case AstTag.AssignFieldStmt:
+			return checkAssignFieldStmt(t, ast, d);
 		case AstTag.LoopStmt:
 			return checkLoopStmt(t, ast, d);
-		case AstTag.WhileStmt:
-			return checkWhileStmt(t, ast, d);
 		case AstTag.ExprStmt:
 			return checkExprStmt(t, ast, d);
 		case AstTag.BlockExpr:
@@ -280,26 +274,19 @@ function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 	}
 }
 
-function checkModule(t: TypeChecker, m: ModuleDecls, _d?: TypePattern): Type {
+function checkModule(t: TypeChecker, m: AstModule, _d?: TypePattern): Type {
+	let result: Type = Type.Unit;
 	for (const decl of m.decls) {
-		check(t, decl);
+		result = check(t, decl);
 	}
-	return Type.Any;
-}
-
-function checkRepl(t: TypeChecker, r: ReplExprs, d?: TypePattern): Type {
-	let acc: Type = Type.Unit;
-	for (const line of r.lines) {
-		acc = check(t, line, d);
-	}
-	return acc;
+	return m.replMode ? result : Type.Any;
 }
 
 function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: TypePattern): Type {
 	let resolvedType: Type;
 	let declType: undefined | TypePattern;
-	if (d.declType !== undefined) {
-		declType = reifyType(t, d.declType, false);
+	if (d.typeAnnotation !== undefined) {
+		declType = reifyType(t, d.typeAnnotation, false);
 	}
 	const initType = check(t, d.initExpr, declType);
 	if (declType !== undefined) {
@@ -316,17 +303,6 @@ function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: TypePattern): Type {
 	return Type.Any;
 }
 
-function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: TypePattern): Type {
-	if (!t.values.inGlobalScope) {
-		console.log(t.values);
-		console.log(Ast.print(p));
-		throw new Unreachable();
-	}
-	const type = check(t, p.initExpr);
-	storeTypes(t, p.id, type, false, false);
-	return Type.Any;
-}
-
 function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: TypePattern): Type {
 	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
@@ -339,57 +315,51 @@ function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: TypePattern): Type {
 
 function checkStructDecl(
 	t: TypeChecker,
-	s: StructDecl,
+	s: AstStructDecl,
 	_d?: TypePattern
 ): Type {
 	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
-	if (s.fields !== undefined) {
-		const fields: StructField[] = [];
-		for (const field of s.fields) {
-			if (field.expr) {
-				const declType =
-					field.typeDecl === undefined
-						? Type._
-						: reifyType(t, field.typeDecl, false);
-				const initType = check(t, field.expr);
-				const fieldType = assertAssignable(initType, declType, field.id);
-				fields.push({
-					mutable: field.mutable,
-					name: field.id.value,
-					type: fieldType,
-					defaultExpr: field.expr,
-				});
-			} else {
-				if (field.typeDecl === undefined) {
-					throw new TypeError(
-						"Field requires a type or initializer!",
-						field.id.start,
-						field.id.end
-					);
-				}
-				fields.push({
-					mutable: field.mutable,
-					name: field.id.value,
-					type: reifyType(t, field.typeDecl, true),
-				});
+	const fields: StructField[] = [];
+	for (const field of s.fields) {
+		if (field.defaultExpr) {
+			const declType =
+				field.typeAnnotation === undefined
+					? Type._
+					: reifyType(t, field.typeAnnotation, false);
+			const initType = check(t, field.defaultExpr);
+			const fieldType = assertAssignable(
+				initType,
+				declType,
+				// TODO, we should get rid of this type cast
+				field.defaultExpr
+			);
+			fields.push({
+				mutable: field.mutable,
+				name: field.id?.value,
+				type: fieldType,
+				defaultExpr: field.defaultExpr,
+			});
+		} else {
+			if (field.typeAnnotation === undefined) {
+				assert(field.id !== undefined);
+				throw new TypeError(
+					"Field requires a type or initializer!",
+					field.id.start,
+					field.id.end
+				);
 			}
+			fields.push({
+				mutable: field.mutable,
+				name: field.id?.value,
+				type: reifyType(t, field.typeAnnotation, true),
+			});
 		}
-		const type = Type.struct(s.id.value, fields);
-		declareType(t, s.id, type);
-		s.resolvedType = type;
-	} else if (s.tupleExpr !== undefined) {
-		const items: Type[] = [];
-		for (const item of s.tupleExpr.items) {
-			items.push(reifyType(t, item, true));
-		}
-		const type = Type.tupleStruct(s.id.value, items);
-		s.resolvedType = type;
-		declareType(t, s.id, type);
-	} else {
-		throw new Unreachable();
 	}
+	const type = Type.struct(s.id.value, fields);
+	declareType(t, s.id, type);
+	s.resolvedType = type;
 	return Type.Any;
 }
 
@@ -401,7 +371,11 @@ function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: TypePattern): Type {
 	return Type.Any;
 }
 
-function checkBreakStmt(t: TypeChecker, b: BreakStmt, _d?: TypePattern): Type {
+function checkBreakStmt(
+	t: TypeChecker,
+	b: AstBreakStmt,
+	_d?: TypePattern
+): Type {
 	if (t.loops.inGlobalScope) {
 		throw new TypeError("Cannot break outside a loop!", b.start, b.end);
 	}
@@ -413,7 +387,7 @@ function checkBreakStmt(t: TypeChecker, b: BreakStmt, _d?: TypePattern): Type {
 
 function checkContinueStmt(
 	t: TypeChecker,
-	c: ContinueStmt,
+	c: AstContinueStmt,
 	_d?: TypePattern
 ): Type {
 	if (t.loops.inGlobalScope) {
@@ -425,7 +399,11 @@ function checkContinueStmt(
 	return Type.Unit;
 }
 
-function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: TypePattern): Type {
+function checkReturnStmt(
+	t: TypeChecker,
+	r: AstReturnStmt,
+	d?: TypePattern
+): Type {
 	if (t.values.inGlobalScope) {
 		throw new TypeError("Cannot return outside a proc!", r.start, r.end);
 	}
@@ -436,52 +414,65 @@ function checkReturnStmt(t: TypeChecker, r: ReturnStmt, d?: TypePattern): Type {
 
 function checkAssertStmt(
 	t: TypeChecker,
-	a: AssertStmt,
+	a: AstAssertStmt,
 	_d?: TypePattern
 ): Type {
 	check(t, a.testExpr);
 	return Type.Unit;
 }
 
-function checkAssignStmt(
+function checkAssignVarStmt(
 	t: TypeChecker,
-	a: AssignStmt,
+	a: AstAssignVarStmt,
 	_d?: TypePattern
 ): Type {
-	if (a.target === undefined) {
-		const decl = t.values.getDecl(a.id.value);
-		if (decl === undefined) {
-			throw new TypeError("Undeclared variable!", a.id.start, a.id.end);
-		}
-		if (!decl.mutable) {
-			throw new TypeError("Cannot assign to a const!", a.id.start, a.id.end);
-		}
-		const into = check(t, a.id);
-		const from = check(t, a.expr, into);
-		assertAssignable(from, into, a.id);
-	} else {
-		const targetType = check(t, a.target);
-		if (targetType.kind === Kind.Struct) {
-			const field = assertField(targetType, a.id);
-			if (!field.mutable) {
-				throw new TypeError("Cannot assign to a const!", a.id.start, a.id.end);
-			}
-			const into = field.type;
-			const from = check(t, a.expr, into);
-			assertAssignable(from, into, a.id);
-		} else {
-			const f = Type.print(targetType);
-			throw new TypeError(
-				`Expected a struct or enum, found ${f}!`,
-				a.target.start,
-				a.target.end
-			);
-		}
+	const decl = t.values.getDecl(a.target.value);
+	if (decl === undefined) {
+		throw new TypeError("Undeclared variable!", a.target.start, a.target.end);
 	}
-	return Type.Unit;
+	if (!decl.mutable) {
+		throw new TypeError(
+			"Cannot assign to a const!",
+			a.target.start,
+			a.target.end
+		);
+	}
+	const into = check(t, a.target);
+	const from = check(t, a.expr, into);
+	assertAssignable(from, into, a.target);
+	return Type.Any;
 }
 
-function checkLoopStmt(t: TypeChecker, l: LoopStmt, _d?: TypePattern): Type {
+function checkAssignFieldStmt(
+	t: TypeChecker,
+	a: AstAssignFieldStmt,
+	_d?: TypePattern
+): Type {
+	const targetType = check(t, a.target);
+	if (targetType.kind === Kind.Struct) {
+		const field = assertField(targetType, a.field);
+		if (!field.mutable) {
+			throw new TypeError(
+				"Cannot assign to a const!",
+				a.field.start,
+				a.field.end
+			);
+		}
+		const into = field.type;
+		const from = check(t, a.expr, into);
+		assertAssignable(from, into, a.field);
+	} else {
+		const f = Type.print(targetType);
+		throw new TypeError(
+			`Expected a struct or enum, found ${f}!`,
+			a.target.start,
+			a.target.end
+		);
+	}
+	return Type.Any;
+}
+
+function checkLoopStmt(t: TypeChecker, l: AstLoopStmt, _d?: TypePattern): Type {
 	t.loops.openScope();
 	if (l.label !== undefined) {
 		t.loops.declareLocal(l.label.value, {
@@ -495,16 +486,7 @@ function checkLoopStmt(t: TypeChecker, l: LoopStmt, _d?: TypePattern): Type {
 	return Type.Unit;
 }
 
-function checkWhileStmt(t: TypeChecker, w: WhileStmt, _d?: TypePattern): Type {
-	const from = check(t, w.testExpr, Type.Bool);
-	assertAssignable(from, Type.Bool, w.testExpr);
-	t.loops.openScope();
-	check(t, w.thenExpr);
-	t.loops.dropScope();
-	return Type.Any;
-}
-
-function checkExprStmt(t: TypeChecker, e: ExprStmt, d?: TypePattern): Type {
+function checkExprStmt(t: TypeChecker, e: AstExprStmt, d?: TypePattern): Type {
 	return check(t, e.expr, d);
 }
 
@@ -523,7 +505,7 @@ function checkBlockExpr(t: TypeChecker, b: BlockExpr, d?: TypePattern): Type {
 
 function checkTupleExpr(t: TypeChecker, u: TupleExpr, d?: TypePattern): Type {
 	const items: Type[] = [];
-	for (const [ui, ti] of zip(u.items, closestTuple(d).items)) {
+	for (const [ui, ti] of zipLeft(u.items, closestTuple(d).items)) {
 		items.push(check(t, ui, ti));
 	}
 	const type = Type.tuple(items);
@@ -566,7 +548,7 @@ function checkStructExpr(
 	} else {
 		const unintialized: string[] = [];
 		for (const field of type.fields) {
-			if (!field.defaultExpr) {
+			if (!field.defaultExpr && field.name) {
 				unintialized.push(field.name);
 			}
 		}
@@ -661,7 +643,7 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: TypePattern): Type {
 	t.values.openScope();
 	const params: Type[] = [];
 	const destination = closestProc(d);
-	for (const [param, dParam] of zip(p.params, destination.params)) {
+	for (const [param, dParam] of zipLeft(p.params, destination.params)) {
 		let paramType: undefined | TypePattern;
 		if (param.declType !== undefined) {
 			paramType = reifyType(t, param.declType, false);
@@ -745,7 +727,7 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 		}
 		case BinaryOp.Member: {
 			const l = check(t, b.left);
-			if (l.kind === Kind.Tuple || l.kind === Kind.TupleStruct) {
+			if (l.kind === Kind.Tuple) {
 				if (
 					b.right.tag !== AstTag.LitExpr ||
 					typeof b.right.value !== "bigint"
@@ -768,7 +750,10 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 				return l.items[Number(b.right.value)];
 			}
 			if (l.kind === Kind.Struct) {
-				if (b.right.tag !== AstTag.IdExpr) {
+				if (
+					b.right.tag !== AstTag.IdExpr &&
+					(b.right.tag !== AstTag.LitExpr || typeof b.right.value !== "bigint")
+				) {
 					const lp = Type.print(l);
 					const rp = Type.print(check(t, b.right));
 					throw new TypeError(
@@ -777,9 +762,7 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 						b.end
 					);
 				}
-				const field = l.fields.find(
-					(f) => f.name === (b.right as IdExpr).value
-				);
+				const field = assertField(l, b.right);
 				if (field === undefined) {
 					const struct = l.name;
 					const field = b.right.value;
@@ -877,10 +860,11 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: TypePattern): Type {
 	}
 	if (callee === Type.Module && c.proc.tag === AstTag.IdExpr) {
 		const type = t.types.get(c.proc.value);
-		if (type !== undefined && type.kind === Kind.TupleStruct) {
-			for (const [arg, item] of zip(c.args, type.items)) {
-				const argType = check(t, arg, item);
-				assertAssignable(argType, item, arg);
+		if (type !== undefined && type.kind === Kind.Struct) {
+			assertCardinality(c.args, type.fields, c, "fields");
+			for (const [arg, field] of zip(c.args, type.fields)) {
+				const argType = check(t, arg, field.type);
+				assertAssignable(argType, field.type, arg);
 			}
 			c.resolvedType = type;
 			return type;
@@ -1010,15 +994,16 @@ function assertCardinality(
 	}
 }
 
-function assertField(type: StructType, id: IdExpr): StructField {
-	for (const field of type.fields) {
-		if (field.name === id.value) {
-			return field;
-		}
+// TODO this should be name: TokId | TokLitInt
+function assertField(type: StructType, name: IdExpr | LitExpr): StructField {
+	// TODO git rid of this type assertion
+	const field = Type.findField(type, name.value as string | bigint);
+	if (field === undefined) {
+		const f = name.value;
+		const s = Type.print(type);
+		throw new TypeError(`No field ${f} on type ${s}!`, name.start, name.end);
 	}
-	const f = id.value;
-	const s = Type.print(type);
-	throw new TypeError(`No field ${f} on type ${s}!`, id.start, id.end);
+	return field;
 }
 
 function closestTuple(type?: TypePattern): TupleTypePattern {

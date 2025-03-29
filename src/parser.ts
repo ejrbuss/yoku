@@ -5,39 +5,33 @@ import {
 	ProcExpr,
 	IfExpr,
 	BlockExpr,
-	ContinueStmt,
-	BreakStmt,
-	ProcDecl,
+	AstContinueStmt,
+	AstBreakStmt,
 	VarDecl,
-	ModuleDecls,
-	ReturnStmt,
-	AssertStmt,
+	AstModule,
+	AstReturnStmt,
+	AstAssertStmt,
 	IdExpr,
 	ProcExprParam,
 	ProcTypeExpr,
-	WhileStmt,
-	LoopStmt,
+	AstLoopStmt,
 	TupleExpr,
-	ReplExprs,
 	TestDecl,
 	LitExpr,
 	TypeDecl,
 	MatchExpr,
 	Case,
 	TypeExpr,
-	StructDecl,
+	AstStructDecl,
 	ThrowExpr,
-	StructDeclField,
+	AstStructField,
 	StructExprFieldInit,
 } from "./ast.ts";
 import { CodeSource } from "./codesource.ts";
-import { Todo, Unreachable } from "./utils.ts";
+import { Unreachable } from "./utils.ts";
 import { AssignOp, AssignToBinary, BinaryOp, UnaryOp } from "./ops.ts";
-import exp from "node:constants";
 
 type TokenMatcher = TokenType | string;
-
-type Production = (p: Parser) => Ast;
 
 type Parser = {
 	tokens: Token[];
@@ -70,12 +64,8 @@ function parse(source: CodeSource, replMode?: boolean) {
 	}
 	const p: Parser = { tokens, position: 0, starts: [] };
 	try {
-		if (replMode) {
-			return parseRexplExprs(p);
-		} else {
-			// TODO how should module ID relate to path?
-			return parseModuleDecls(p, source.path);
-		}
+		// TODO how should module ID relate to path?
+		return parseModuleDecls(p, source.path, replMode ?? false);
 	} catch (error) {
 		if (error instanceof ParseError && error.needsMoreInput) {
 			CodeSource.restore(source, c);
@@ -84,72 +74,34 @@ function parse(source: CodeSource, replMode?: boolean) {
 	}
 }
 
-function parseModuleDecls(p: Parser, moduleId: string): ModuleDecls {
+function parseModuleDecls(
+	p: Parser,
+	moduleId: string,
+	replMode: boolean
+): AstModule {
 	pushStart(p);
 	const decls: Ast[] = [];
 	while (hasMore(p)) {
-		decls.push(parseDecl(p));
+		decls.push(parseDecl(p, replMode));
 	}
 	return {
-		tag: AstTag.ModuleDecls,
+		tag: AstTag.Module,
 		id: moduleId,
+		replMode,
 		decls,
 		start: popStart(p),
 		end: getEnd(p),
 	};
 }
 
-function parseRexplExprs(p: Parser): ReplExprs {
-	pushStart(p);
-	const lines: Ast[] = [];
-	while (hasMore(p)) {
-		const start = p.position;
-		try {
-			lines.push(parseDecl(p));
-		} catch (declError) {
-			if (!(declError instanceof ParseError)) {
-				throw declError;
-			}
-			p.position = start;
-			try {
-				lines.push(parseStmt(p));
-			} catch (stmtError) {
-				if (!(stmtError instanceof ParseError)) {
-					throw stmtError;
-				}
-				// TODO: eventually we just want to give multiple errors
-				// Try to decide the best error to give the user
-
-				// If one of the errors just needs more input, return that one
-				if (declError.needsMoreInput && !stmtError.needsMoreInput) {
-					throw declError;
-				}
-				if (stmtError.needsMoreInput && !declError.needsMoreInput) {
-					throw stmtError;
-				}
-				// Otherwise return the one that made it further
-				// stmtError wins ties, arbitrary, but on the repl expressions
-				// are probably more common than statements
-				throw stmtError.start > declError.start ? stmtError : declError;
-			}
-		}
-	}
-	return {
-		tag: AstTag.ReplExprs,
-		lines,
-		start: popStart(p),
-		end: getEnd(p),
-	};
-}
-
-function parseDecl(p: Parser): Ast {
+function parseDecl(p: Parser, replMode: boolean): Ast {
 	if (lookAhead(p, "var") || lookAhead(p, "const")) {
 		return parseVarDecl(p);
 	}
 	if (lookAhead(p, "proc") && lookAhead(p, TokenType.Id, 1)) {
 		return parseProcDecl(p);
 	}
-	if (lookAhead(p, "type")) {
+	if (lookAhead(p, "type") && lookAhead(p, TokenType.Id, 1)) {
 		return praseTypeDecl(p);
 	}
 	if (lookAhead(p, "struct")) {
@@ -157,6 +109,9 @@ function parseDecl(p: Parser): Ast {
 	}
 	if (lookAhead(p, "test")) {
 		return parseTestDecl(p);
+	}
+	if (replMode) {
+		return parseStmt(p);
 	}
 	const t = lookBehind(p);
 	throw new ParseError(
@@ -208,7 +163,7 @@ function parseVarDecl(p: Parser): VarDecl {
 		tag: AstTag.VarDecl,
 		mutable,
 		assert,
-		declType,
+		typeAnnotation: declType,
 		pattern,
 		initExpr,
 		start: popStart(p),
@@ -216,14 +171,16 @@ function parseVarDecl(p: Parser): VarDecl {
 	};
 }
 
-function parseProcDecl(p: Parser): ProcDecl {
+function parseProcDecl(p: Parser): VarDecl {
 	pushStart(p);
 	consume(p, "proc");
 	const id = parseIdExpr(p);
 	const initExpr = parseProcExpr(p);
 	return {
-		tag: AstTag.ProcDecl,
-		id,
+		tag: AstTag.VarDecl,
+		mutable: false,
+		assert: false,
+		pattern: id,
 		initExpr,
 		start: popStart(p),
 		end: getEnd(p),
@@ -245,36 +202,41 @@ function praseTypeDecl(p: Parser): TypeDecl {
 	};
 }
 
-function parseStructDecl(p: Parser): StructDecl {
+function parseStructDecl(p: Parser): AstStructDecl {
 	pushStart(p);
 	consume(p, "struct");
 	const id = parseIdExpr(p);
-	let fields: undefined | StructDeclField[];
-	let tupleExpr: undefined | TupleExpr;
+	const fields: AstStructField[] = [];
 	if (match(p, "{")) {
-		fields = [];
 		while (hasMore(p) && !lookAhead(p, "}")) {
 			const mutable = match(p, "const") === undefined;
 			if (mutable) {
 				consume(p, "var");
 			}
 			const id = parseIdExpr(p);
-			const typeDecl = tryParseTypeAnnotation(p);
-			let expr: undefined | Ast;
+			const typeAnnotation = tryParseTypeAnnotation(p);
+			let defaultExpr: undefined | Ast;
 			if (match(p, "=")) {
-				expr = parseExpr(p);
+				defaultExpr = parseExpr(p);
 			}
-			fields.push({ mutable, id, typeDecl, expr });
+			fields.push({ mutable, id, typeAnnotation, defaultExpr });
 		}
 		consume(p, "}");
 	} else {
-		tupleExpr = parseTupleTypeExpr(p);
+		consume(p, "(");
+		while (hasMore(p) && !lookAhead(p, ")")) {
+			const typeAnnotation = parseTypeExpr(p);
+			fields.push({ mutable: false, typeAnnotation });
+			if (!lookAhead(p, ")")) {
+				consume(p, ",");
+			}
+		}
+		consume(p, ")");
 	}
 	return {
 		tag: AstTag.StructDecl,
 		id,
 		fields,
-		tupleExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
@@ -297,7 +259,7 @@ function parseTestDecl(p: Parser): TestDecl {
 	};
 }
 
-function parseBreakStmt(p: Parser): BreakStmt {
+function parseBreakStmt(p: Parser): AstBreakStmt {
 	pushStart(p);
 	consume(p, "break");
 	let label: undefined | IdExpr;
@@ -312,7 +274,7 @@ function parseBreakStmt(p: Parser): BreakStmt {
 	};
 }
 
-function parseReturnStmt(p: Parser): ReturnStmt {
+function parseReturnStmt(p: Parser): AstReturnStmt {
 	pushStart(p);
 	consume(p, "return");
 	let expr: Ast | undefined;
@@ -327,7 +289,7 @@ function parseReturnStmt(p: Parser): ReturnStmt {
 	};
 }
 
-function parseAssertStmt(p: Parser): AssertStmt {
+function parseAssertStmt(p: Parser): AstAssertStmt {
 	pushStart(p);
 	consume(p, "assert");
 	const testExpr = parseExpr(p);
@@ -339,7 +301,7 @@ function parseAssertStmt(p: Parser): AssertStmt {
 	};
 }
 
-function parseContinueStmt(p: Parser): ContinueStmt {
+function parseContinueStmt(p: Parser): AstContinueStmt {
 	pushStart(p);
 	consume(p, "continue");
 	let label: undefined | IdExpr;
@@ -356,7 +318,7 @@ function parseContinueStmt(p: Parser): ContinueStmt {
 
 function parseAssignStmt(p: Parser): Ast {
 	pushStart(p);
-	let target: undefined | Ast = parseExpr(p);
+	const target = parseExpr(p);
 	if (matchAny(p, Object.values(AssignOp))) {
 		const assignOp = lookBehind(p)?.image as AssignOp;
 		const binOp = AssignToBinary[assignOp];
@@ -371,17 +333,27 @@ function parseAssignStmt(p: Parser): Ast {
 				end: expr.end,
 			};
 		}
-		let id: IdExpr;
 		if (target.tag === AstTag.IdExpr) {
-			id = target;
-			target = undefined;
+			return {
+				tag: AstTag.AssignVarStmt,
+				target,
+				expr,
+				start: popStart(p),
+				end: getEnd(p),
+			};
 		} else if (
 			target.tag === AstTag.BinaryExpr &&
 			target.op === BinaryOp.Member &&
 			target.right.tag === AstTag.IdExpr
 		) {
-			id = target.right;
-			target = target.left;
+			return {
+				tag: AstTag.AssignFieldStmt,
+				target: target.left,
+				field: target.right,
+				expr,
+				start: popStart(p),
+				end: getEnd(p),
+			};
 		} else {
 			throw new ParseError(
 				"Invalid assignment target!",
@@ -390,14 +362,6 @@ function parseAssignStmt(p: Parser): Ast {
 				target.end
 			);
 		}
-		return {
-			tag: AstTag.AssignStmt,
-			target,
-			id,
-			expr,
-			start: popStart(p),
-			end: getEnd(p),
-		};
 	}
 	return {
 		tag: AstTag.ExprStmt,
@@ -407,7 +371,7 @@ function parseAssignStmt(p: Parser): Ast {
 	};
 }
 
-function parseLoopStmt(p: Parser): LoopStmt {
+function parseLoopStmt(p: Parser): AstLoopStmt {
 	pushStart(p);
 	consume(p, "loop");
 	let label: undefined | IdExpr;
@@ -424,15 +388,26 @@ function parseLoopStmt(p: Parser): LoopStmt {
 	};
 }
 
-function parseWhileStmt(p: Parser): WhileStmt {
+function parseWhileStmt(p: Parser): AstLoopStmt {
 	pushStart(p);
 	consume(p, "while");
 	const testExpr = parseSubExpr(p);
 	const thenExpr = parseBlockExpr(p);
 	return {
-		tag: AstTag.WhileStmt,
-		testExpr,
-		thenExpr,
+		tag: AstTag.LoopStmt,
+		thenExpr: {
+			tag: AstTag.IfExpr,
+			mutable: false,
+			testExpr,
+			thenExpr,
+			elseExpr: {
+				tag: AstTag.BreakStmt,
+				start: thenExpr.end,
+				end: thenExpr.end,
+			},
+			start: testExpr.start,
+			end: thenExpr.end,
+		},
 		start: popStart(p),
 		end: getEnd(p),
 	};

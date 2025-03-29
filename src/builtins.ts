@@ -1,5 +1,4 @@
 import { print, Proc, Unit } from "./core.ts";
-import { Scopes } from "./scopes.ts";
 import { Type } from "./types.ts";
 
 export const Builtins = {

@@ -494,7 +494,14 @@ third requires integration with the other two.
 
 # Refactoring Stage:
  - Cleanup AST
- - Move Spans out of band
- - Push Errors as problems
- - Move Types out of band
- - Unify scopes?
+   - Make AstType its own tree of types
+   - Make AstPattern its own tree of types
+   - Split AstDecl, AstStmt, and AstExpr out
+   - Refactor tokens and refer to them directly
+   - Include tokens directly wherever possible
+ - Do we want to move Types, Spans out of band?
+ - Rename reconcilation to typeUnification?
+ - Cleanup errors
+   - Syntax, Parse, and Type Errors become "problems"
+   - Problems are added to a list, each stage should continue
+ - Can we unify scopes ie. Values, types, loops, procs, all use the same scope object?

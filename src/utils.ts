@@ -61,11 +61,36 @@ export function clamp(n: number, min: number, max: number): number {
 }
 
 export function zip<A, B>(as: A[], bs: B[]): [A, B][] {
-	const zipped: [A, B][] = [];
-	for (let i = 0; i < as.length; i++) {
-		zipped.push([as[i], bs[i]]);
+	const length = Math.min(as.length, bs.length);
+	const zipped: [A, B][] = new Array(length);
+	for (let i = 0; i < length; i++) {
+		zipped[i] = [as[i], bs[i]];
 	}
 	return zipped;
+}
+
+export function zipLeft<A, B>(as: A[], bs: B[]): [A, B | undefined][] {
+	const zipped: [A, B][] = new Array(as.length);
+	for (let i = 0; i < as.length; i++) {
+		zipped[i] = [as[i], bs[i]];
+	}
+	return zipped;
+}
+
+export function zipRight<A, B>(as: A[], bs: B[]): [A | undefined, B][] {
+	const zipped: [A, B][] = new Array(bs.length);
+	for (let i = 0; i < bs.length; i++) {
+		zipped[i] = [as[i], bs[i]];
+	}
+	return zipped;
+}
+
+export function enumerate<A>(as: A[]): [number, A][] {
+	const enumerated: [number, A][] = new Array(as.length);
+	for (let i = 0; i < as.length; i++) {
+		enumerated[i] = [i, as[i]];
+	}
+	return enumerated;
 }
 
 export class ArrayIter<T> {

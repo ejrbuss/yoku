@@ -1,36 +1,26 @@
 import { Builtins } from "./builtins.ts";
+import { Module, print, Proc, Struct, Tuple, Unit } from "./core.ts";
 import {
-	Module,
-	print,
-	Proc,
-	Struct,
-	Tuple,
-	TupleStruct as TupleStruct,
-	Unit,
-} from "./core.ts";
-import {
-	AssertStmt,
-	AssignStmt,
+	AstAssertStmt,
+	AstAssignVarStmt,
 	Ast,
 	AstTag,
 	BinaryExpr,
 	BlockExpr,
-	BreakStmt,
+	AstBreakStmt,
 	CallExpr,
-	ContinueStmt,
-	ExprStmt,
+	AstContinueStmt,
+	AstExprStmt,
 	GroupExpr,
 	IdExpr,
 	IfExpr,
 	LitExpr,
-	LoopStmt,
+	AstLoopStmt,
 	MatchExpr,
-	ModuleDecls,
-	ProcDecl,
+	AstModule,
 	ProcExpr,
-	ReplExprs,
-	ReturnStmt,
-	StructDecl,
+	AstReturnStmt,
+	AstStructDecl,
 	StructExpr,
 	TestDecl,
 	ThrowExpr,
@@ -39,19 +29,12 @@ import {
 	TypeExpr,
 	UnaryExpr,
 	VarDecl,
-	WhileStmt,
+	AstAssignFieldStmt,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
-import {
-	Kind,
-	ProcType,
-	StructType,
-	TupleStructType,
-	TupleType,
-	Type,
-} from "./types.ts";
-import { structurallyEq, Unreachable, zip } from "./utils.ts";
+import { Kind, ProcType, StructType, TupleType, Type } from "./types.ts";
+import { enumerate, structurallyEq, Unreachable, zip } from "./utils.ts";
 
 export class RuntimeError {
 	constructor(
@@ -165,11 +148,11 @@ function unify(
 		}
 		return true;
 	}
-	// TupleStruct(...) = value
+	// Struct(...) = value
 	if (pattern.tag === AstTag.CallExpr) {
-		const tupleStruct = value as TupleStruct;
-		for (const [pi, vi] of zip(pattern.args, tupleStruct.items)) {
-			if (!unify(i, pi, vi, throwOnFailure)) {
+		const struct = value as Struct;
+		for (const [j, pj] of enumerate(pattern.args)) {
+			if (!unify(i, pj, struct[j], throwOnFailure)) {
 				return false;
 			}
 		}
@@ -210,14 +193,10 @@ function unify(
 
 function interperate(i: Interpreter, ast: Ast): unknown {
 	switch (ast.tag) {
-		case AstTag.ModuleDecls:
+		case AstTag.Module:
 			return interperateModuleDecls(i, ast);
-		case AstTag.ReplExprs:
-			return interperateReplExprs(i, ast);
 		case AstTag.VarDecl:
 			return interperateVarDecl(i, ast);
-		case AstTag.ProcDecl:
-			return interperateProcDecl(i, ast);
 		case AstTag.TypeDecl:
 			return interperateTypeDecl(i, ast);
 		case AstTag.StructDecl:
@@ -234,10 +213,10 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateAssertStmt(i, ast);
 		case AstTag.LoopStmt:
 			return interperateLoopStmt(i, ast);
-		case AstTag.WhileStmt:
-			return interperateWhileStmt(i, ast);
-		case AstTag.AssignStmt:
-			return interperateAssignStmt(i, ast);
+		case AstTag.AssignVarStmt:
+			return interperateAssignVarStmt(i, ast);
+		case AstTag.AssignFieldStmt:
+			return interperateAssignFieldStmt(i, ast);
 		case AstTag.ExprStmt:
 			return interperateExprStmt(i, ast);
 		case AstTag.BlockExpr:
@@ -276,19 +255,11 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 	throw new Unreachable(ast satisfies never);
 }
 
-function interperateModuleDecls(i: Interpreter, m: ModuleDecls): unknown {
+function interperateModuleDecls(i: Interpreter, m: AstModule): unknown {
 	for (const decl of m.decls) {
 		interperate(i, decl);
 	}
 	return Unit;
-}
-
-function interperateReplExprs(i: Interpreter, r: ReplExprs): unknown {
-	let acc: unknown = Unit;
-	for (const line of r.lines) {
-		acc = interperate(i, line);
-	}
-	return acc;
 }
 
 function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
@@ -297,17 +268,12 @@ function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
 	return Unit;
 }
 
-function interperateProcDecl(i: Interpreter, p: ProcDecl): unknown {
-	unify(i, p.id, interperate(i, p.initExpr), true);
-	return Unit;
-}
-
 function interperateTypeDecl(i: Interpreter, t: TypeDecl): unknown {
 	unify(i, t.id, Module.create(t.id.value, t.resolvedType), true);
 	return Unit;
 }
 
-function interperateStructDecl(i: Interpreter, s: StructDecl): unknown {
+function interperateStructDecl(i: Interpreter, s: AstStructDecl): unknown {
 	unify(i, s.id, Module.create(s.id.value, s.resolvedType), true);
 	return Unit;
 }
@@ -325,19 +291,19 @@ function interperateTestDecl(i: Interpreter, t: TestDecl): unknown {
 	return Unit;
 }
 
-function interperateBreakStmt(_i: Interpreter, b: BreakStmt): unknown {
+function interperateBreakStmt(_i: Interpreter, b: AstBreakStmt): unknown {
 	throw new Break(b.label?.value);
 }
 
-function interperateContinueStmt(_i: Interpreter, c: ContinueStmt): unknown {
+function interperateContinueStmt(_i: Interpreter, c: AstContinueStmt): unknown {
 	throw new Continue(c.label?.value);
 }
 
-function interperateReturnStmt(i: Interpreter, r: ReturnStmt): unknown {
+function interperateReturnStmt(i: Interpreter, r: AstReturnStmt): unknown {
 	throw new Return(r.expr !== undefined ? interperate(i, r.expr) : Unit);
 }
 
-function interperateAssertStmt(i: Interpreter, a: AssertStmt): unknown {
+function interperateAssertStmt(i: Interpreter, a: AstAssertStmt): unknown {
 	const value = interperate(i, a.testExpr);
 	if (!value) {
 		if (a.testExpr.tag === AstTag.BinaryExpr) {
@@ -355,7 +321,7 @@ function interperateAssertStmt(i: Interpreter, a: AssertStmt): unknown {
 	return Unit;
 }
 
-function interperateLoopStmt(i: Interpreter, l: LoopStmt): unknown {
+function interperateLoopStmt(i: Interpreter, l: AstLoopStmt): unknown {
 	for (;;) {
 		try {
 			interperate(i, l.thenExpr);
@@ -377,36 +343,26 @@ function interperateLoopStmt(i: Interpreter, l: LoopStmt): unknown {
 	}
 }
 
-function interperateWhileStmt(i: Interpreter, w: WhileStmt): unknown {
-	while (interperate(i, w.testExpr)) {
-		try {
-			interperate(i, w.thenExpr);
-		} catch (e) {
-			if (e instanceof Continue && e.label === undefined) {
-				continue;
-			}
-			if (e instanceof Break && e.label === undefined) {
-				break;
-			}
-			throw e;
-		}
-	}
+function interperateAssignVarStmt(
+	i: Interpreter,
+	a: AstAssignVarStmt
+): unknown {
+	const value = interperate(i, a.expr);
+	i.scopes.set(a.target.value, value);
 	return Unit;
 }
 
-function interperateAssignStmt(i: Interpreter, a: AssignStmt): unknown {
-	if (a.target === undefined) {
-		const value = interperate(i, a.expr);
-		i.scopes.set(a.id.value, value);
-	} else {
-		const target = interperate(i, a.target) as Struct;
-		const value = interperate(i, a.expr);
-		target[a.id.value] = value;
-	}
+function interperateAssignFieldStmt(
+	i: Interpreter,
+	a: AstAssignFieldStmt
+): unknown {
+	const target = interperate(i, a.target) as Struct;
+	const value = interperate(i, a.expr);
+	target[a.field.value] = value;
 	return Unit;
 }
 
-function interperateExprStmt(i: Interpreter, e: ExprStmt): unknown {
+function interperateExprStmt(i: Interpreter, e: AstExprStmt): unknown {
 	return interperate(i, e.expr);
 }
 
@@ -440,9 +396,11 @@ function interperateStructExpr(i: Interpreter, s: StructExpr): unknown {
 	const initialized: string[] = [];
 	if (s.spreadInit !== undefined) {
 		const spread = interperate(i, s.spreadInit) as Struct;
-		for (const field of type.fields) {
-			fields[field.name] = spread[field.name];
-			initialized.push(field.name);
+		for (const [i, field] of enumerate(type.fields)) {
+			fields[field.name ?? i] = spread[field.name ?? i];
+			if (field.name) {
+				initialized.push(field.name);
+			}
 		}
 	}
 	for (const fieldInit of s.fieldInits) {
@@ -450,7 +408,7 @@ function interperateStructExpr(i: Interpreter, s: StructExpr): unknown {
 		initialized.push(fieldInit.id.value);
 	}
 	for (const field of type.fields) {
-		if (!initialized.includes(field.name)) {
+		if (field.name && !initialized.includes(field.name)) {
 			fields[field.name] = interperate(i, field.defaultExpr as Ast);
 		}
 	}
@@ -617,9 +575,10 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 		case BinaryOp.Member: {
 			const left = interperate(i, b.left);
 			const type = Type.of(left);
-			if (type.kind === Kind.Tuple || type.kind === Kind.TupleStruct) {
-				const right = interperate(i, b.right);
-				return (left as Tuple).items[Number(right as bigint)];
+			if (type.kind === Kind.Tuple) {
+				return (left as Tuple).items[
+					Number((b.right as LitExpr).value as bigint)
+				];
 			}
 			if (type.kind === Kind.Struct) {
 				return (left as Struct)[(b.right as IdExpr).value];
@@ -649,7 +608,7 @@ function interperateCallExpr(i: Interpreter, c: CallExpr): unknown {
 		args.push(interperate(i, arg));
 	}
 	if (Type.of(proc) === Type.Module) {
-		return TupleStruct.create(c.resolvedType as TupleStructType, args);
+		return Struct.create(c.resolvedType as StructType, { ...args });
 	}
 	return (proc as Proc).impl(args);
 }

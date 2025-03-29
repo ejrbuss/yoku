@@ -1,13 +1,5 @@
-import {
-	Typed,
-	Kind,
-	ProcType,
-	StructType,
-	TupleType,
-	Type,
-	TupleStructType,
-} from "./types.ts";
-import { Unreachable } from "./utils.ts";
+import { Typed, Kind, ProcType, StructType, TupleType, Type } from "./types.ts";
+import { enumerate, Unreachable } from "./utils.ts";
 
 export const Unit = null;
 
@@ -43,17 +35,6 @@ function createStruct(
 	values: Record<string, unknown>
 ): Struct {
 	return { $type: type, ...values };
-}
-
-export type TupleStruct = { items: unknown[] } & Typed;
-
-export const TupleStruct = { create: createTupleStruct };
-
-function createTupleStruct(
-	type: TupleStructType,
-	items: unknown[]
-): TupleStruct {
-	return { $type: type, items };
 }
 
 export type Module = { name: string; type?: Type } & Typed;
@@ -110,18 +91,22 @@ export function print(v: unknown): string {
 	if (type.kind === Kind.Struct) {
 		const struct = v as Struct;
 		const fields: string[] = [];
-		for (const field of type.fields) {
-			fields.push(print(`${field.name} = ${print(struct[field.name])}`));
+		let tupleStruct = false;
+		for (const [i, field] of enumerate(type.fields)) {
+			if (field.name === undefined) {
+				tupleStruct = true;
+				fields.push(print(`${print(struct[i])}`));
+			} else {
+				fields.push(print(`${field.name} = ${print(struct[field.name])}`));
+			}
 		}
-		return `${type.name} { ${fields.join(", ")} }`;
-	}
-	if (type.kind === Kind.TupleStruct) {
-		const tupleStruct = v as TupleStruct;
-		const items: string[] = [];
-		for (const item of tupleStruct.items) {
-			items.push(print(item));
+		if (fields.length === 0) {
+			return `${type.name}`;
+		} else if (tupleStruct) {
+			return `${type.name} (${fields.join(", ")})`;
+		} else {
+			return `${type.name} { ${fields.join(", ")} }`;
 		}
-		return `${type.name}(${items.join(", ")})`;
 	}
 	throw new Unreachable();
 }
