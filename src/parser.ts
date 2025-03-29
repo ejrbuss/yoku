@@ -1,7 +1,7 @@
 import { Token, Tokenizer, TokenType } from "./tokens.ts";
 import {
 	Ast,
-	AstType,
+	AstTag,
 	ProcExpr,
 	IfExpr,
 	BlockExpr,
@@ -29,7 +29,7 @@ import {
 	ThrowExpr,
 	StructDeclField,
 	StructExprFieldInit,
-} from "./core.ts";
+} from "./ast.ts";
 import { CodeSource } from "./codesource.ts";
 import { Todo, Unreachable } from "./utils.ts";
 import { AssignOp, AssignToBinary, BinaryOp, UnaryOp } from "./ops.ts";
@@ -91,7 +91,7 @@ function parseModuleDecls(p: Parser, moduleId: string): ModuleDecls {
 		decls.push(parseDecl(p));
 	}
 	return {
-		type: AstType.ModuleDecls,
+		tag: AstTag.ModuleDecls,
 		id: moduleId,
 		decls,
 		start: popStart(p),
@@ -135,7 +135,7 @@ function parseRexplExprs(p: Parser): ReplExprs {
 		}
 	}
 	return {
-		type: AstType.ReplExprs,
+		tag: AstTag.ReplExprs,
 		lines,
 		start: popStart(p),
 		end: getEnd(p),
@@ -205,7 +205,7 @@ function parseVarDecl(p: Parser): VarDecl {
 	consume(p, "=");
 	const initExpr = parseExpr(p);
 	return {
-		type: AstType.VarDecl,
+		tag: AstTag.VarDecl,
 		mutable,
 		assert,
 		declType,
@@ -222,7 +222,7 @@ function parseProcDecl(p: Parser): ProcDecl {
 	const id = parseIdExpr(p);
 	const initExpr = parseProcExpr(p);
 	return {
-		type: AstType.ProcDecl,
+		tag: AstTag.ProcDecl,
 		id,
 		initExpr,
 		start: popStart(p),
@@ -237,7 +237,7 @@ function praseTypeDecl(p: Parser): TypeDecl {
 	consume(p, "=");
 	const typeExpr = parseTypeExpr(p);
 	return {
-		type: AstType.TypeDecl,
+		tag: AstTag.TypeDecl,
 		id,
 		typeExpr,
 		start: popStart(p),
@@ -271,7 +271,7 @@ function parseStructDecl(p: Parser): StructDecl {
 		tupleExpr = parseTupleTypeExpr(p);
 	}
 	return {
-		type: AstType.StructDecl,
+		tag: AstTag.StructDecl,
 		id,
 		fields,
 		tupleExpr,
@@ -289,7 +289,7 @@ function parseTestDecl(p: Parser): TestDecl {
 	}
 	const thenExpr = parseBlockExpr(p);
 	return {
-		type: AstType.TestDecl,
+		tag: AstTag.TestDecl,
 		name: name.value,
 		thenExpr,
 		start: popStart(p),
@@ -305,7 +305,7 @@ function parseBreakStmt(p: Parser): BreakStmt {
 		label = parseIdExpr(p);
 	}
 	return {
-		type: AstType.BreakStmt,
+		tag: AstTag.BreakStmt,
 		label,
 		start: popStart(p),
 		end: getEnd(p),
@@ -320,7 +320,7 @@ function parseReturnStmt(p: Parser): ReturnStmt {
 		expr = parseExpr(p);
 	}
 	return {
-		type: AstType.ReturnStmt,
+		tag: AstTag.ReturnStmt,
 		expr,
 		start: popStart(p),
 		end: getEnd(p),
@@ -332,7 +332,7 @@ function parseAssertStmt(p: Parser): AssertStmt {
 	consume(p, "assert");
 	const testExpr = parseExpr(p);
 	return {
-		type: AstType.AssertStmt,
+		tag: AstTag.AssertStmt,
 		testExpr,
 		start: popStart(p),
 		end: getEnd(p),
@@ -347,7 +347,7 @@ function parseContinueStmt(p: Parser): ContinueStmt {
 		label = parseIdExpr(p);
 	}
 	return {
-		type: AstType.ContinueStmt,
+		tag: AstTag.ContinueStmt,
 		label,
 		start: popStart(p),
 		end: getEnd(p),
@@ -363,7 +363,7 @@ function parseAssignStmt(p: Parser): Ast {
 		let expr = parseExpr(p);
 		if (binOp !== undefined) {
 			expr = {
-				type: AstType.BinaryExpr,
+				tag: AstTag.BinaryExpr,
 				op: binOp,
 				left: target,
 				right: expr,
@@ -372,13 +372,13 @@ function parseAssignStmt(p: Parser): Ast {
 			};
 		}
 		let id: IdExpr;
-		if (target.type === AstType.IdExpr) {
+		if (target.tag === AstTag.IdExpr) {
 			id = target;
 			target = undefined;
 		} else if (
-			target.type === AstType.BinaryExpr &&
+			target.tag === AstTag.BinaryExpr &&
 			target.op === BinaryOp.Member &&
-			target.right.type === AstType.IdExpr
+			target.right.tag === AstTag.IdExpr
 		) {
 			id = target.right;
 			target = target.left;
@@ -391,7 +391,7 @@ function parseAssignStmt(p: Parser): Ast {
 			);
 		}
 		return {
-			type: AstType.AssignStmt,
+			tag: AstTag.AssignStmt,
 			target,
 			id,
 			expr,
@@ -400,7 +400,7 @@ function parseAssignStmt(p: Parser): Ast {
 		};
 	}
 	return {
-		type: AstType.ExprStmt,
+		tag: AstTag.ExprStmt,
 		expr: target,
 		start: popStart(p),
 		end: getEnd(p),
@@ -416,7 +416,7 @@ function parseLoopStmt(p: Parser): LoopStmt {
 	}
 	const thenExpr = parseBlockExpr(p);
 	return {
-		type: AstType.LoopStmt,
+		tag: AstTag.LoopStmt,
 		label,
 		thenExpr,
 		start: popStart(p),
@@ -430,7 +430,7 @@ function parseWhileStmt(p: Parser): WhileStmt {
 	const testExpr = parseSubExpr(p);
 	const thenExpr = parseBlockExpr(p);
 	return {
-		type: AstType.WhileStmt,
+		tag: AstTag.WhileStmt,
 		testExpr,
 		thenExpr,
 		start: popStart(p),
@@ -466,7 +466,7 @@ function parseLogicalOr(p: Parser): Ast {
 	while (match(p, "|")) {
 		const right = parseLogicalAnd(p);
 		left = {
-			type: AstType.BinaryExpr,
+			tag: AstTag.BinaryExpr,
 			op: BinaryOp.Or,
 			left,
 			right,
@@ -482,7 +482,7 @@ function parseLogicalAnd(p: Parser): Ast {
 	while (match(p, "&")) {
 		const right = parseEquality(p);
 		left = {
-			type: AstType.BinaryExpr,
+			tag: AstTag.BinaryExpr,
 			op: BinaryOp.And,
 			left,
 			right,
@@ -504,7 +504,7 @@ function parseEquality(p: Parser): Ast {
 		const op = lookBehind(p)?.image as BinaryOp;
 		const right = parseComparison(p);
 		left = {
-			type: AstType.BinaryExpr,
+			tag: AstTag.BinaryExpr,
 			op,
 			left,
 			right,
@@ -526,7 +526,7 @@ function parseComparison(p: Parser): Ast {
 		const op = lookBehind(p)?.image as BinaryOp;
 		const right = parseTerm(p);
 		left = {
-			type: AstType.BinaryExpr,
+			tag: AstTag.BinaryExpr,
 			op,
 			left,
 			right,
@@ -543,7 +543,7 @@ function parseTerm(p: Parser): Ast {
 		const op = lookBehind(p)?.image as BinaryOp;
 		const right = parseFactor(p);
 		left = {
-			type: AstType.BinaryExpr,
+			tag: AstTag.BinaryExpr,
 			op,
 			left,
 			right,
@@ -564,7 +564,7 @@ function parseFactor(p: Parser): Ast {
 		const op = lookBehind(p)?.image as BinaryOp;
 		const right = parsePower(p);
 		left = {
-			type: AstType.BinaryExpr,
+			tag: AstTag.BinaryExpr,
 			op,
 			left,
 			right,
@@ -581,7 +581,7 @@ function parsePower(p: Parser): Ast {
 		const op = lookBehind(p)?.image as BinaryOp;
 		const right = parsePower(p);
 		left = {
-			type: AstType.BinaryExpr,
+			tag: AstTag.BinaryExpr,
 			op,
 			left,
 			right,
@@ -598,7 +598,7 @@ function parseUnary(p: Parser): Ast {
 		const op = lookBehind(p);
 		const right = parseCallExpr(p);
 		return {
-			type: AstType.UnaryExpr,
+			tag: AstTag.UnaryExpr,
 			op: op?.image as UnaryOp,
 			right,
 			start: popStart(p),
@@ -631,7 +631,7 @@ function parseCallExpr(p: Parser): Ast {
 			}
 			consume(p, ")");
 			expr = {
-				type: AstType.CallExpr,
+				tag: AstTag.CallExpr,
 				proc: expr,
 				args,
 				start: expr.start,
@@ -645,7 +645,7 @@ function parseCallExpr(p: Parser): Ast {
 				right = parseLitExpr(p);
 			}
 			expr = {
-				type: AstType.BinaryExpr,
+				tag: AstTag.BinaryExpr,
 				op: BinaryOp.Member,
 				left: expr,
 				right,
@@ -684,7 +684,7 @@ function parseTupleExpr(p: Parser): Ast {
 	consume(p, "(");
 	if (match(p, ")")) {
 		return {
-			type: AstType.TupleExpr,
+			tag: AstTag.TupleExpr,
 			items: [],
 			start: popStart(p),
 			end: getEnd(p),
@@ -701,7 +701,7 @@ function parseTupleExpr(p: Parser): Ast {
 			}
 			consume(p, ")");
 			return {
-				type: AstType.TupleExpr,
+				tag: AstTag.TupleExpr,
 				items,
 				start: popStart(p),
 				end: getEnd(p),
@@ -709,7 +709,7 @@ function parseTupleExpr(p: Parser): Ast {
 		} else {
 			consume(p, ")");
 			return {
-				type: AstType.GroupExpr,
+				tag: AstTag.GroupExpr,
 				expr,
 				start: popStart(p),
 				end: getEnd(p),
@@ -742,7 +742,7 @@ function parseStructExpr(p: Parser): Ast {
 		}
 		consume(p, "}");
 		return {
-			type: AstType.StructExpr,
+			tag: AstTag.StructExpr,
 			id,
 			fieldInits,
 			spreadInit,
@@ -765,7 +765,7 @@ function parseBlockExpr(p: Parser): BlockExpr {
 	}
 	consume(p, "}");
 	return {
-		type: AstType.BlockExpr,
+		tag: AstTag.BlockExpr,
 		stmts,
 		start: popStart(p),
 		end: getEnd(p),
@@ -795,7 +795,7 @@ function parseIfExpr(p: Parser): IfExpr {
 		}
 	}
 	return {
-		type: AstType.IfExpr,
+		tag: AstTag.IfExpr,
 		mutable,
 		pattern,
 		declType,
@@ -841,7 +841,7 @@ function parseMatchExpr(p: Parser): MatchExpr {
 	}
 	consume(p, "}");
 	return {
-		type: AstType.MatchExpr,
+		tag: AstTag.MatchExpr,
 		testExpr,
 		cases,
 		start: popStart(p),
@@ -854,7 +854,7 @@ function parseThrowExpr(p: Parser): ThrowExpr {
 	consume(p, "throw");
 	const expr = parseExpr(p);
 	return {
-		type: AstType.ThrowExpr,
+		tag: AstTag.ThrowExpr,
 		expr,
 		start: popStart(p),
 		end: getEnd(p),
@@ -890,7 +890,7 @@ function parseProcExpr(p: Parser): ProcExpr {
 	}
 	const implExpr = parseBlockExpr(p);
 	return {
-		type: AstType.ProcExpr,
+		tag: AstTag.ProcExpr,
 		params,
 		implExpr,
 		returnType,
@@ -902,7 +902,7 @@ function parseProcExpr(p: Parser): ProcExpr {
 function parseLitExpr(p: Parser): LitExpr {
 	const lit = consume(p);
 	return {
-		type: AstType.LitExpr,
+		tag: AstTag.LitExpr,
 		value: lit.value,
 		start: lit.start,
 		end: lit.end,
@@ -912,7 +912,7 @@ function parseLitExpr(p: Parser): LitExpr {
 function parseIdExpr(p: Parser): IdExpr {
 	const id = consume(p, TokenType.Id);
 	return {
-		type: AstType.IdExpr,
+		tag: AstTag.IdExpr,
 		value: id.image,
 		start: id.start,
 		end: id.end,
@@ -936,7 +936,7 @@ function parseTypeExpr(p: Parser): TypeExpr {
 	match(p, "type");
 	const expr = parsePrimaryTypeExpr(p);
 	return {
-		type: AstType.TypeExpr,
+		tag: AstTag.TypeExpr,
 		expr,
 		start: popStart(p),
 		end: getEnd(p),
@@ -984,7 +984,7 @@ function parseProcTypeExpr(p: Parser): ProcTypeExpr {
 	consume(p, "->");
 	const returnType = parseTypeExpr(p);
 	return {
-		type: AstType.ProcTypeExpr,
+		tag: AstTag.ProcTypeExpr,
 		params,
 		returnType,
 		start: popStart(p),
@@ -1004,7 +1004,7 @@ function parseTupleTypeExpr(p: Parser): TupleExpr {
 	}
 	consume(p, ")");
 	return {
-		type: AstType.TupleExpr,
+		tag: AstTag.TupleExpr,
 		items,
 		start: popStart(p),
 		end: getEnd(p),
@@ -1020,7 +1020,7 @@ function parseAsPattern(p: Parser): Ast {
 	if (match(p, "as")) {
 		const right = parseIdExpr(p);
 		return {
-			type: AstType.BinaryExpr,
+			tag: AstTag.BinaryExpr,
 			op: BinaryOp.As,
 			left,
 			right,
@@ -1060,7 +1060,7 @@ function parseTuplePattern(p: Parser): TupleExpr {
 	}
 	consume(p, ")");
 	return {
-		type: AstType.TupleExpr,
+		tag: AstTag.TupleExpr,
 		items,
 		start: popStart(p),
 		end: getEnd(p),
@@ -1085,7 +1085,7 @@ function parseStructPattern(p: Parser): Ast {
 		}
 		consume(p, "}");
 		return {
-			type: AstType.StructExpr,
+			tag: AstTag.StructExpr,
 			id,
 			fieldInits,
 			start: popStart(p),
@@ -1111,7 +1111,7 @@ function parseStructPattern(p: Parser): Ast {
 		}
 		consume(p, ")");
 		return {
-			type: AstType.CallExpr,
+			tag: AstTag.CallExpr,
 			proc: id,
 			args,
 			start: popStart(p),
@@ -1126,7 +1126,7 @@ function parseWildcardExpr(p: Parser): Ast {
 	pushStart(p);
 	consume(p, "_");
 	return {
-		type: AstType.WildCardExpr,
+		tag: AstTag.WildCardExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};

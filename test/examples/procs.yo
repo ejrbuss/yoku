@@ -97,16 +97,16 @@ const _: Int = h() --> ! TypeError
 
 --- test "Inferred Return Type For Proc Expression" ---
 const f = proc { 1 }
-const _: Int = f()
-const _: () = f() --> ! TypeError
+const _: () = f()
+const _: Int = f() --> ! TypeError
 
 const g = proc () { 1 }
-const _: Int = g()
-const _: () = g() --> ! TypeError
+const _: () = g() 
+const _: Int = g() --> ! TypeError
 
 const h = proc () -> { 1 }
-const _: Int = h()
-const _: () = h() --> ! TypeError
+const _: () = h() 
+const _: Int = h() --> ! TypeError
 
 --- test "Inferred Parameters For Proc Expressions" ---
 type F = proc (Int, Bool) -> Str

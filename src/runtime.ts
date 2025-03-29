@@ -2,10 +2,10 @@ import { Interpreter, RuntimeError } from "./interpreter.ts";
 import { ParseError, Parser } from "./parser.ts";
 import { CodeSource } from "./codesource.ts";
 import { TypeChecker, TypeError } from "./typechecker.ts";
-import { Ast } from "./core.ts";
 import { Token, Tokenizer } from "./tokens.ts";
 import { annotate } from "./reporter.ts";
 import { red } from "@std/fmt/colors";
+import { Ast } from "./ast.ts";
 
 export enum RunResultType {
 	Ok = "Ok",

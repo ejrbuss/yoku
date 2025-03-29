@@ -4,7 +4,7 @@ import {
 	AssertStmt,
 	AssignStmt,
 	Ast,
-	AstType,
+	AstTag,
 	BinaryExpr,
 	BlockExpr,
 	BreakStmt,
@@ -32,7 +32,7 @@ import {
 	UnaryExpr,
 	VarDecl,
 	WhileStmt,
-} from "./core.ts";
+} from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
 import {
@@ -137,7 +137,7 @@ function storeTypes(
 	mutable: boolean,
 	assert: boolean
 ): void {
-	if (pattern.type === AstType.BinaryExpr) {
+	if (pattern.tag === AstTag.BinaryExpr) {
 		if (pattern.op !== BinaryOp.As) {
 			throw new Unreachable();
 		}
@@ -145,7 +145,7 @@ function storeTypes(
 		storeTypes(t, pattern.right, type, mutable, assert);
 		return;
 	}
-	if (pattern.type === AstType.TupleExpr) {
+	if (pattern.tag === AstTag.TupleExpr) {
 		if (type.kind !== Kind.Tuple) {
 			const pt = Type.print(type);
 			throw new TypeError(
@@ -160,7 +160,7 @@ function storeTypes(
 		}
 		return;
 	}
-	if (pattern.type === AstType.StructExpr) {
+	if (pattern.tag === AstTag.StructExpr) {
 		const constructor = reifyType(t, pattern.id, true);
 		assertAssignable(type, constructor, pattern);
 		if (type.kind !== Kind.Struct) {
@@ -172,7 +172,7 @@ function storeTypes(
 		}
 		return;
 	}
-	if (pattern.type === AstType.CallExpr) {
+	if (pattern.tag === AstTag.CallExpr) {
 		const constructor = reifyType(t, pattern.proc, true);
 		assertAssignable(type, constructor, pattern);
 		if (type.kind !== Kind.TupleStruct) {
@@ -184,10 +184,10 @@ function storeTypes(
 		}
 		return;
 	}
-	if (pattern.type === AstType.WildCardExpr) {
+	if (pattern.tag === AstTag.WildCardExpr) {
 		return;
 	}
-	if (pattern.type === AstType.LitExpr) {
+	if (pattern.tag === AstTag.LitExpr) {
 		if (!assert) {
 			throw new TypeError(
 				"Cannot use literals outside an assert pattern!",
@@ -198,7 +198,7 @@ function storeTypes(
 		assertAssignable(type, Type.of(pattern.value), pattern);
 		return;
 	}
-	if (pattern.type === AstType.IdExpr) {
+	if (pattern.tag === AstTag.IdExpr) {
 		if (
 			!t.values.declareLocal(pattern.value, {
 				mutable,
@@ -214,68 +214,68 @@ function storeTypes(
 }
 
 function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
-	switch (ast.type) {
-		case AstType.ModuleDecls:
+	switch (ast.tag) {
+		case AstTag.ModuleDecls:
 			return checkModule(t, ast, d);
-		case AstType.ReplExprs:
+		case AstTag.ReplExprs:
 			return checkRepl(t, ast, d);
-		case AstType.VarDecl:
+		case AstTag.VarDecl:
 			return checkVarDecl(t, ast, d);
-		case AstType.ProcDecl:
+		case AstTag.ProcDecl:
 			return checkProcDecl(t, ast, d);
-		case AstType.TypeDecl:
+		case AstTag.TypeDecl:
 			return checkTypeDecl(t, ast, d);
-		case AstType.StructDecl:
+		case AstTag.StructDecl:
 			return checkStructDecl(t, ast, d);
-		case AstType.TestDecl:
+		case AstTag.TestDecl:
 			return checkTestDecl(t, ast, d);
-		case AstType.BreakStmt:
+		case AstTag.BreakStmt:
 			return checkBreakStmt(t, ast, d);
-		case AstType.ContinueStmt:
+		case AstTag.ContinueStmt:
 			return checkContinueStmt(t, ast, d);
-		case AstType.ReturnStmt:
+		case AstTag.ReturnStmt:
 			return checkReturnStmt(t, ast, d);
-		case AstType.AssertStmt:
+		case AstTag.AssertStmt:
 			return checkAssertStmt(t, ast, d);
-		case AstType.AssignStmt:
+		case AstTag.AssignStmt:
 			return checkAssignStmt(t, ast, d);
-		case AstType.LoopStmt:
+		case AstTag.LoopStmt:
 			return checkLoopStmt(t, ast, d);
-		case AstType.WhileStmt:
+		case AstTag.WhileStmt:
 			return checkWhileStmt(t, ast, d);
-		case AstType.ExprStmt:
+		case AstTag.ExprStmt:
 			return checkExprStmt(t, ast, d);
-		case AstType.BlockExpr:
+		case AstTag.BlockExpr:
 			return checkBlockExpr(t, ast, d);
-		case AstType.TupleExpr:
+		case AstTag.TupleExpr:
 			return checkTupleExpr(t, ast, d);
-		case AstType.StructExpr:
+		case AstTag.StructExpr:
 			return checkStructExpr(t, ast, d);
-		case AstType.GroupExpr:
+		case AstTag.GroupExpr:
 			return checkGroupExpr(t, ast, d);
-		case AstType.IfExpr:
+		case AstTag.IfExpr:
 			return checkIfExpr(t, ast, d);
-		case AstType.MatchExpr:
+		case AstTag.MatchExpr:
 			return checkMatchExpr(t, ast, d);
-		case AstType.ThrowExpr:
+		case AstTag.ThrowExpr:
 			return checkThrowExpr(t, ast, d);
-		case AstType.ProcExpr:
+		case AstTag.ProcExpr:
 			return checkProcExpr(t, ast, d);
-		case AstType.TypeExpr:
+		case AstTag.TypeExpr:
 			return checkTypeExpr(t, ast, d);
-		case AstType.BinaryExpr:
+		case AstTag.BinaryExpr:
 			return checkBinaryExpr(t, ast, d);
-		case AstType.UnaryExpr:
+		case AstTag.UnaryExpr:
 			return checkUnaryExpr(t, ast, d);
-		case AstType.CallExpr:
+		case AstTag.CallExpr:
 			return checkCallExpr(t, ast, d);
-		case AstType.LitExpr:
+		case AstTag.LitExpr:
 			return checkLitExpr(t, ast, d);
-		case AstType.IdExpr:
+		case AstTag.IdExpr:
 			return checkIdExpr(t, ast, d);
-		case AstType.ProcTypeExpr:
+		case AstTag.ProcTypeExpr:
 			throw new Unreachable();
-		case AstType.WildCardExpr:
+		case AstTag.WildCardExpr:
 			throw new Unreachable();
 	}
 }
@@ -322,24 +322,8 @@ function checkProcDecl(t: TypeChecker, p: ProcDecl, _d?: TypePattern): Type {
 		console.log(Ast.print(p));
 		throw new Unreachable();
 	}
-	const params: Type[] = [];
-	for (const param of p.initExpr.params) {
-		if (param.declType === undefined) {
-			throw new TypeError(
-				"Params in proc declarations require type annotations!",
-				param.pattern.start,
-				param.pattern.end
-			);
-		}
-		const paramType = reifyType(t, param.declType, true);
-		params.push(paramType);
-	}
-	let returns: Type = Type.Unit;
-	if (p.initExpr.returnType !== undefined) {
-		returns = reifyType(t, p.initExpr.returnType, true);
-	}
-	storeTypes(t, p.id, Type.proc(params, returns), false, false);
-	check(t, p.initExpr, returns);
+	const type = check(t, p.initExpr);
+	storeTypes(t, p.id, type, false, false);
 	return Type.Any;
 }
 
@@ -653,7 +637,7 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: TypePattern): Type {
 		// Exhaustive if this is a wildcard case with an assignable type
 		if (
 			c.pattern !== undefined &&
-			c.pattern.type === AstType.WildCardExpr &&
+			c.pattern.tag === AstTag.WildCardExpr &&
 			c.testExpr === undefined &&
 			(c.declType === undefined ||
 				Type.assignable(from, reifyType(t, c.declType, false)))
@@ -763,7 +747,7 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 			const l = check(t, b.left);
 			if (l.kind === Kind.Tuple || l.kind === Kind.TupleStruct) {
 				if (
-					b.right.type !== AstType.LitExpr ||
+					b.right.tag !== AstTag.LitExpr ||
 					typeof b.right.value !== "bigint"
 				) {
 					const lp = Type.print(l);
@@ -784,7 +768,7 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 				return l.items[Number(b.right.value)];
 			}
 			if (l.kind === Kind.Struct) {
-				if (b.right.type !== AstType.IdExpr) {
+				if (b.right.tag !== AstTag.IdExpr) {
 					const lp = Type.print(l);
 					const rp = Type.print(check(t, b.right));
 					throw new TypeError(
@@ -891,7 +875,7 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: TypePattern): Type {
 		c.resolvedType = callee.returns;
 		return callee.returns;
 	}
-	if (callee === Type.Module && c.proc.type === AstType.IdExpr) {
+	if (callee === Type.Module && c.proc.tag === AstTag.IdExpr) {
 		const type = t.types.get(c.proc.value);
 		if (type !== undefined && type.kind === Kind.TupleStruct) {
 			for (const [arg, item] of zip(c.args, type.items)) {
@@ -931,17 +915,17 @@ function reifyType<B extends boolean>(
 	ast: Ast,
 	strict: B
 ): B extends true ? Type : TypePattern {
-	if (ast.type === AstType.TypeExpr) {
+	if (ast.tag === AstTag.TypeExpr) {
 		return reifyType(t, ast.expr, strict);
 	}
-	if (ast.type === AstType.TupleExpr) {
+	if (ast.tag === AstTag.TupleExpr) {
 		const items: TypePattern[] = [];
 		for (const item of ast.items) {
 			items.push(reifyType(t, item, strict));
 		}
 		return Type.tuple(items) as Type;
 	}
-	if (ast.type === AstType.ProcTypeExpr) {
+	if (ast.tag === AstTag.ProcTypeExpr) {
 		const params: TypePattern[] = [];
 		for (const param of ast.params) {
 			params.push(reifyType(t, param, strict));
@@ -949,7 +933,7 @@ function reifyType<B extends boolean>(
 		const returns = reifyType(t, ast.returnType, strict);
 		return Type.proc(params, returns) as Type;
 	}
-	if (ast.type === AstType.WildCardExpr) {
+	if (ast.tag === AstTag.WildCardExpr) {
 		if (strict) {
 			throw new TypeError(
 				"Cannot use a wildcard type here!",
@@ -959,7 +943,7 @@ function reifyType<B extends boolean>(
 		}
 		return Type._ as unknown as Type;
 	}
-	if (ast.type === AstType.IdExpr) {
+	if (ast.tag === AstTag.IdExpr) {
 		const type = t.types.get(ast.value);
 		if (type === undefined) {
 			throw new TypeError("Undefined type!", ast.start, ast.end);
@@ -1044,9 +1028,11 @@ function closestTuple(type?: TypePattern): TupleTypePattern {
 	return type;
 }
 
+const EmptyProcType = Type.proc([], Type.Unit);
+
 function closestProc(type?: TypePattern): ProcTypePattern {
 	if (type === undefined || type.kind !== Kind.Proc) {
-		return Type.proc([], Type._);
+		return EmptyProcType;
 	}
 	return type;
 }

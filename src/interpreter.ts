@@ -1,9 +1,18 @@
 import { Builtins } from "./builtins.ts";
 import {
+	Module,
+	print,
+	Proc,
+	Struct,
+	Tuple,
+	TupleStruct as TupleStruct,
+	Unit,
+} from "./core.ts";
+import {
 	AssertStmt,
 	AssignStmt,
 	Ast,
-	AstType,
+	AstTag,
 	BinaryExpr,
 	BlockExpr,
 	BreakStmt,
@@ -16,29 +25,22 @@ import {
 	LitExpr,
 	LoopStmt,
 	MatchExpr,
-	Module,
 	ModuleDecls,
-	print,
-	Proc,
 	ProcDecl,
 	ProcExpr,
 	ReplExprs,
 	ReturnStmt,
-	Struct,
 	StructDecl,
 	StructExpr,
 	TestDecl,
 	ThrowExpr,
-	Tuple,
 	TupleExpr,
-	TupleStruct as TupleStruct,
 	TypeDecl,
 	TypeExpr,
 	UnaryExpr,
-	Unit,
 	VarDecl,
 	WhileStmt,
-} from "./core.ts";
+} from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
 import {
@@ -134,7 +136,7 @@ function unify(
 		}
 	}
 	// pattern.left as pattern.right = value
-	if (pattern.type === AstType.BinaryExpr) {
+	if (pattern.tag === AstTag.BinaryExpr) {
 		if (!unify(i, pattern.left, value, throwOnFailure)) {
 			return false;
 		}
@@ -144,7 +146,7 @@ function unify(
 		return true;
 	}
 	// (pattern.items,) = (value.items,)
-	if (pattern.type === AstType.TupleExpr) {
+	if (pattern.tag === AstTag.TupleExpr) {
 		const tuple = value as Tuple;
 		for (const [pi, vi] of zip(pattern.items, tuple.items)) {
 			if (!unify(i, pi, vi, throwOnFailure)) {
@@ -154,7 +156,7 @@ function unify(
 		return true;
 	}
 	// Struct { ... } = value
-	if (pattern.type === AstType.StructExpr) {
+	if (pattern.tag === AstTag.StructExpr) {
 		const struct = value as Struct;
 		for (const f of pattern.fieldInits) {
 			if (!unify(i, f.expr ?? f.id, struct[f.id.value], throwOnFailure)) {
@@ -164,7 +166,7 @@ function unify(
 		return true;
 	}
 	// TupleStruct(...) = value
-	if (pattern.type === AstType.CallExpr) {
+	if (pattern.tag === AstTag.CallExpr) {
 		const tupleStruct = value as TupleStruct;
 		for (const [pi, vi] of zip(pattern.args, tupleStruct.items)) {
 			if (!unify(i, pi, vi, throwOnFailure)) {
@@ -174,11 +176,11 @@ function unify(
 		return true;
 	}
 	// _ = value
-	if (pattern.type === AstType.WildCardExpr) {
+	if (pattern.tag === AstTag.WildCardExpr) {
 		return true;
 	}
 	// pattern = value
-	if (pattern.type === AstType.IdExpr) {
+	if (pattern.tag === AstTag.IdExpr) {
 		i.scopes.declareLocal(pattern.value, {
 			mutable: true,
 			allowShadow: true,
@@ -187,7 +189,7 @@ function unify(
 		return true;
 	}
 	// "literal" = value
-	if (pattern.type === AstType.LitExpr) {
+	if (pattern.tag === AstTag.LitExpr) {
 		if (!structurallyEq(pattern.value, value)) {
 			if (throwOnFailure) {
 				const expected = print(pattern.value);
@@ -207,68 +209,68 @@ function unify(
 }
 
 function interperate(i: Interpreter, ast: Ast): unknown {
-	switch (ast.type) {
-		case AstType.ModuleDecls:
+	switch (ast.tag) {
+		case AstTag.ModuleDecls:
 			return interperateModuleDecls(i, ast);
-		case AstType.ReplExprs:
+		case AstTag.ReplExprs:
 			return interperateReplExprs(i, ast);
-		case AstType.VarDecl:
+		case AstTag.VarDecl:
 			return interperateVarDecl(i, ast);
-		case AstType.ProcDecl:
+		case AstTag.ProcDecl:
 			return interperateProcDecl(i, ast);
-		case AstType.TypeDecl:
+		case AstTag.TypeDecl:
 			return interperateTypeDecl(i, ast);
-		case AstType.StructDecl:
+		case AstTag.StructDecl:
 			return interperateStructDecl(i, ast);
-		case AstType.TestDecl:
+		case AstTag.TestDecl:
 			return interperateTestDecl(i, ast);
-		case AstType.BreakStmt:
+		case AstTag.BreakStmt:
 			return interperateBreakStmt(i, ast);
-		case AstType.ContinueStmt:
+		case AstTag.ContinueStmt:
 			return interperateContinueStmt(i, ast);
-		case AstType.ReturnStmt:
+		case AstTag.ReturnStmt:
 			return interperateReturnStmt(i, ast);
-		case AstType.AssertStmt:
+		case AstTag.AssertStmt:
 			return interperateAssertStmt(i, ast);
-		case AstType.LoopStmt:
+		case AstTag.LoopStmt:
 			return interperateLoopStmt(i, ast);
-		case AstType.WhileStmt:
+		case AstTag.WhileStmt:
 			return interperateWhileStmt(i, ast);
-		case AstType.AssignStmt:
+		case AstTag.AssignStmt:
 			return interperateAssignStmt(i, ast);
-		case AstType.ExprStmt:
+		case AstTag.ExprStmt:
 			return interperateExprStmt(i, ast);
-		case AstType.BlockExpr:
+		case AstTag.BlockExpr:
 			return interperateBlockExpr(i, ast);
-		case AstType.TupleExpr:
+		case AstTag.TupleExpr:
 			return interperateTupleExpr(i, ast);
-		case AstType.StructExpr:
+		case AstTag.StructExpr:
 			return interperateStructExpr(i, ast);
-		case AstType.GroupExpr:
+		case AstTag.GroupExpr:
 			return interperateGroupExpr(i, ast);
-		case AstType.IfExpr:
+		case AstTag.IfExpr:
 			return interperateIfExpr(i, ast);
-		case AstType.MatchExpr:
+		case AstTag.MatchExpr:
 			return interperateMatchExpr(i, ast);
-		case AstType.ThrowExpr:
+		case AstTag.ThrowExpr:
 			return interperateThrowExpr(i, ast);
-		case AstType.ProcExpr:
+		case AstTag.ProcExpr:
 			return interperateProcExpr(i, ast);
-		case AstType.TypeExpr:
+		case AstTag.TypeExpr:
 			return interperateTypeExpr(i, ast);
-		case AstType.BinaryExpr:
+		case AstTag.BinaryExpr:
 			return interperateBinaryExpr(i, ast);
-		case AstType.UnaryExpr:
+		case AstTag.UnaryExpr:
 			return interperateUnaryExpr(i, ast);
-		case AstType.CallExpr:
+		case AstTag.CallExpr:
 			return interperateCallExpr(i, ast);
-		case AstType.LitExpr:
+		case AstTag.LitExpr:
 			return interperateLitExpr(i, ast);
-		case AstType.IdExpr:
+		case AstTag.IdExpr:
 			return interperateIdExpr(i, ast);
-		case AstType.ProcTypeExpr:
+		case AstTag.ProcTypeExpr:
 			throw new Unreachable();
-		case AstType.WildCardExpr:
+		case AstTag.WildCardExpr:
 			throw new Unreachable();
 	}
 	throw new Unreachable(ast satisfies never);
@@ -338,7 +340,7 @@ function interperateReturnStmt(i: Interpreter, r: ReturnStmt): unknown {
 function interperateAssertStmt(i: Interpreter, a: AssertStmt): unknown {
 	const value = interperate(i, a.testExpr);
 	if (!value) {
-		if (a.testExpr.type === AstType.BinaryExpr) {
+		if (a.testExpr.tag === AstTag.BinaryExpr) {
 			const b = a.testExpr;
 			const l = interperate(i, b.left);
 			const r = interperate(i, b.right);

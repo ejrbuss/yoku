@@ -1,0 +1,18 @@
+-- Thinking about the interface we want as a language user
+
+export module Lang {
+
+	export struct Workspace {
+		const sourceLocations: List[Int]
+		const moduleScope: Scope[Ast]
+	}
+
+	export proc tokenize(code: CodeSource, ws: Workspace = GlobalWorkspace) -> Iter[Token] {}
+
+	export proc parse(tokens: Iter[Token], ws: Workspace = GlobalWorkspace) -> Ast {}
+
+	export proc type_check(ast: Ast, ws: Workspace = GlobalWorkspace) -> Map[Ast, Type] {}
+
+	export proc compile(ast: Ast, types: Map[Ast, Type], ws: Workspace = GlobalWorkspace) -> Iter<Byte>
+
+}

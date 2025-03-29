@@ -492,7 +492,9 @@ When rewriting the language, consider that we really have three langauges
 The first two can be parsed and understood almost entirely on their own. The 
 third requires integration with the other two.
 
-
-# Restructuring the Interpreter
-```ts
-```
+# Refactoring Stage:
+ - Cleanup AST
+ - Move Spans out of band
+ - Push Errors as problems
+ - Move Types out of band
+ - Unify scopes?
