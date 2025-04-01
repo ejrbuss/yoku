@@ -121,6 +121,21 @@ g(proc () -> { 4 }) --> ! TypeError
 g(proc (x, y) -> { 4 }) --> ! TypeError
 g(proc (x) -> { true }) --> ! TypeError
 
+--- test "Recursive Procs" ---
+proc fib(n: Int) -> Int {
+	match n {
+		0 => { 0 }
+		1 => { 1 }
+		n => { fib(n - 1) + fib(n - 2) }
+	}
+}
+
+fib(0) --> 0
+fib(1) --> 1
+fib(2) --> 1
+fib(3) --> 2
+fib(10) --> 55
+
 --- skip "Default Parameter Experessions" ---
 proc f(x: Int, y: Int = 4) { y }
 f(1) --> 4

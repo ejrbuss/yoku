@@ -7,7 +7,7 @@ import {
 	BlockExpr,
 	AstContinueStmt,
 	AstBreakStmt,
-	VarDecl,
+	AstVarDecl,
 	AstModule,
 	AstReturnStmt,
 	AstAssertStmt,
@@ -16,9 +16,9 @@ import {
 	ProcTypeExpr,
 	AstLoopStmt,
 	TupleExpr,
-	TestDecl,
+	AstTestDecl,
 	LitExpr,
-	TypeDecl,
+	AstTypeDecl,
 	MatchExpr,
 	Case,
 	TypeExpr,
@@ -26,6 +26,7 @@ import {
 	ThrowExpr,
 	AstStructField,
 	StructExprFieldInit,
+	AstProcDecl,
 } from "./ast.ts";
 import { CodeSource } from "./codesource.ts";
 import { Unreachable } from "./utils.ts";
@@ -148,7 +149,7 @@ function parseStmt(p: Parser): Ast {
 	return parseAssignStmt(p);
 }
 
-function parseVarDecl(p: Parser): VarDecl {
+function parseVarDecl(p: Parser): AstVarDecl {
 	pushStart(p);
 	const mutable = match(p, "const") === undefined;
 	if (mutable) {
@@ -171,23 +172,21 @@ function parseVarDecl(p: Parser): VarDecl {
 	};
 }
 
-function parseProcDecl(p: Parser): VarDecl {
+function parseProcDecl(p: Parser): AstProcDecl {
 	pushStart(p);
 	consume(p, "proc");
 	const id = parseIdExpr(p);
 	const initExpr = parseProcExpr(p);
 	return {
-		tag: AstTag.VarDecl,
-		mutable: false,
-		assert: false,
-		pattern: id,
+		tag: AstTag.ProcDecl,
+		id,
 		initExpr,
 		start: popStart(p),
 		end: getEnd(p),
 	};
 }
 
-function praseTypeDecl(p: Parser): TypeDecl {
+function praseTypeDecl(p: Parser): AstTypeDecl {
 	pushStart(p);
 	consume(p, "type");
 	const id = parseIdExpr(p);
@@ -242,7 +241,7 @@ function parseStructDecl(p: Parser): AstStructDecl {
 	};
 }
 
-function parseTestDecl(p: Parser): TestDecl {
+function parseTestDecl(p: Parser): AstTestDecl {
 	pushStart(p);
 	consume(p, "test");
 	const name = consume(p, TokenType.Lit);

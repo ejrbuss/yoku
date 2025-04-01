@@ -22,14 +22,15 @@ import {
 	AstReturnStmt,
 	AstStructDecl,
 	StructExpr,
-	TestDecl,
 	ThrowExpr,
 	TupleExpr,
-	TypeDecl,
 	TypeExpr,
 	UnaryExpr,
-	VarDecl,
 	AstAssignFieldStmt,
+	AstTypeDecl,
+	AstVarDecl,
+	AstTestDecl,
+	AstProcDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -217,6 +218,8 @@ function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 			return checkModule(t, ast, d);
 		case AstTag.VarDecl:
 			return checkVarDecl(t, ast, d);
+		case AstTag.ProcDecl:
+			return checkProcDecl(t, ast, d);
 		case AstTag.TypeDecl:
 			return checkTypeDecl(t, ast, d);
 		case AstTag.StructDecl:
@@ -282,7 +285,7 @@ function checkModule(t: TypeChecker, m: AstModule, _d?: TypePattern): Type {
 	return m.replMode ? result : Type.Any;
 }
 
-function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: TypePattern): Type {
+function checkVarDecl(t: TypeChecker, d: AstVarDecl, _d?: TypePattern): Type {
 	let resolvedType: Type;
 	let declType: undefined | TypePattern;
 	if (d.typeAnnotation !== undefined) {
@@ -303,7 +306,30 @@ function checkVarDecl(t: TypeChecker, d: VarDecl, _d?: TypePattern): Type {
 	return Type.Any;
 }
 
-function checkTypeDecl(t: TypeChecker, d: TypeDecl, _d?: TypePattern): Type {
+function checkProcDecl(t: TypeChecker, p: AstProcDecl, _d?: TypePattern): Type {
+	const params: Type[] = [];
+	for (const param of p.initExpr.params) {
+		if (param.declType === undefined) {
+			throw new TypeError(
+				"Top level proc params require type annotations!",
+				param.pattern.start,
+				param.pattern.end
+			);
+		}
+		const paramType = reifyType(t, param.declType, true);
+		params.push(paramType);
+	}
+	let returns: Type = Type.Unit;
+	if (p.initExpr.returnType !== undefined) {
+		returns = reifyType(t, p.initExpr.returnType, true);
+	}
+	const type = Type.proc(params, returns);
+	storeTypes(t, p.id, type, false, false);
+	check(t, p.initExpr);
+	return type;
+}
+
+function checkTypeDecl(t: TypeChecker, d: AstTypeDecl, _d?: TypePattern): Type {
 	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
@@ -363,7 +389,7 @@ function checkStructDecl(
 	return Type.Any;
 }
 
-function checkTestDecl(t: TypeChecker, d: TestDecl, _d?: TypePattern): Type {
+function checkTestDecl(t: TypeChecker, d: AstTestDecl, _d?: TypePattern): Type {
 	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
@@ -619,7 +645,8 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: TypePattern): Type {
 		// Exhaustive if this is a wildcard case with an assignable type
 		if (
 			c.pattern !== undefined &&
-			c.pattern.tag === AstTag.WildCardExpr &&
+			(c.pattern.tag === AstTag.WildCardExpr ||
+				c.pattern.tag === AstTag.IdExpr) &&
 			c.testExpr === undefined &&
 			(c.declType === undefined ||
 				Type.assignable(from, reifyType(t, c.declType, false)))

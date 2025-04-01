@@ -22,14 +22,15 @@ import {
 	AstReturnStmt,
 	AstStructDecl,
 	StructExpr,
-	TestDecl,
 	ThrowExpr,
 	TupleExpr,
-	TypeDecl,
 	TypeExpr,
 	UnaryExpr,
-	VarDecl,
 	AstAssignFieldStmt,
+	AstVarDecl,
+	AstTypeDecl,
+	AstTestDecl,
+	AstProcDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -197,6 +198,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateModuleDecls(i, ast);
 		case AstTag.VarDecl:
 			return interperateVarDecl(i, ast);
+		case AstTag.ProcDecl:
+			return interperateProcDecl(i, ast);
 		case AstTag.TypeDecl:
 			return interperateTypeDecl(i, ast);
 		case AstTag.StructDecl:
@@ -262,13 +265,19 @@ function interperateModuleDecls(i: Interpreter, m: AstModule): unknown {
 	return Unit;
 }
 
-function interperateVarDecl(i: Interpreter, d: VarDecl): unknown {
+function interperateVarDecl(i: Interpreter, d: AstVarDecl): unknown {
 	const value = interperate(i, d.initExpr);
 	unify(i, d.pattern, value, true, d.assert ? d.resolvedType : undefined);
 	return Unit;
 }
 
-function interperateTypeDecl(i: Interpreter, t: TypeDecl): unknown {
+function interperateProcDecl(i: Interpreter, p: AstProcDecl): unknown {
+	const value = interperate(i, p.initExpr);
+	unify(i, p.id, value, true);
+	return Unit;
+}
+
+function interperateTypeDecl(i: Interpreter, t: AstTypeDecl): unknown {
 	unify(i, t.id, Module.create(t.id.value, t.resolvedType), true);
 	return Unit;
 }
@@ -278,7 +287,7 @@ function interperateStructDecl(i: Interpreter, s: AstStructDecl): unknown {
 	return Unit;
 }
 
-function interperateTestDecl(i: Interpreter, t: TestDecl): unknown {
+function interperateTestDecl(i: Interpreter, t: AstTestDecl): unknown {
 	if (i.test) {
 		try {
 			interperate(i, t.thenExpr);

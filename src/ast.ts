@@ -5,6 +5,7 @@ import { Span, sexpr } from "./utils.ts";
 export enum AstTag {
 	Module = "Module",
 	VarDecl = "VarDecl",
+	ProcDecl = "ProcDecl",
 	TypeDecl = "TypeDecl",
 	StructDecl = "StructDecl",
 	TestDecl = "TestDecl",
@@ -41,7 +42,7 @@ export type AstModule = {
 	decls: Ast[];
 } & Span;
 
-export type VarDecl = {
+export type AstVarDecl = {
 	tag: AstTag.VarDecl;
 	mutable: boolean;
 	assert: boolean;
@@ -51,7 +52,14 @@ export type VarDecl = {
 	resolvedType?: Type;
 } & Span;
 
-export type TypeDecl = {
+export type AstProcDecl = {
+	tag: AstTag.ProcDecl;
+	id: IdExpr;
+	initExpr: ProcExpr;
+	resolvedType?: Type;
+} & Span;
+
+export type AstTypeDecl = {
 	tag: AstTag.TypeDecl;
 	id: IdExpr;
 	typeExpr: Ast;
@@ -72,11 +80,18 @@ export type AstStructField = {
 	defaultExpr?: Ast;
 };
 
-export type TestDecl = {
+export type AstTestDecl = {
 	tag: AstTag.TestDecl;
 	name: string;
 	thenExpr: Ast;
 } & Span;
+
+export type AstDecl =
+	| AstVarDecl
+	| AstProcDecl
+	| AstTypeDecl
+	| AstStructDecl
+	| AstTestDecl;
 
 export type AstBreakStmt = {
 	tag: AstTag.BreakStmt;
@@ -254,10 +269,7 @@ export type WildCardExpr = {
 
 export type Ast =
 	| AstModule
-	| VarDecl
-	| TypeDecl
-	| AstStructDecl
-	| TestDecl
+	| AstDecl
 	| AstStmt
 	| BlockExpr
 	| TupleExpr
