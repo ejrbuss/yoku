@@ -8,6 +8,7 @@ export enum AstTag {
 	ProcDecl = "ProcDecl",
 	TypeDecl = "TypeDecl",
 	StructDecl = "StructDecl",
+	EnumDecl = "EnumDecl",
 	TestDecl = "TestDecl",
 	BreakStmt = "BreakStmt",
 	ContinueStmt = "ContinueStmt",
@@ -76,9 +77,15 @@ export type AstStructDecl = {
 export type AstStructField = {
 	mutable: boolean;
 	id?: IdExpr;
-	typeAnnotation?: Ast;
-	defaultExpr?: Ast;
+	typeAnnotation: Ast;
 };
+
+export type AstEnumDecl = {
+	tag: AstTag.EnumDecl;
+	id: IdExpr;
+	variants: AstStructDecl[];
+	resolvedType?: Type;
+} & Span;
 
 export type AstTestDecl = {
 	tag: AstTag.TestDecl;
@@ -91,6 +98,7 @@ export type AstDecl =
 	| AstProcDecl
 	| AstTypeDecl
 	| AstStructDecl
+	| AstEnumDecl
 	| AstTestDecl;
 
 export type AstBreakStmt = {

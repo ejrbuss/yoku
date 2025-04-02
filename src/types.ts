@@ -8,10 +8,11 @@ export enum Kind {
 	Proc = "Proc",
 	Tuple = "Tuple",
 	Struct = "Struct",
+	Enum = "Enum",
 	Module = "Module",
 }
 
-export type Type = PrimitiveType | ProcType | TupleType | StructType;
+export type Type = PrimitiveType | ProcType | TupleType | StructType | EnumType;
 
 export type TypePattern =
 	| Type
@@ -54,14 +55,18 @@ export type StructField = {
 	mutable: boolean;
 	name?: string;
 	type: Type;
-	// This is a really gross hack
-	defaultExpr?: unknown;
 };
 
 export type StructType = {
 	kind: Kind.Struct;
 	name: string;
 	fields: StructField[];
+} & Typed;
+
+export type EnumType = {
+	kind: Kind.Enum;
+	name: string;
+	variants: StructType[];
 } & Typed;
 
 const Meta = {
@@ -80,6 +85,7 @@ export const Type = {
 	proc,
 	tuple,
 	struct,
+	enum: _enum,
 	Type: Meta, // TODO Type[T]
 	_: Wildcard,
 	Any: primitive("Any"),
@@ -120,6 +126,10 @@ function tuple<T extends Type | TypePattern>(
 
 function struct(name: string, fields: StructField[]): StructType {
 	return { $type: Meta, kind: Kind.Struct, name, fields };
+}
+
+function _enum(name: string, variants: StructType[]): EnumType {
+	return { $type: Meta, kind: Kind.Enum, name, variants };
 }
 
 function findField(
@@ -185,6 +195,9 @@ function print(t: TypePattern): string {
 			return `(${items.join(", ")})`;
 		}
 		case Kind.Struct: {
+			return t.name;
+		}
+		case Kind.Enum: {
 			return t.name;
 		}
 	}
@@ -288,6 +301,13 @@ function reconcile(from: TypePattern, into: TypePattern): Type | undefined {
 		}
 		// Structs are nominal, and so must be identical
 		if (from.kind === Kind.Struct && into.kind === Kind.Struct) {
+			if (from !== into) {
+				return undefined;
+			}
+			return into;
+		}
+		// Enums are nominal, and so must be identical
+		if (from.kind === Kind.Enum && into.kind === Kind.Enum) {
 			if (from !== into) {
 				return undefined;
 			}

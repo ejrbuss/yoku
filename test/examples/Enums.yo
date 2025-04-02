@@ -1,6 +1,6 @@
 --- mode Repl ---
 
---- skip "Simple Enum" ---
+--- test "Simple Enum" ---
 enum Alignment {
 	Good,
 	Neutral,

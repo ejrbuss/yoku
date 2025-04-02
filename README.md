@@ -459,21 +459,6 @@ impl Exception {
 	proc unreachable() -> Exception[Unreachable] {}
 	proc todo() -> Exception[Todo] {}
 
-	proc new(
-		payload: T, 
-		message: Str = Type.of(payload).name, 
-		stack_trace: Bool = true,
-		caused_by: Option[Exception[_]] = Option.None,
-	) -> This {
-		return This {
-			payload,
-			message,
-			stack_trace: if stack_trace { Option.Some(Runtime.get_stack_trace()) } else { Option.None },
-			caused,
-			suppressed: List.empty(),
-		}
-	}
-
 	proc toResult(this: This) -> Result[_, T] {
 		Result.Error(error)
 	}

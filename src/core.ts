@@ -1,4 +1,12 @@
-import { Typed, Kind, ProcType, StructType, TupleType, Type } from "./types.ts";
+import {
+	Typed,
+	Kind,
+	ProcType,
+	StructType,
+	TupleType,
+	Type,
+	EnumType,
+} from "./types.ts";
 import { enumerate, Unreachable } from "./utils.ts";
 
 export const Unit = null;
@@ -35,6 +43,21 @@ function createStruct(
 	values: Record<string, unknown>
 ): Struct {
 	return { $type: type, ...values };
+}
+
+export type Enum = Record<string, unknown> &
+	Typed & {
+		$variant: number;
+	};
+
+export const Enum = { create: createEnum };
+
+function createEnum(
+	type: EnumType,
+	variant: number,
+	values: Record<string, unknown>
+): Enum {
+	return { $type: type, $variant: variant, ...values };
 }
 
 export type Module = { name: string; type?: Type } & Typed;

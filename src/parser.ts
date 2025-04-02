@@ -27,6 +27,7 @@ import {
 	AstStructField,
 	StructExprFieldInit,
 	AstProcDecl,
+	AstEnumDecl,
 } from "./ast.ts";
 import { CodeSource } from "./codesource.ts";
 import { Unreachable } from "./utils.ts";
@@ -107,6 +108,9 @@ function parseDecl(p: Parser, replMode: boolean): Ast {
 	}
 	if (lookAhead(p, "struct")) {
 		return parseStructDecl(p);
+	}
+	if (lookAhead(p, "enum")) {
+		return parseEnumDecl(p);
 	}
 	if (lookAhead(p, "test")) {
 		return parseTestDecl(p);
@@ -203,7 +207,7 @@ function praseTypeDecl(p: Parser): AstTypeDecl {
 
 function parseStructDecl(p: Parser): AstStructDecl {
 	pushStart(p);
-	consume(p, "struct");
+	match(p, "struct");
 	const id = parseIdExpr(p);
 	const fields: AstStructField[] = [];
 	if (match(p, "{")) {
@@ -213,12 +217,9 @@ function parseStructDecl(p: Parser): AstStructDecl {
 				consume(p, "var");
 			}
 			const id = parseIdExpr(p);
-			const typeAnnotation = tryParseTypeAnnotation(p);
-			let defaultExpr: undefined | Ast;
-			if (match(p, "=")) {
-				defaultExpr = parseExpr(p);
-			}
-			fields.push({ mutable, id, typeAnnotation, defaultExpr });
+			consume(p, ":");
+			const typeAnnotation = parseTypeExpr(p);
+			fields.push({ mutable, id, typeAnnotation });
 		}
 		consume(p, "}");
 	} else {
@@ -236,6 +237,39 @@ function parseStructDecl(p: Parser): AstStructDecl {
 		tag: AstTag.StructDecl,
 		id,
 		fields,
+		start: popStart(p),
+		end: getEnd(p),
+	};
+}
+
+function parseEnumDecl(p: Parser): AstEnumDecl {
+	pushStart(p);
+	consume(p, "enum");
+	const id = parseIdExpr(p);
+	const variants: AstStructDecl[] = [];
+	consume(p, "{");
+	while (hasMore(p) && !lookAhead(p, "}")) {
+		if (!lookAhead(p, "{", 1) && !lookAhead(p, "(")) {
+			const variantId = parseIdExpr(p);
+			variants.push({
+				tag: AstTag.StructDecl,
+				id: variantId,
+				fields: [],
+				start: variantId.start,
+				end: variantId.end,
+			});
+			if (!lookAhead(p, "}")) {
+				consume(p, ",");
+			}
+		} else {
+			variants.push(parseStructDecl(p));
+		}
+	}
+	consume(p, "}");
+	return {
+		tag: AstTag.EnumDecl,
+		id,
+		variants,
 		start: popStart(p),
 		end: getEnd(p),
 	};

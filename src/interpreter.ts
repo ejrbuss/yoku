@@ -31,6 +31,7 @@ import {
 	AstTypeDecl,
 	AstTestDecl,
 	AstProcDecl,
+	AstEnumDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -204,6 +205,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateTypeDecl(i, ast);
 		case AstTag.StructDecl:
 			return interperateStructDecl(i, ast);
+		case AstTag.EnumDecl:
+			return interperateEnumDecl(i, ast);
 		case AstTag.TestDecl:
 			return interperateTestDecl(i, ast);
 		case AstTag.BreakStmt:
@@ -284,6 +287,11 @@ function interperateTypeDecl(i: Interpreter, t: AstTypeDecl): unknown {
 
 function interperateStructDecl(i: Interpreter, s: AstStructDecl): unknown {
 	unify(i, s.id, Module.create(s.id.value, s.resolvedType), true);
+	return Unit;
+}
+
+function interperateEnumDecl(i: Interpreter, e: AstEnumDecl): unknown {
+	unify(i, e.id, Module.create(e.id.value, e.resolvedType), true);
 	return Unit;
 }
 
@@ -415,11 +423,6 @@ function interperateStructExpr(i: Interpreter, s: StructExpr): unknown {
 	for (const fieldInit of s.fieldInits) {
 		fields[fieldInit.id.value] = interperate(i, fieldInit.expr ?? fieldInit.id);
 		initialized.push(fieldInit.id.value);
-	}
-	for (const field of type.fields) {
-		if (field.name && !initialized.includes(field.name)) {
-			fields[field.name] = interperate(i, field.defaultExpr as Ast);
-		}
 	}
 	return Struct.create(type, fields);
 }

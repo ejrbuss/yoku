@@ -23,42 +23,7 @@ p.x --> 100
 p.y --> 50
 
 --- test "Struct Errors" ---
-struct Bad { var x } --> ! TypeError
-
---- test "Struct Defaults" ---
-struct Unique {}
-
-struct Test {
-	var name: Str
-	var defaulted: Unique = Unique {}
-}
-
-const a = Test { name = "a" }
-const b = Test { name = "b" }
-const c = Test { name = "c", defaulted = a.defaulted }
-
-a.defaulted --> Unique {}
-a.defaulted !== b.defaulted --> true
-a.defaulted === c.defaulted --> true
-
---- test "Complex Struct Defaults" ---
-var side_effect = 0
-
-struct Test {
-	var x: Int
-	var y = do {
-		side_effect += 1
-		8
-	}
-}
-
-Test { x = 1 } --> Test { x = 1, y = 8 }
-side_effect --> 1
-Test { x = 2 } --> Test { x = 2, y = 8 }
-side_effect --> 2
-Test { y = 1 } --> ! TypeError
-Test { x = 1, y = 2 } --> Test { x = 1, y = 2 }
-side_effect --> 2
+struct Bad { var x } --> ! ParseError
 
 --- test "Nested Struct" ---
 struct Inner {
@@ -149,22 +114,3 @@ struct Color(Int, Int, Int)
 
 const rgb = Color(255, 0, 125)
 (rgb.0, rgb.1, rgb.2) --> (255, 0, 125)
-
---- test "Sanity Check Scopes" ---
-const x: Bool = true
-
-struct StructScope {
-	var x: Int = 2
-}
-
-proc procScope(x: StructScope) -> Int {
-	return x.x + 5
-}
-
-proc localScope(y: Int) -> Int {
-	var x: Int = 10
-	return y + x
-}
-
-procScope(StructScope { x = 10 }) --> 15
-localScope(20) --> 30

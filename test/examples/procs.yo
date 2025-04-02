@@ -135,21 +135,3 @@ fib(1) --> 1
 fib(2) --> 1
 fib(3) --> 2
 fib(10) --> 55
-
---- skip "Default Parameter Experessions" ---
-proc f(x: Int, y: Int = 4) { y }
-f(1) --> 4
-f(1, 2) --> 2
-f(y=3, x=4) --> 3
-f(x=5) --> 4
-
-var side_effect = 0
-proc g(x: Int, y = do { 
-	side_effect += 1
-	x
-}) -> { y }
-g(7) --> 7
-g(1, 2) --> 2
-g(1, 2) --> 2
-g(y=3, x=4) --> 3
-g(x=5) --> 5

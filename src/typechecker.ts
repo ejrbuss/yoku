@@ -31,6 +31,7 @@ import {
 	AstVarDecl,
 	AstTestDecl,
 	AstProcDecl,
+	AstEnumDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -43,7 +44,8 @@ import {
 	StructField,
 	StructType,
 } from "./types.ts";
-import { Span, Unreachable, zip, zipLeft } from "./utils.ts";
+import { Span, Todo, Unreachable, zip, zipLeft } from "./utils.ts";
+import { Struct } from "./core.ts";
 
 export type TypeChecker = {
 	types: Scopes<Type>;
@@ -224,6 +226,8 @@ function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 			return checkTypeDecl(t, ast, d);
 		case AstTag.StructDecl:
 			return checkStructDecl(t, ast, d);
+		case AstTag.EnumDecl:
+			return checkEnumDecl(t, ast, d);
 		case AstTag.TestDecl:
 			return checkTestDecl(t, ast, d);
 		case AstTag.BreakStmt:
@@ -347,45 +351,25 @@ function checkStructDecl(
 	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
-	const fields: StructField[] = [];
-	for (const field of s.fields) {
-		if (field.defaultExpr) {
-			const declType =
-				field.typeAnnotation === undefined
-					? Type._
-					: reifyType(t, field.typeAnnotation, false);
-			const initType = check(t, field.defaultExpr);
-			const fieldType = assertAssignable(
-				initType,
-				declType,
-				// TODO, we should get rid of this type cast
-				field.defaultExpr
-			);
-			fields.push({
-				mutable: field.mutable,
-				name: field.id?.value,
-				type: fieldType,
-				defaultExpr: field.defaultExpr,
-			});
-		} else {
-			if (field.typeAnnotation === undefined) {
-				assert(field.id !== undefined);
-				throw new TypeError(
-					"Field requires a type or initializer!",
-					field.id.start,
-					field.id.end
-				);
-			}
-			fields.push({
-				mutable: field.mutable,
-				name: field.id?.value,
-				type: reifyType(t, field.typeAnnotation, true),
-			});
-		}
-	}
-	const type = Type.struct(s.id.value, fields);
+	const type = reifyType(t, s, true);
 	declareType(t, s.id, type);
 	s.resolvedType = type;
+	return Type.Any;
+}
+
+function checkEnumDecl(t: TypeChecker, e: AstEnumDecl, _d?: TypePattern): Type {
+	if (!t.values.inGlobalScope) {
+		throw new Unreachable();
+	}
+	const variants: StructType[] = [];
+	for (const variant of e.variants) {
+		const type = reifyType(t, variant, true);
+		assert(type.kind === Kind.Struct);
+		variants.push(type);
+	}
+	const type = Type.enum(e.id.value, variants);
+	declareType(t, e.id, type);
+	e.resolvedType = type;
 	return Type.Any;
 }
 
@@ -572,21 +556,7 @@ function checkStructExpr(
 		const spreadType = check(t, s.spreadInit, type);
 		assertAssignable(spreadType, type, s.spreadInit);
 	} else {
-		const unintialized: string[] = [];
-		for (const field of type.fields) {
-			if (!field.defaultExpr && field.name) {
-				unintialized.push(field.name);
-			}
-		}
-		for (const field of unintialized) {
-			if (!initialized.includes(field)) {
-				throw new TypeError(
-					`Missing initializer for ${field}!`,
-					s.start,
-					s.end
-				);
-			}
-		}
+		assertCardinality(type.fields, initialized, s, "fields");
 	}
 	s.resolvedType = type;
 	return type;
@@ -928,6 +898,17 @@ function reifyType<B extends boolean>(
 ): B extends true ? Type : TypePattern {
 	if (ast.tag === AstTag.TypeExpr) {
 		return reifyType(t, ast.expr, strict);
+	}
+	if (ast.tag === AstTag.StructDecl) {
+		const fields: StructField[] = [];
+		for (const field of ast.fields) {
+			fields.push({
+				mutable: field.mutable,
+				name: field.id?.value,
+				type: reifyType(t, field.typeAnnotation, true),
+			});
+		}
+		return Type.struct(ast.id.value, fields);
 	}
 	if (ast.tag === AstTag.TupleExpr) {
 		const items: TypePattern[] = [];
