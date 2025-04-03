@@ -14,21 +14,30 @@ const b = Alignment.Evil
 b --> Alignment.Evil
 
 a == Alignment.Good --> true
+a === Alignment.Good --> true
+b === Alignment.Evil --> true
 b === Alignment.Evil --> true
 a != b --> true
+a !== b --> true
 
---- skip "Matching Enum" ---
+--- test "Matching Enum" ---
 enum Parity { Even, Odd }
 
 const _: Int = match Parity.Even {
 	Parity.Even => { 0 }
 } --> ! TypeError
 
-const a: Int =  match Priority.odd {
+const a: Int =  match Priority.Odd {
 	Parity.Even => { 0 }
 	Parity.Odd => { 1 }
 }
 a --> 1
+
+const b: Int =  match Priority.Even {
+	Parity.Even => { 2 }
+	else => { 4 }
+}
+b --> 2
 
 --- skip "Enum Shorthand" ---
 enum Parity { Even, Odd }
@@ -39,6 +48,28 @@ const a: Bool = match Parity.Even {
 }
 a --> true
 
---- test "Tuple Enum" ---
+--- skip "Tuple Enum" ---
+enum TupleEnum {
+	None,
+	Zero()
+	One(Int),
+	Two(Boo, Int),
+}
+
+var a = TupleEnum.None
+a == TupleEnum.None --> True
+a == TupleEnum.Zero() --> False
+
+a = TupleEnum.One(4)
+a == TupleEnum.One(4) --> True
+a == TupleEnum.Two(true, 4) --> False
+
+var s: Str = match a {
+	None => { "None" }
+	Zero() => { "Zero" }
+	One(x) => { cat("One", x) }
+	Two(x, y) => { cat(x, y) }
+}
+s --> "One4"
 
 --- test "Struct Enum" ---

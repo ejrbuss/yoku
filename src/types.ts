@@ -66,6 +66,7 @@ export type EnumType = {
 	kind: Kind.Enum;
 	name: string;
 	variants: StructType[];
+	constants: unknown[];
 } & Typed;
 
 const Meta = {
@@ -129,7 +130,7 @@ function struct(name: string, fields: StructField[]): StructType {
 }
 
 function _enum(name: string, variants: StructType[]): EnumType {
-	return { $type: Meta, kind: Kind.Enum, name, variants };
+	return { $type: Meta, kind: Kind.Enum, name, variants, constants: [] };
 }
 
 function findField(

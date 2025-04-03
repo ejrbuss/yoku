@@ -126,10 +126,31 @@ export function print(v: unknown): string {
 		if (fields.length === 0) {
 			return `${type.name}`;
 		} else if (tupleStruct) {
-			return `${type.name} (${fields.join(", ")})`;
+			return `${type.name}(${fields.join(", ")})`;
 		} else {
 			return `${type.name} { ${fields.join(", ")} }`;
 		}
 	}
-	throw new Unreachable();
+	if (type.kind === Kind.Enum) {
+		const enum_ = v as Enum;
+		const fields: string[] = [];
+		const variant = type.variants[enum_.$variant];
+		let tupleStruct = false;
+		for (const [i, field] of enumerate(variant.fields)) {
+			if (field.name === undefined) {
+				tupleStruct = true;
+				fields.push(print(`${print([enum_[i]])}`));
+			} else {
+				fields.push(print(`${field.name} = ${print(enum_[field.name])}`));
+			}
+		}
+		if (fields.length === 0) {
+			return `${type.name}.${variant.name}`;
+		} else if (tupleStruct) {
+			return `${type.name}.${variant.name}(${fields.join(", ")})`;
+		} else {
+			return `${type.name}.${variant.name} { ${fields.join(", ")} }`;
+		}
+	}
+	return `!!! Unknown Value: ${v} !!!`;
 }

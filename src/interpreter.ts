@@ -270,10 +270,11 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 }
 
 function interperateModuleDecls(i: Interpreter, m: AstModule): unknown {
+	let result: unknown = Unit;
 	for (const decl of m.decls) {
-		interperate(i, decl);
+		result = interperate(i, decl);
 	}
-	return Unit;
+	return result;
 }
 
 function interperateVarDecl(i: Interpreter, d: AstVarDecl): unknown {
@@ -608,7 +609,12 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 				const variant = enumType.variants.findIndex(
 					(variant) => variant.name === (b.right as IdExpr).value
 				);
-				return Enum.create(enumType, variant, {});
+				let constant = enumType.constants[variant];
+				if (constant === undefined) {
+					constant = Enum.create(enumType, variant, {});
+					enumType.constants[variant] = constant;
+				}
+				return constant;
 			}
 			throw new Unreachable();
 		}
