@@ -239,6 +239,7 @@ export type BinaryExpr = {
 	op: BinaryOp;
 	left: Ast;
 	right: Ast;
+	resolvedType?: Type;
 } & Span;
 
 export type UnaryExpr = {

@@ -9,7 +9,6 @@ export enum Kind {
 	Tuple = "Tuple",
 	Struct = "Struct",
 	Enum = "Enum",
-	Module = "Module",
 }
 
 export type Type = PrimitiveType | ProcType | TupleType | StructType | EnumType;
@@ -97,6 +96,7 @@ export const Type = {
 	Str: primitive("Str"),
 	Module: primitive("Module"), // TODO Module[T]
 	findField,
+	findVariant,
 	of,
 	print,
 	assignable,
@@ -142,6 +142,15 @@ function findField(
 	for (const field of type.fields) {
 		if (field.name === name) {
 			return field;
+		}
+	}
+	return undefined;
+}
+
+function findVariant(type: EnumType, name: string): StructType | undefined {
+	for (const variant of type.variants) {
+		if (variant.name === name) {
+			return variant;
 		}
 	}
 	return undefined;

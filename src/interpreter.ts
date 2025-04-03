@@ -1,5 +1,5 @@
 import { Builtins } from "./builtins.ts";
-import { Module, print, Proc, Struct, Tuple, Unit } from "./core.ts";
+import { Enum, Module, print, Proc, Struct, Tuple, Unit } from "./core.ts";
 import {
 	AstAssertStmt,
 	AstAssignVarStmt,
@@ -35,8 +35,16 @@ import {
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
-import { Kind, ProcType, StructType, TupleType, Type } from "./types.ts";
+import {
+	EnumType,
+	Kind,
+	ProcType,
+	StructType,
+	TupleType,
+	Type,
+} from "./types.ts";
 import { enumerate, structurallyEq, Unreachable, zip } from "./utils.ts";
+import { types } from "node:util";
 
 export class RuntimeError {
 	constructor(
@@ -594,6 +602,13 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 			}
 			if (type.kind === Kind.Struct) {
 				return (left as Struct)[(b.right as IdExpr).value];
+			}
+			if (type === Type.Module) {
+				const enumType = b.resolvedType as EnumType;
+				const variant = enumType.variants.findIndex(
+					(variant) => variant.name === (b.right as IdExpr).value
+				);
+				return Enum.create(enumType, variant, {});
 			}
 			throw new Unreachable();
 		}

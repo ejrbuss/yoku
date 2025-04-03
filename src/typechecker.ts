@@ -43,9 +43,11 @@ import {
 	ProcTypePattern,
 	StructField,
 	StructType,
+	EnumType,
 } from "./types.ts";
 import { Span, Todo, Unreachable, zip, zipLeft } from "./utils.ts";
 import { Struct } from "./core.ts";
+import { kMaxLength } from "node:buffer";
 
 export type TypeChecker = {
 	types: Scopes<Type>;
@@ -771,6 +773,32 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 				}
 				return field.type;
 			}
+			if (l === Type.Module && b.left.tag === AstTag.IdExpr) {
+				const enumType = t.types.get(b.left.value);
+				if (enumType?.kind === Kind.Enum) {
+					if (b.right.tag !== AstTag.IdExpr) {
+						const lp = Type.print(enumType);
+						const rp = Type.print(check(t, b.right));
+						throw new TypeError(
+							`Operator . cannot be applied to ${lp} and ${rp}!`,
+							b.start,
+							b.end
+						);
+					}
+					const variant = assertVariant(enumType, b.right);
+					if (variant.fields.length !== 0) {
+						const e = enumType.name;
+						const v = variant.name;
+						throw new TypeError(
+							`${e}.${v} cannot be constructed without fields!`,
+							b.start,
+							b.end
+						);
+					}
+					b.resolvedType = enumType;
+					return enumType;
+				}
+			}
 			return checkBinaryExprHelper(t, b, []);
 		}
 		case BinaryOp.As:
@@ -1002,7 +1030,7 @@ function assertCardinality(
 	}
 }
 
-// TODO this should be name: TokId | TokLitInt
+// TODO should this be `name: TokId | TokIntLit` ?
 function assertField(type: StructType, name: IdExpr | LitExpr): StructField {
 	// TODO git rid of this type assertion
 	const field = Type.findField(type, name.value as string | bigint);
@@ -1012,6 +1040,16 @@ function assertField(type: StructType, name: IdExpr | LitExpr): StructField {
 		throw new TypeError(`No field ${f} on type ${s}!`, name.start, name.end);
 	}
 	return field;
+}
+
+function assertVariant(type: EnumType, name: IdExpr): StructType {
+	const variant = Type.findVariant(type, name.value);
+	if (variant === undefined) {
+		const f = name.value;
+		const e = Type.print(type);
+		throw new TypeError(`No variant ${f} on type ${e}!`, name.start, name.end);
+	}
+	return variant;
 }
 
 function closestTuple(type?: TypePattern): TupleTypePattern {
