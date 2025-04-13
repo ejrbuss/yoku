@@ -3,7 +3,6 @@ import { Enum, Module, print, Proc, Struct, Tuple, Unit } from "./core.ts";
 import {
 	AstAssertStmt,
 	AstAssignVarStmt,
-	Ast,
 	AstTag,
 	BinaryExpr,
 	BlockExpr,
@@ -12,26 +11,32 @@ import {
 	AstContinueStmt,
 	AstExprStmt,
 	GroupExpr,
-	IdExpr,
 	IfExpr,
-	LitExpr,
 	AstLoopStmt,
 	MatchExpr,
 	AstModule,
 	ProcExpr,
 	AstReturnStmt,
 	AstStructDecl,
-	StructExpr,
+	AstStructExpr,
 	ThrowExpr,
 	TupleExpr,
-	TypeExpr,
-	UnaryExpr,
 	AstAssignFieldStmt,
 	AstVarDecl,
 	AstTypeDecl,
 	AstTestDecl,
 	AstProcDecl,
 	AstEnumDecl,
+	AstPattern,
+	AstDecl,
+	AstStmt,
+	AstExpr,
+	AstTypeExpr,
+	AstLit,
+	AstId,
+	UnaryExpr,
+	Ast,
+	AstWhileStmt,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -43,8 +48,8 @@ import {
 	TupleType,
 	Type,
 } from "./types.ts";
-import { enumerate, structurallyEq, Unreachable, zip } from "./utils.ts";
-import { types } from "node:util";
+import { enumerate, structurallyEq, Todo, Unreachable, zip } from "./utils.ts";
+import { unreachable } from "@std/assert/unreachable";
 
 export class RuntimeError {
 	constructor(
@@ -105,103 +110,91 @@ function create(test: boolean): Interpreter {
 
 function unify(
 	i: Interpreter,
-	pattern: Ast,
+	p: AstPattern,
 	value: unknown,
 	throwOnFailure: boolean,
-	declType?: Type
+	typeAnnotation?: Type
 ): boolean {
-	// we only bother checking the declType at the top level
-	if (declType !== undefined) {
+	if (typeAnnotation !== undefined) {
 		const from = Type.of(value);
-		const into = declType;
+		const into = typeAnnotation;
 		if (!Type.assignable(from, into)) {
 			if (throwOnFailure) {
 				const i = Type.print(into);
 				const f = print(from);
 				throw new RuntimeError(
 					`Expected type ${i} but found ${f}`,
-					pattern.start,
-					pattern.end
+					p.start,
+					p.end
 				);
 			} else {
 				return false;
 			}
 		}
 	}
-	// pattern.left as pattern.right = value
-	if (pattern.tag === AstTag.BinaryExpr) {
-		if (!unify(i, pattern.left, value, throwOnFailure)) {
-			return false;
+	switch (p.tag) {
+		case AstTag.Wildcard: {
+			return true;
 		}
-		if (!unify(i, pattern.right, value, throwOnFailure)) {
-			return false;
-		}
-		return true;
-	}
-	// (pattern.items,) = (value.items,)
-	if (pattern.tag === AstTag.TupleExpr) {
-		const tuple = value as Tuple;
-		for (const [pi, vi] of zip(pattern.items, tuple.items)) {
-			if (!unify(i, pi, vi, throwOnFailure)) {
-				return false;
+		case AstTag.Lit: {
+			if (!structurallyEq(p.value, value)) {
+				if (throwOnFailure) {
+					const expected = print(p.value);
+					const actual = print(value);
+					throw new RuntimeError(
+						`Expected ${expected} but found ${actual}!`,
+						p.start,
+						p.end
+					);
+				} else {
+					return false;
+				}
 			}
+			return true;
 		}
-		return true;
-	}
-	// Struct { ... } = value
-	if (pattern.tag === AstTag.StructExpr) {
-		const struct = value as Struct;
-		for (const f of pattern.fieldInits) {
-			if (!unify(i, f.expr ?? f.id, struct[f.id.value], throwOnFailure)) {
-				return false;
+		case AstTag.Id: {
+			i.scopes.declareLocal(p.value, {
+				mutable: true,
+				allowShadow: true,
+				value,
+			});
+			return true;
+		}
+		case AstTag.AsPattern: {
+			return (
+				unify(i, p.left, value, throwOnFailure) &&
+				unify(i, p.right, value, throwOnFailure)
+			);
+		}
+		case AstTag.TuplePattern: {
+			const tuple = value as Tuple;
+			for (const [pi, vi] of zip(p.items, tuple.items)) {
+				if (!unify(i, pi, vi, throwOnFailure)) {
+					return false;
+				}
 			}
+			return true;
 		}
-		return true;
-	}
-	// Struct(...) = value
-	if (pattern.tag === AstTag.CallExpr) {
-		const struct = value as Struct;
-		for (const [j, pj] of enumerate(pattern.args)) {
-			if (!unify(i, pj, struct[j], throwOnFailure)) {
-				return false;
+		case AstTag.StructPattern: {
+			const struct = value as Struct;
+			for (const f of p.fieldPatterns) {
+				if (!unify(i, f.pattern ?? f.id, struct[f.id.value], throwOnFailure)) {
+					return false;
+				}
 			}
+			return true;
 		}
-		return true;
-	}
-	// _ = value
-	if (pattern.tag === AstTag.WildCardExpr) {
-		return true;
-	}
-	// pattern = value
-	if (pattern.tag === AstTag.IdExpr) {
-		i.scopes.declareLocal(pattern.value, {
-			mutable: true,
-			allowShadow: true,
-			value,
-		});
-		return true;
-	}
-	// "literal" = value
-	if (pattern.tag === AstTag.LitExpr) {
-		if (!structurallyEq(pattern.value, value)) {
-			if (throwOnFailure) {
-				const expected = print(pattern.value);
-				const actual = print(value);
-				throw new RuntimeError(
-					`Expected ${expected} but found ${actual}!`,
-					pattern.start,
-					pattern.end
-				);
-			} else {
-				return false;
-			}
+		case AstTag.EnumPattern: {
+			throw new Todo();
 		}
-		return true;
 	}
-	throw new Unreachable();
+	return unreachable(`${p}`);
 }
 
-function interperate(i: Interpreter, ast: Ast): unknown {
+function interperate(
+	i: Interpreter,
+	ast: AstModule | AstDecl | AstStmt | AstExpr
+): unknown {
 	switch (ast.tag) {
 		case AstTag.Module:
 			return interperateModuleDecls(i, ast);
@@ -227,6 +220,8 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateAssertStmt(i, ast);
 		case AstTag.LoopStmt:
 			return interperateLoopStmt(i, ast);
+		case AstTag.WhileStmt:
+			return interperateWhileStmt(i, ast);
 		case AstTag.AssignVarStmt:
 			return interperateAssignVarStmt(i, ast);
 		case AstTag.AssignFieldStmt:
@@ -257,16 +252,12 @@ function interperate(i: Interpreter, ast: Ast): unknown {
 			return interperateUnaryExpr(i, ast);
 		case AstTag.CallExpr:
 			return interperateCallExpr(i, ast);
-		case AstTag.LitExpr:
-			return interperateLitExpr(i, ast);
-		case AstTag.IdExpr:
-			return interperateIdExpr(i, ast);
-		case AstTag.ProcTypeExpr:
-			throw new Unreachable();
-		case AstTag.WildCardExpr:
-			throw new Unreachable();
+		case AstTag.Lit:
+			return interperateLit(i, ast);
+		case AstTag.Id:
+			return interperateId(i, ast);
 	}
-	throw new Unreachable(ast satisfies never);
+	unreachable(`${Ast.print(ast)}`);
 }
 
 function interperateModuleDecls(i: Interpreter, m: AstModule): unknown {
@@ -369,6 +360,23 @@ function interperateLoopStmt(i: Interpreter, l: AstLoopStmt): unknown {
 	}
 }
 
+function interperateWhileStmt(i: Interpreter, w: AstWhileStmt): unknown {
+	while (interperate(i, w.testExpr)) {
+		try {
+			interperate(i, w.thenExpr);
+		} catch (e) {
+			if (e instanceof Continue && e.label === undefined) {
+				continue;
+			}
+			if (e instanceof Break && e.label === undefined) {
+				return Unit;
+			}
+			throw e;
+		}
+	}
+	return Unit;
+}
+
 function interperateAssignVarStmt(
 	i: Interpreter,
 	a: AstAssignVarStmt
@@ -416,7 +424,7 @@ function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 	return Tuple.create(t.resolvedType as TupleType, items);
 }
 
-function interperateStructExpr(i: Interpreter, s: StructExpr): unknown {
+function interperateStructExpr(i: Interpreter, s: AstStructExpr): unknown {
 	const type = s.resolvedType as StructType;
 	const fields: Record<string, unknown> = {};
 	const initialized: string[] = [];
@@ -511,7 +519,7 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 	});
 }
 
-function interperateTypeExpr(_i: Interpreter, t: TypeExpr): unknown {
+function interperateTypeExpr(_i: Interpreter, t: AstTypeExpr): unknown {
 	return t.resolvedType as Type;
 }
 
@@ -598,16 +606,16 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 			const type = Type.of(left);
 			if (type.kind === Kind.Tuple) {
 				return (left as Tuple).items[
-					Number((b.right as LitExpr).value as bigint)
+					Number((b.right as AstLit).value as bigint)
 				];
 			}
 			if (type.kind === Kind.Struct) {
-				return (left as Struct)[(b.right as IdExpr).value];
+				return (left as Struct)[(b.right as AstId).value];
 			}
 			if (type === Type.Module) {
 				const enumType = b.resolvedType as EnumType;
 				const variant = enumType.variants.findIndex(
-					(variant) => variant.name === (b.right as IdExpr).value
+					(variant) => variant.name === (b.right as AstId).value
 				);
 				let constant = enumType.constants[variant];
 				if (constant === undefined) {
@@ -646,10 +654,10 @@ function interperateCallExpr(i: Interpreter, c: CallExpr): unknown {
 	return (proc as Proc).impl(args);
 }
 
-function interperateLitExpr(_i: Interpreter, l: LitExpr): unknown {
+function interperateLit(_i: Interpreter, l: AstLit): unknown {
 	return l.value;
 }
 
-function interperateIdExpr(i: Interpreter, id: IdExpr): unknown {
+function interperateId(i: Interpreter, id: AstId): unknown {
 	return i.scopes.get(id.value);
 }

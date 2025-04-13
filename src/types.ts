@@ -13,11 +13,11 @@ export enum Kind {
 
 export type Type = PrimitiveType | ProcType | TupleType | StructType | EnumType;
 
-export type TypePattern =
+export type UnresolvedType =
 	| Type
 	| WildcardType
-	| ProcTypePattern
-	| TupleTypePattern;
+	| UnresolvedProctType
+	| UnresolvedTupleType;
 
 export type WildcardType = {
 	kind: Kind.Wildcard;
@@ -34,10 +34,10 @@ export type ProcType = {
 	returns: Type;
 } & Typed;
 
-export type ProcTypePattern = {
+export type UnresolvedProctType = {
 	kind: Kind.Proc;
-	params: TypePattern[];
-	returns: TypePattern;
+	params: UnresolvedType[];
+	returns: UnresolvedType;
 } & Typed;
 
 export type TupleType = {
@@ -45,14 +45,14 @@ export type TupleType = {
 	items: Type[];
 } & Typed;
 
-export type TupleTypePattern = {
+export type UnresolvedTupleType = {
 	kind: Kind.Tuple;
-	items: TypePattern[];
+	items: UnresolvedType[];
 } & Typed;
 
 export type StructField = {
 	mutable: boolean;
-	name?: string;
+	name: string;
 	type: Type;
 };
 
@@ -108,20 +108,20 @@ function primitive(name: string): PrimitiveType {
 	return { $type: Meta, kind: Kind.Primitive, name };
 }
 
-function proc<P extends Type | TypePattern, R extends Type | TypePattern>(
+function proc<P extends Type | UnresolvedType, R extends Type | UnresolvedType>(
 	params: P[],
 	returns: R
 ): P extends Type
 	? R extends Type
 		? ProcType
-		: ProcTypePattern
-	: ProcTypePattern {
+		: UnresolvedProctType
+	: UnresolvedProctType {
 	return { $type: Meta, kind: Kind.Proc, params, returns } as ProcType;
 }
 
-function tuple<T extends Type | TypePattern>(
+function tuple<T extends Type | UnresolvedType>(
 	items: T[]
-): T extends Type ? TupleType : TupleTypePattern {
+): T extends Type ? TupleType : UnresolvedTupleType {
 	return { $type: Meta, kind: Kind.Tuple, items } as TupleType;
 }
 
@@ -181,7 +181,7 @@ function of(v: unknown): Type {
 	throw new Error(`Cannot find type! ${v}`);
 }
 
-function print(t: TypePattern): string {
+function print(t: UnresolvedType): string {
 	switch (t.kind) {
 		case Kind.Wildcard: {
 			return "_";
@@ -213,26 +213,38 @@ function print(t: TypePattern): string {
 	}
 }
 
-function assignable(from: TypePattern, into: TypePattern): Type | undefined {
+function assignable(
+	from: UnresolvedType,
+	into: UnresolvedType
+): Type | undefined {
 	if (into === Type.Any || from === Type.Never) {
 		return reconcile(into, into);
 	}
 	return reconcile(from, into);
 }
 
-function assertable(from: TypePattern, into: TypePattern): Type | undefined {
+function assertable(
+	from: UnresolvedType,
+	into: UnresolvedType
+): Type | undefined {
 	if (from === Type.Any) {
 		return reconcile(into, into);
 	}
 	return assignable(from, into);
 }
 
-function reconcile(from: TypePattern, into: TypePattern): Type | undefined {
-	const fromStack: TypePattern[] = [];
-	const intoStack: TypePattern[] = [];
+function reconcile(
+	from: UnresolvedType,
+	into: UnresolvedType
+): Type | undefined {
+	const fromStack: UnresolvedType[] = [];
+	const intoStack: UnresolvedType[] = [];
 	const resultStack: Type[] = [];
 
-	function recurse(from: TypePattern, into: TypePattern): Type | undefined {
+	function recurse(
+		from: UnresolvedType,
+		into: UnresolvedType
+	): Type | undefined {
 		// Recursive base case, we've been here, return our previously pushed
 		// result
 		const i = fromStack.indexOf(from);

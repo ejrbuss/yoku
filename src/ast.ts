@@ -4,20 +4,27 @@ import { Span, sexpr } from "./utils.ts";
 
 export enum AstTag {
 	Module = "Module",
+	Wildcard = "Wildcard",
+	Lit = "Lit",
+	Id = "Id",
+	// Declarations
 	VarDecl = "VarDecl",
 	ProcDecl = "ProcDecl",
 	TypeDecl = "TypeDecl",
 	StructDecl = "StructDecl",
 	EnumDecl = "EnumDecl",
 	TestDecl = "TestDecl",
+	// Statements
 	BreakStmt = "BreakStmt",
 	ContinueStmt = "ContinueStmt",
 	ReturnStmt = "ReturnStmt",
 	AssertStmt = "AssertStmt",
 	LoopStmt = "LoopStmt",
+	WhileStmt = "WhileStmt",
 	AssignVarStmt = "AssignVarStmt",
 	AssignFieldStmt = "AssignFieldStmt",
 	ExprStmt = "ExprStmt",
+	// Expressions
 	BlockExpr = "BlockExpr",
 	TupleExpr = "TupleExpr",
 	StructExpr = "StructExpr",
@@ -30,67 +37,87 @@ export enum AstTag {
 	BinaryExpr = "BinaryExpr",
 	UnaryExpr = "UnaryExpr",
 	CallExpr = "CallExpr",
-	LitExpr = "LitExpr",
-	IdExpr = "IdExpr",
-	ProcTypeExpr = "ProcTypeExpr",
-	WildCardExpr = "WildCardExpr",
+	// Patterns
+	AsPattern = "AsPattern",
+	TuplePattern = "TuplePattern",
+	StructPattern = "StructPattern",
+	EnumPattern = "EnumPattern",
+	LitPattern = "LitPattern",
+	WildcardPattern = "WildcardPattern",
+	// Types
+	ProcType = "ProcType",
+	TupleType = "TupleType",
 }
 
 export type AstModule = {
 	tag: AstTag.Module;
 	id: string;
 	replMode: boolean;
-	decls: Ast[];
+	decls: (AstDecl | AstStmt)[];
+} & Span;
+
+export type AstWildcard = {
+	tag: AstTag.Wildcard;
+} & Span;
+
+export type AstLit = {
+	tag: AstTag.Lit;
+	value: unknown;
+} & Span;
+
+export type AstId = {
+	tag: AstTag.Id;
+	value: string;
 } & Span;
 
 export type AstVarDecl = {
 	tag: AstTag.VarDecl;
 	mutable: boolean;
 	assert: boolean;
-	typeAnnotation?: Ast;
-	pattern: Ast;
-	initExpr: Ast;
+	typeAnnotation?: AstType;
+	pattern: AstPattern;
+	initExpr: AstExpr;
 	resolvedType?: Type;
 } & Span;
 
 export type AstProcDecl = {
 	tag: AstTag.ProcDecl;
-	id: IdExpr;
+	id: AstId;
 	initExpr: ProcExpr;
 	resolvedType?: Type;
 } & Span;
 
 export type AstTypeDecl = {
 	tag: AstTag.TypeDecl;
-	id: IdExpr;
-	typeExpr: Ast;
+	id: AstId;
+	typeExpr: AstType;
 	resolvedType?: Type;
 } & Span;
 
 export type AstStructDecl = {
 	tag: AstTag.StructDecl;
-	id: IdExpr;
+	id: AstId;
 	fields: AstStructField[];
 	resolvedType?: Type;
 } & Span;
 
 export type AstStructField = {
 	mutable: boolean;
-	id?: IdExpr;
-	typeAnnotation: Ast;
+	id: AstId;
+	typeAnnotation: AstType;
 };
 
 export type AstEnumDecl = {
 	tag: AstTag.EnumDecl;
-	id: IdExpr;
+	id: AstId;
 	variants: AstStructDecl[];
 	resolvedType?: Type;
 } & Span;
 
 export type AstTestDecl = {
 	tag: AstTag.TestDecl;
-	name: string;
-	thenExpr: Ast;
+	name: AstLit;
+	thenExpr: AstExpr;
 } & Span;
 
 export type AstDecl =
@@ -103,53 +130,61 @@ export type AstDecl =
 
 export type AstBreakStmt = {
 	tag: AstTag.BreakStmt;
-	label?: IdExpr;
+	label?: AstId;
 } & Span;
 
 export type AstContinueStmt = {
 	tag: AstTag.ContinueStmt;
-	label?: IdExpr;
+	label?: AstId;
 } & Span;
 
 export type AstReturnStmt = {
 	tag: AstTag.ReturnStmt;
-	expr?: Ast;
+	expr?: AstExpr;
 } & Span;
 
 export type AstAssertStmt = {
 	tag: AstTag.AssertStmt;
-	testExpr: Ast;
+	testExpr: AstExpr;
 } & Span;
 
 export type AstLoopStmt = {
 	tag: AstTag.LoopStmt;
-	label?: IdExpr;
-	thenExpr: Ast;
+	label?: AstId;
+	thenExpr: AstExpr;
+} & Span;
+
+export type AstWhileStmt = {
+	tag: AstTag.WhileStmt;
+	testExpr: AstExpr;
+	thenExpr: AstExpr;
 } & Span;
 
 export type AstAssignVarStmt = {
 	tag: AstTag.AssignVarStmt;
-	target: IdExpr;
-	expr: Ast;
+	target: AstId;
+	expr: AstExpr;
 } & Span;
 
 export type AstAssignFieldStmt = {
 	tag: AstTag.AssignFieldStmt;
-	target: Ast;
-	field: IdExpr;
-	expr: Ast;
+	target: AstExpr;
+	field: AstId;
+	expr: AstExpr;
 } & Span;
 
 export type AstExprStmt = {
 	tag: AstTag.ExprStmt;
-	expr: Ast;
+	expr: AstExpr;
 } & Span;
 
 export type AstStmt =
+	| AstVarDecl
 	| AstBreakStmt
 	| AstContinueStmt
 	| AstReturnStmt
 	| AstLoopStmt
+	| AstWhileStmt
 	| AstAssertStmt
 	| AstAssignVarStmt
 	| AstAssignFieldStmt
@@ -157,145 +192,171 @@ export type AstStmt =
 
 export type BlockExpr = {
 	tag: AstTag.BlockExpr;
-	stmts: Ast[];
+	stmts: AstStmt[];
 } & Span;
 
 export type TupleExpr = {
 	tag: AstTag.TupleExpr;
-	items: Ast[];
+	items: AstExpr[];
 	resolvedType?: TupleType;
 } & Span;
 
-export type StructExpr = {
+export type AstStructExpr = {
 	tag: AstTag.StructExpr;
-	id: IdExpr;
-	fieldInits: StructExprFieldInit[];
-	spreadInit?: Ast;
+	id: AstId;
+	fieldInits: AstStructFieldInit[];
+	spreadInit?: AstExpr;
 	resolvedType?: StructType;
 } & Span;
 
-export type StructExprFieldInit = {
-	id: IdExpr;
-	expr?: Ast;
+export type AstStructFieldInit = {
+	id: AstId;
+	expr?: AstExpr;
 };
 
 export type GroupExpr = {
 	tag: AstTag.GroupExpr;
-	expr: Ast;
+	expr: AstExpr;
 } & Span;
 
 export type IfExpr = {
 	tag: AstTag.IfExpr;
 	mutable: boolean;
-	pattern?: Ast;
-	declType?: Ast;
-	testExpr: Ast;
-	thenExpr: Ast;
-	elseExpr?: Ast;
+	pattern?: AstPattern;
+	assertedType?: AstType;
+	testExpr: AstExpr;
+	thenExpr: AstExpr;
+	elseExpr?: AstExpr;
 	resolvedDeclType?: Type;
 } & Span;
 
 export type MatchExpr = {
 	tag: AstTag.MatchExpr;
-	testExpr?: Ast;
+	testExpr?: AstExpr;
 	cases: Case[];
 } & Span;
 
 export type Case = {
-	pattern?: Ast;
-	declType?: Ast;
-	testExpr?: Ast;
-	thenExpr: Ast;
+	pattern?: AstPattern;
+	assertedType?: AstType;
+	testExpr?: AstExpr;
+	thenExpr: AstExpr;
 	resolvedDeclType?: Type;
 };
 
 export type ThrowExpr = {
 	tag: AstTag.ThrowExpr;
-	expr: Ast;
+	expr: AstExpr;
 } & Span;
 
 export type ProcExpr = {
 	tag: AstTag.ProcExpr;
 	params: ProcExprParam[];
-	returnType?: Ast;
+	returnType?: AstType;
 	implExpr: BlockExpr;
 	resolvedType?: ProcType;
 	discardReturn?: boolean;
 } & Span;
 
 export type ProcExprParam = {
-	pattern: Ast;
-	declType?: Ast;
+	pattern: AstPattern;
+	typeAnnotation?: AstType;
 };
 
-export type TypeExpr = {
+export type AstTypeExpr = {
 	tag: AstTag.TypeExpr;
-	expr: Ast;
+	type: AstType;
 	resolvedType?: Type;
 } & Span;
 
 export type BinaryExpr = {
 	tag: AstTag.BinaryExpr;
 	op: BinaryOp;
-	left: Ast;
-	right: Ast;
+	left: AstExpr;
+	right: AstExpr;
 	resolvedType?: Type;
 } & Span;
 
 export type UnaryExpr = {
 	tag: AstTag.UnaryExpr;
 	op: UnaryOp;
-	right: Ast;
+	right: AstExpr;
 } & Span;
 
 export type CallExpr = {
 	tag: AstTag.CallExpr;
-	proc: Ast;
-	args: Ast[];
+	proc: AstExpr;
+	args: AstExpr[];
 	resolvedType?: Type;
 } & Span;
 
-export type LitExpr = {
-	tag: AstTag.LitExpr;
-	value: unknown;
-} & Span;
-
-export type IdExpr = {
-	tag: AstTag.IdExpr;
-	value: string;
-	resolvedId?: number;
-} & Span;
-
-export type ProcTypeExpr = {
-	tag: AstTag.ProcTypeExpr;
-	params: Ast[];
-	returnType: Ast;
-} & Span;
-
-export type WildCardExpr = {
-	tag: AstTag.WildCardExpr;
-} & Span;
-
-export type Ast =
-	| AstModule
-	| AstDecl
-	| AstStmt
+export type AstExpr =
 	| BlockExpr
 	| TupleExpr
-	| StructExpr
+	| AstStructExpr
 	| GroupExpr
 	| IfExpr
 	| MatchExpr
 	| ThrowExpr
 	| ProcExpr
-	| TypeExpr
+	| AstTypeExpr
 	| BinaryExpr
 	| UnaryExpr
 	| CallExpr
-	| LitExpr
-	| IdExpr
-	| ProcTypeExpr
-	| WildCardExpr;
+	| AstLit
+	| AstId;
+
+export type AstAsPattern = {
+	tag: AstTag.AsPattern;
+	left: AstPattern;
+	right: AstPattern;
+} & Span;
+
+export type AstTuplePattern = {
+	tag: AstTag.TuplePattern;
+	items: AstPattern[];
+} & Span;
+
+export type AstStructPattern = {
+	tag: AstTag.StructPattern;
+	id: AstId;
+	fieldPatterns: AstStructFieldPattern[];
+} & Span;
+
+export type AstStructFieldPattern = {
+	id: AstId;
+	pattern: AstPattern;
+};
+
+export type AstEnumPattern = {
+	tag: AstTag.EnumPattern;
+	id: AstId;
+	variant: AstStructPattern;
+} & Span;
+
+export type AstPattern =
+	| AstAsPattern
+	| AstTuplePattern
+	| AstStructPattern
+	| AstEnumPattern
+	| AstWildcard
+	| AstLit
+	| AstId;
+
+export type AstProcType = {
+	tag: AstTag.ProcType;
+	params: AstType[];
+	returnType: AstType;
+} & Span;
+
+export type AstTupleType = {
+	tag: AstTag.TupleType;
+	items: AstType[];
+} & Span;
+
+export type AstType = AstProcType | AstTupleType | AstWildcard | AstId;
+
+export type Ast = AstModule | AstDecl | AstStmt | AstExpr | AstPattern;
 
 export const Ast = { print: printAst };
 

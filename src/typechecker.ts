@@ -3,7 +3,6 @@ import { Builtins, BuiltinTypes } from "./builtins.ts";
 import {
 	AstAssertStmt,
 	AstAssignVarStmt,
-	Ast,
 	AstTag,
 	BinaryExpr,
 	BlockExpr,
@@ -12,19 +11,16 @@ import {
 	AstContinueStmt,
 	AstExprStmt,
 	GroupExpr,
-	IdExpr,
 	IfExpr,
-	LitExpr,
 	AstLoopStmt,
 	MatchExpr,
 	AstModule,
 	ProcExpr,
 	AstReturnStmt,
 	AstStructDecl,
-	StructExpr,
+	AstStructExpr,
 	ThrowExpr,
 	TupleExpr,
-	TypeExpr,
 	UnaryExpr,
 	AstAssignFieldStmt,
 	AstTypeDecl,
@@ -32,22 +28,32 @@ import {
 	AstTestDecl,
 	AstProcDecl,
 	AstEnumDecl,
+	AstDecl,
+	AstStmt,
+	AstPattern,
+	AstLit,
+	AstId,
+	AstType,
+	AstExpr,
+	AstWhileStmt,
+	AstTypeExpr,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
 import {
 	Kind,
 	Type,
-	TypePattern,
-	TupleTypePattern,
-	ProcTypePattern,
+	UnresolvedType,
+	UnresolvedTupleType,
+	UnresolvedProctType,
 	StructField,
 	StructType,
 	EnumType,
 } from "./types.ts";
-import { Span, Todo, Unreachable, zip, zipLeft } from "./utils.ts";
-import { Struct } from "./core.ts";
-import { kMaxLength } from "node:buffer";
+import { Span, Unreachable, zip, zipLeft } from "./utils.ts";
+import { unreachable } from "@std/assert/unreachable";
+
+const assert2: typeof assert = assert;
 
 export type TypeChecker = {
 	types: Scopes<Type>;
@@ -103,7 +109,7 @@ function create(): TypeChecker {
 	return { types, values, loops, returns: [] };
 }
 
-function checkExternal(t: TypeChecker, a: Ast): Type {
+function checkExternal(t: TypeChecker, a: AstModule): Type {
 	const typesSaved = t.types.copy();
 	const valuesSaved = t.values.copy();
 	try {
@@ -115,7 +121,7 @@ function checkExternal(t: TypeChecker, a: Ast): Type {
 	}
 }
 
-function declareType(t: TypeChecker, id: IdExpr, type: Type): void {
+function declareType(t: TypeChecker, id: AstId, type: Type): void {
 	if (
 		!t.types.declareLocal(id.value, {
 			mutable: false,
@@ -133,90 +139,11 @@ function declareType(t: TypeChecker, id: IdExpr, type: Type): void {
 	}
 }
 
-function storeTypes(
+function check(
 	t: TypeChecker,
-	pattern: Ast,
-	type: Type,
-	mutable: boolean,
-	assert: boolean
-): void {
-	if (pattern.tag === AstTag.BinaryExpr) {
-		if (pattern.op !== BinaryOp.As) {
-			throw new Unreachable();
-		}
-		storeTypes(t, pattern.left, type, mutable, assert);
-		storeTypes(t, pattern.right, type, mutable, assert);
-		return;
-	}
-	if (pattern.tag === AstTag.TupleExpr) {
-		if (type.kind !== Kind.Tuple) {
-			const pt = Type.print(type);
-			throw new TypeError(
-				`Cannot assign ${pt} to a tuple pattern!`,
-				pattern.start,
-				pattern.end
-			);
-		}
-		assertCardinality(type.items, pattern.items, pattern, "items");
-		for (const [pi, ti] of zip(pattern.items, type.items)) {
-			storeTypes(t, pi, ti, mutable, assert);
-		}
-		return;
-	}
-	if (pattern.tag === AstTag.StructExpr) {
-		const constructor = reifyType(t, pattern.id, true);
-		assertAssignable(type, constructor, pattern);
-		if (type.kind !== Kind.Struct) {
-			throw new Unreachable();
-		}
-		for (const pf of pattern.fieldInits) {
-			const sf = assertField(type, pf.id);
-			storeTypes(t, pf.expr ?? pf.id, sf.type, mutable, assert);
-		}
-		return;
-	}
-	if (pattern.tag === AstTag.CallExpr) {
-		const constructor = reifyType(t, pattern.proc, true);
-		assertAssignable(type, constructor, pattern);
-		if (type.kind !== Kind.Struct) {
-			throw new Unreachable();
-		}
-		assertCardinality(type.fields, pattern.args, pattern, "fields");
-		for (const [pf, tf] of zip(pattern.args, type.fields)) {
-			storeTypes(t, pf, tf.type, mutable, assert);
-		}
-		return;
-	}
-	if (pattern.tag === AstTag.WildCardExpr) {
-		return;
-	}
-	if (pattern.tag === AstTag.LitExpr) {
-		if (!assert) {
-			throw new TypeError(
-				"Cannot use literals outside an assert pattern!",
-				pattern.start,
-				pattern.end
-			);
-		}
-		assertAssignable(type, Type.of(pattern.value), pattern);
-		return;
-	}
-	if (pattern.tag === AstTag.IdExpr) {
-		if (
-			!t.values.declareLocal(pattern.value, {
-				mutable,
-				allowShadow: true,
-				value: type,
-			})
-		) {
-			throw new TypeError("Cannot shadow builtin!", pattern.start, pattern.end);
-		}
-		return;
-	}
-	throw new Unreachable(Ast.print(pattern));
-}
-
-function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
+	ast: AstModule | AstDecl | AstStmt | AstExpr,
+	d?: UnresolvedType
+): Type {
 	switch (ast.tag) {
 		case AstTag.Module:
 			return checkModule(t, ast, d);
@@ -246,6 +173,8 @@ function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 			return checkAssignFieldStmt(t, ast, d);
 		case AstTag.LoopStmt:
 			return checkLoopStmt(t, ast, d);
+		case AstTag.WhileStmt:
+			return checkWhileStmt(t, ast, d);
 		case AstTag.ExprStmt:
 			return checkExprStmt(t, ast, d);
 		case AstTag.BlockExpr:
@@ -272,18 +201,14 @@ function check(t: TypeChecker, ast: Ast, d?: TypePattern): Type {
 			return checkUnaryExpr(t, ast, d);
 		case AstTag.CallExpr:
 			return checkCallExpr(t, ast, d);
-		case AstTag.LitExpr:
-			return checkLitExpr(t, ast, d);
-		case AstTag.IdExpr:
-			return checkIdExpr(t, ast, d);
-		case AstTag.ProcTypeExpr:
-			throw new Unreachable();
-		case AstTag.WildCardExpr:
-			throw new Unreachable();
+		case AstTag.Lit:
+			return checkLit(t, ast, d);
+		case AstTag.Id:
+			return checkId(t, ast, d);
 	}
 }
 
-function checkModule(t: TypeChecker, m: AstModule, _d?: TypePattern): Type {
+function checkModule(t: TypeChecker, m: AstModule, _d?: UnresolvedType): Type {
 	let result: Type = Type.Unit;
 	for (const decl of m.decls) {
 		result = check(t, decl);
@@ -291,11 +216,15 @@ function checkModule(t: TypeChecker, m: AstModule, _d?: TypePattern): Type {
 	return m.replMode ? result : Type.Any;
 }
 
-function checkVarDecl(t: TypeChecker, d: AstVarDecl, _d?: TypePattern): Type {
+function checkVarDecl(
+	t: TypeChecker,
+	d: AstVarDecl,
+	_d?: UnresolvedType
+): Type {
 	let resolvedType: Type;
-	let declType: undefined | TypePattern;
+	let declType: undefined | UnresolvedType;
 	if (d.typeAnnotation !== undefined) {
-		declType = reifyType(t, d.typeAnnotation, false);
+		declType = reifyUnresolvedType(t, d.typeAnnotation);
 	}
 	const initType = check(t, d.initExpr, declType);
 	if (declType !== undefined) {
@@ -305,41 +234,49 @@ function checkVarDecl(t: TypeChecker, d: AstVarDecl, _d?: TypePattern): Type {
 			resolvedType = assertAssignable(initType, declType, d.pattern);
 		}
 	} else {
-		resolvedType = assertReconciled(initType, d.initExpr);
+		resolvedType = assertResolved(initType, d.initExpr);
 	}
 	d.resolvedType = resolvedType;
-	storeTypes(t, d.pattern, resolvedType, d.mutable, d.assert);
+	unify(t, d.pattern, resolvedType, d.mutable, d.assert);
 	return Type.Any;
 }
 
-function checkProcDecl(t: TypeChecker, p: AstProcDecl, _d?: TypePattern): Type {
+function checkProcDecl(
+	t: TypeChecker,
+	p: AstProcDecl,
+	_d?: UnresolvedType
+): Type {
 	const params: Type[] = [];
 	for (const param of p.initExpr.params) {
-		if (param.declType === undefined) {
+		if (param.typeAnnotation === undefined) {
 			throw new TypeError(
 				"Top level proc params require type annotations!",
 				param.pattern.start,
 				param.pattern.end
 			);
 		}
-		const paramType = reifyType(t, param.declType, true);
+		const paramType = reifyType(t, param.typeAnnotation);
 		params.push(paramType);
 	}
 	let returns: Type = Type.Unit;
 	if (p.initExpr.returnType !== undefined) {
-		returns = reifyType(t, p.initExpr.returnType, true);
+		returns = reifyType(t, p.initExpr.returnType);
 	}
 	const type = Type.proc(params, returns);
-	storeTypes(t, p.id, type, false, false);
+	unify(t, p.id, type, false, false);
 	check(t, p.initExpr);
 	return type;
 }
 
-function checkTypeDecl(t: TypeChecker, d: AstTypeDecl, _d?: TypePattern): Type {
+function checkTypeDecl(
+	t: TypeChecker,
+	d: AstTypeDecl,
+	_d?: UnresolvedType
+): Type {
 	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
-	const type = assertReconciled(reifyType(t, d.typeExpr, true), d.id);
+	const type = reifyType(t, d.typeExpr);
 	declareType(t, d.id, type);
 	d.resolvedType = type;
 	return Type.Any;
@@ -348,26 +285,45 @@ function checkTypeDecl(t: TypeChecker, d: AstTypeDecl, _d?: TypePattern): Type {
 function checkStructDecl(
 	t: TypeChecker,
 	s: AstStructDecl,
-	_d?: TypePattern
+	_d?: UnresolvedType
 ): Type {
 	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
-	const type = reifyType(t, s, true);
+	const fields: StructField[] = [];
+	for (const field of s.fields) {
+		fields.push({
+			mutable: field.mutable,
+			name: field.id?.value,
+			type: reifyType(t, field.typeAnnotation),
+		});
+	}
+	const type = Type.struct(s.id.value, fields);
 	declareType(t, s.id, type);
 	s.resolvedType = type;
 	return Type.Any;
 }
 
-function checkEnumDecl(t: TypeChecker, e: AstEnumDecl, _d?: TypePattern): Type {
+function checkEnumDecl(
+	t: TypeChecker,
+	e: AstEnumDecl,
+	_d?: UnresolvedType
+): Type {
 	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
 	const variants: StructType[] = [];
 	for (const variant of e.variants) {
-		const type = reifyType(t, variant, true);
-		assert(type.kind === Kind.Struct);
-		variants.push(type);
+		const fields: StructField[] = [];
+		for (const field of variant.fields) {
+			fields.push({
+				mutable: field.mutable,
+				name: field.id.value,
+				type: reifyType(t, field.typeAnnotation),
+			});
+		}
+		const variantType = Type.struct(variant.id.value, fields);
+		variants.push(variantType);
 	}
 	const type = Type.enum(e.id.value, variants);
 	declareType(t, e.id, type);
@@ -375,7 +331,11 @@ function checkEnumDecl(t: TypeChecker, e: AstEnumDecl, _d?: TypePattern): Type {
 	return Type.Any;
 }
 
-function checkTestDecl(t: TypeChecker, d: AstTestDecl, _d?: TypePattern): Type {
+function checkTestDecl(
+	t: TypeChecker,
+	d: AstTestDecl,
+	_d?: UnresolvedType
+): Type {
 	if (!t.values.inGlobalScope) {
 		throw new Unreachable();
 	}
@@ -386,7 +346,7 @@ function checkTestDecl(t: TypeChecker, d: AstTestDecl, _d?: TypePattern): Type {
 function checkBreakStmt(
 	t: TypeChecker,
 	b: AstBreakStmt,
-	_d?: TypePattern
+	_d?: UnresolvedType
 ): Type {
 	if (t.loops.inGlobalScope) {
 		throw new TypeError("Cannot break outside a loop!", b.start, b.end);
@@ -400,7 +360,7 @@ function checkBreakStmt(
 function checkContinueStmt(
 	t: TypeChecker,
 	c: AstContinueStmt,
-	_d?: TypePattern
+	_d?: UnresolvedType
 ): Type {
 	if (t.loops.inGlobalScope) {
 		throw new TypeError("Cannot break continue a loop!", c.start, c.end);
@@ -414,7 +374,7 @@ function checkContinueStmt(
 function checkReturnStmt(
 	t: TypeChecker,
 	r: AstReturnStmt,
-	d?: TypePattern
+	d?: UnresolvedType
 ): Type {
 	if (t.values.inGlobalScope) {
 		throw new TypeError("Cannot return outside a proc!", r.start, r.end);
@@ -427,7 +387,7 @@ function checkReturnStmt(
 function checkAssertStmt(
 	t: TypeChecker,
 	a: AstAssertStmt,
-	_d?: TypePattern
+	_d?: UnresolvedType
 ): Type {
 	check(t, a.testExpr);
 	return Type.Unit;
@@ -436,7 +396,7 @@ function checkAssertStmt(
 function checkAssignVarStmt(
 	t: TypeChecker,
 	a: AstAssignVarStmt,
-	_d?: TypePattern
+	_d?: UnresolvedType
 ): Type {
 	const decl = t.values.getDecl(a.target.value);
 	if (decl === undefined) {
@@ -458,7 +418,7 @@ function checkAssignVarStmt(
 function checkAssignFieldStmt(
 	t: TypeChecker,
 	a: AstAssignFieldStmt,
-	_d?: TypePattern
+	_d?: UnresolvedType
 ): Type {
 	const targetType = check(t, a.target);
 	if (targetType.kind === Kind.Struct) {
@@ -484,7 +444,11 @@ function checkAssignFieldStmt(
 	return Type.Any;
 }
 
-function checkLoopStmt(t: TypeChecker, l: AstLoopStmt, _d?: TypePattern): Type {
+function checkLoopStmt(
+	t: TypeChecker,
+	l: AstLoopStmt,
+	_d?: UnresolvedType
+): Type {
 	t.loops.openScope();
 	if (l.label !== undefined) {
 		t.loops.declareLocal(l.label.value, {
@@ -498,11 +462,31 @@ function checkLoopStmt(t: TypeChecker, l: AstLoopStmt, _d?: TypePattern): Type {
 	return Type.Unit;
 }
 
-function checkExprStmt(t: TypeChecker, e: AstExprStmt, d?: TypePattern): Type {
+function checkWhileStmt(
+	t: TypeChecker,
+	w: AstWhileStmt,
+	_d?: UnresolvedType
+): Type {
+	t.loops.openScope();
+	assertAssignable(check(t, w.testExpr, Type.Bool), Type.Bool, w.testExpr);
+	check(t, w.thenExpr);
+	t.loops.dropScope();
+	return Type.Unit;
+}
+
+function checkExprStmt(
+	t: TypeChecker,
+	e: AstExprStmt,
+	d?: UnresolvedType
+): Type {
 	return check(t, e.expr, d);
 }
 
-function checkBlockExpr(t: TypeChecker, b: BlockExpr, d?: TypePattern): Type {
+function checkBlockExpr(
+	t: TypeChecker,
+	b: BlockExpr,
+	d?: UnresolvedType
+): Type {
 	let type: Type = Type.Unit;
 	t.values.openScope();
 	for (const stmt of b.stmts) {
@@ -515,7 +499,11 @@ function checkBlockExpr(t: TypeChecker, b: BlockExpr, d?: TypePattern): Type {
 	return type;
 }
 
-function checkTupleExpr(t: TypeChecker, u: TupleExpr, d?: TypePattern): Type {
+function checkTupleExpr(
+	t: TypeChecker,
+	u: TupleExpr,
+	d?: UnresolvedType
+): Type {
 	const items: Type[] = [];
 	for (const [ui, ti] of zipLeft(u.items, closestTuple(d).items)) {
 		items.push(check(t, ui, ti));
@@ -527,10 +515,10 @@ function checkTupleExpr(t: TypeChecker, u: TupleExpr, d?: TypePattern): Type {
 
 function checkStructExpr(
 	t: TypeChecker,
-	s: StructExpr,
-	_d?: TypePattern
+	s: AstStructExpr,
+	_d?: UnresolvedType
 ): Type {
-	const type = reifyType(t, s.id, true);
+	const type = reifyType(t, s.id);
 	if (type.kind !== Kind.Struct) {
 		const tp = Type.print(type);
 		throw new TypeError(
@@ -564,21 +552,25 @@ function checkStructExpr(
 	return type;
 }
 
-function checkGroupExpr(t: TypeChecker, g: GroupExpr, d?: TypePattern): Type {
+function checkGroupExpr(
+	t: TypeChecker,
+	g: GroupExpr,
+	d?: UnresolvedType
+): Type {
 	return check(t, g.expr, d);
 }
 
-function checkIfExpr(t: TypeChecker, i: IfExpr, d?: TypePattern): Type {
+function checkIfExpr(t: TypeChecker, i: IfExpr, d?: UnresolvedType): Type {
 	if (i.pattern !== undefined) {
-		let declType: undefined | TypePattern;
-		if (i.declType !== undefined) {
-			declType = reifyType(t, i.declType, false);
+		let declType: undefined | UnresolvedType;
+		if (i.assertedType !== undefined) {
+			declType = reifyUnresolvedType(t, i.assertedType);
 		}
 		const from = check(t, i.testExpr, declType);
 		if (declType !== undefined) {
 			i.resolvedDeclType = assertAssertable(from, declType, i.pattern);
 		}
-		storeTypes(t, i.pattern, from, i.mutable, true);
+		unify(t, i.pattern, from, i.mutable, true);
 	} else {
 		const from = check(t, i.testExpr, Type.Bool);
 		assertAssignable(from, Type.Bool, i.testExpr);
@@ -591,7 +583,11 @@ function checkIfExpr(t: TypeChecker, i: IfExpr, d?: TypePattern): Type {
 	return union([thenType, Type.Unit]);
 }
 
-function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: TypePattern): Type {
+function checkMatchExpr(
+	t: TypeChecker,
+	m: MatchExpr,
+	d?: UnresolvedType
+): Type {
 	let from: Type = Type.Unit;
 	if (m.testExpr !== undefined) {
 		from = check(t, m.testExpr, Type.Bool);
@@ -600,9 +596,9 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: TypePattern): Type {
 	let exhausted = false;
 	for (const c of m.cases) {
 		if (c.pattern !== undefined) {
-			storeTypes(t, c.pattern, from, false, true);
-			if (c.declType !== undefined) {
-				const into = reifyType(t, c.declType, false);
+			unify(t, c.pattern, from, false, true);
+			if (c.assertedType !== undefined) {
+				const into = reifyUnresolvedType(t, c.assertedType);
 				c.resolvedDeclType = assertAssertable(from, into, c.pattern);
 			}
 		}
@@ -617,11 +613,10 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: TypePattern): Type {
 		// Exhaustive if this is a wildcard case with an assignable type
 		if (
 			c.pattern !== undefined &&
-			(c.pattern.tag === AstTag.WildCardExpr ||
-				c.pattern.tag === AstTag.IdExpr) &&
+			(c.pattern.tag === AstTag.Wildcard || c.pattern.tag === AstTag.Id) &&
 			c.testExpr === undefined &&
-			(c.declType === undefined ||
-				Type.assignable(from, reifyType(t, c.declType, false)))
+			(c.assertedType === undefined ||
+				Type.assignable(from, reifyUnresolvedType(t, c.assertedType)))
 		) {
 			exhausted = true;
 		}
@@ -633,19 +628,23 @@ function checkMatchExpr(t: TypeChecker, m: MatchExpr, d?: TypePattern): Type {
 	return union(caseTypes);
 }
 
-function checkThrowExpr(t: TypeChecker, e: ThrowExpr, _d?: TypePattern): Type {
+function checkThrowExpr(
+	t: TypeChecker,
+	e: ThrowExpr,
+	_d?: UnresolvedType
+): Type {
 	check(t, e.expr);
 	return Type.Never;
 }
 
-function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: TypePattern): Type {
+function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: UnresolvedType): Type {
 	t.values.openScope();
 	const params: Type[] = [];
 	const destination = closestProc(d);
 	for (const [param, dParam] of zipLeft(p.params, destination.params)) {
-		let paramType: undefined | TypePattern;
-		if (param.declType !== undefined) {
-			paramType = reifyType(t, param.declType, false);
+		let paramType: undefined | UnresolvedType;
+		if (param.typeAnnotation !== undefined) {
+			paramType = reifyUnresolvedType(t, param.typeAnnotation);
 		}
 		paramType ??= dParam;
 		if (paramType === undefined) {
@@ -655,13 +654,13 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: TypePattern): Type {
 				param.pattern.end
 			);
 		}
-		const type = assertReconciled(paramType, param.pattern);
-		storeTypes(t, param.pattern, type, false, false);
+		const type = assertResolved(paramType, param.pattern);
+		unify(t, param.pattern, type, false, false);
 		params.push(type);
 	}
-	let returns: TypePattern = destination.returns;
+	let returns: UnresolvedType = destination.returns;
 	if (p.returnType !== undefined) {
-		returns = reifyType(t, p.returnType, false);
+		returns = reifyUnresolvedType(t, p.returnType);
 	}
 	const returnsSave = t.returns;
 	t.returns = [];
@@ -684,20 +683,28 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: TypePattern): Type {
 			assertAssignable(r, returns, p);
 		}
 	}
-	const type = Type.proc(params, assertReconciled(returns, p));
+	const type = Type.proc(params, assertResolved(returns, p));
 	t.returns = returnsSave;
 	p.resolvedType = type;
 	t.values.dropScope();
 	return type;
 }
 
-function checkTypeExpr(t: TypeChecker, e: TypeExpr, _d?: TypePattern): Type {
-	e.resolvedType = reifyType(t, e, true);
+function checkTypeExpr(
+	t: TypeChecker,
+	e: AstTypeExpr,
+	_d?: UnresolvedType
+): Type {
+	e.resolvedType = reifyType(t, e.type);
 	// TODO eventually, Type should be a parameterized type Type[T]
 	return Type.Type;
 }
 
-function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
+function checkBinaryExpr(
+	t: TypeChecker,
+	b: BinaryExpr,
+	d?: UnresolvedType
+): Type {
 	switch (b.op) {
 		case BinaryOp.Add:
 		case BinaryOp.Sub:
@@ -727,10 +734,7 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 		case BinaryOp.Member: {
 			const l = check(t, b.left);
 			if (l.kind === Kind.Tuple) {
-				if (
-					b.right.tag !== AstTag.LitExpr ||
-					typeof b.right.value !== "bigint"
-				) {
+				if (b.right.tag !== AstTag.Lit || typeof b.right.value !== "bigint") {
 					const lp = Type.print(l);
 					const rp = Type.print(check(t, b.right));
 					throw new TypeError(
@@ -750,8 +754,8 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 			}
 			if (l.kind === Kind.Struct) {
 				if (
-					b.right.tag !== AstTag.IdExpr &&
-					(b.right.tag !== AstTag.LitExpr || typeof b.right.value !== "bigint")
+					b.right.tag !== AstTag.Id &&
+					(b.right.tag !== AstTag.Lit || typeof b.right.value !== "bigint")
 				) {
 					const lp = Type.print(l);
 					const rp = Type.print(check(t, b.right));
@@ -773,10 +777,10 @@ function checkBinaryExpr(t: TypeChecker, b: BinaryExpr, d?: TypePattern): Type {
 				}
 				return field.type;
 			}
-			if (l === Type.Module && b.left.tag === AstTag.IdExpr) {
+			if (l === Type.Module && b.left.tag === AstTag.Id) {
 				const enumType = t.types.get(b.left.value);
 				if (enumType?.kind === Kind.Enum) {
-					if (b.right.tag !== AstTag.IdExpr) {
+					if (b.right.tag !== AstTag.Id) {
 						const lp = Type.print(enumType);
 						const rp = Type.print(check(t, b.right));
 						throw new TypeError(
@@ -810,7 +814,7 @@ function checkBinaryExprHelper(
 	t: TypeChecker,
 	b: BinaryExpr,
 	v: Type[],
-	d?: TypePattern
+	d?: UnresolvedType
 ): Type {
 	if (d !== undefined && v.includes(d as Type)) {
 		const l = check(t, b.left, d);
@@ -836,7 +840,11 @@ function checkBinaryExprHelper(
 	);
 }
 
-function checkUnaryExpr(t: TypeChecker, u: UnaryExpr, d?: TypePattern): Type {
+function checkUnaryExpr(
+	t: TypeChecker,
+	u: UnaryExpr,
+	d?: UnresolvedType
+): Type {
 	switch (u.op) {
 		case UnaryOp.Not:
 			return checkUnaryExprHelper(t, u, [Type.Bool]);
@@ -849,7 +857,7 @@ function checkUnaryExprHelper(
 	t: TypeChecker,
 	u: UnaryExpr,
 	v: Type[],
-	d?: TypePattern
+	d?: UnresolvedType
 ): Type {
 	if (d !== undefined && v.includes(d as Type)) {
 		const r = check(t, u.right, d);
@@ -872,7 +880,7 @@ function checkUnaryExprHelper(
 	);
 }
 
-function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: TypePattern): Type {
+function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: UnresolvedType): Type {
 	const callee = check(t, c.proc);
 	if (callee.kind === Kind.Proc) {
 		assertCardinality(callee.params, c.args, c, "arguments");
@@ -883,7 +891,7 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: TypePattern): Type {
 		c.resolvedType = callee.returns;
 		return callee.returns;
 	}
-	if (callee === Type.Module && c.proc.tag === AstTag.IdExpr) {
+	if (callee === Type.Module && c.proc.tag === AstTag.Id) {
 		const type = t.types.get(c.proc.value);
 		if (type !== undefined && type.kind === Kind.Struct) {
 			assertCardinality(c.args, type.fields, c, "fields");
@@ -899,7 +907,7 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: TypePattern): Type {
 	throw new TypeError(`Cannot call type ${found}!`, c.proc.start, c.proc.end);
 }
 
-function checkLitExpr(_t: TypeChecker, l: LitExpr, d?: TypePattern): Type {
+function checkLit(_t: TypeChecker, l: AstLit, d?: UnresolvedType): Type {
 	// Check for allowed implicit casts of numeric literals
 	if (
 		d === Type.Float &&
@@ -911,7 +919,7 @@ function checkLitExpr(_t: TypeChecker, l: LitExpr, d?: TypePattern): Type {
 	return Type.of(l.value);
 }
 
-function checkIdExpr(t: TypeChecker, i: IdExpr, _d?: TypePattern): Type {
+function checkId(t: TypeChecker, i: AstId, _d?: UnresolvedType): Type {
 	const type = t.values.get(i.value);
 	if (type === undefined) {
 		throw new TypeError("Undeclared variable!", i.start, i.end);
@@ -919,71 +927,161 @@ function checkIdExpr(t: TypeChecker, i: IdExpr, _d?: TypePattern): Type {
 	return type;
 }
 
-function reifyType<B extends boolean>(
+function unify(
 	t: TypeChecker,
-	ast: Ast,
-	strict: B
-): B extends true ? Type : TypePattern {
-	if (ast.tag === AstTag.TypeExpr) {
-		return reifyType(t, ast.expr, strict);
-	}
-	if (ast.tag === AstTag.StructDecl) {
-		const fields: StructField[] = [];
-		for (const field of ast.fields) {
-			fields.push({
-				mutable: field.mutable,
-				name: field.id?.value,
-				type: reifyType(t, field.typeAnnotation, true),
-			});
+	p: AstPattern,
+	type: Type,
+	mutable: boolean,
+	assert: boolean
+): void {
+	switch (p.tag) {
+		case AstTag.Wildcard: {
+			return;
 		}
-		return Type.struct(ast.id.value, fields);
-	}
-	if (ast.tag === AstTag.TupleExpr) {
-		const items: TypePattern[] = [];
-		for (const item of ast.items) {
-			items.push(reifyType(t, item, strict));
+		case AstTag.Lit: {
+			if (!assert) {
+				throw new TypeError(
+					"Cannot use a literal in a non-asserted pattern!",
+					p.start,
+					p.end
+				);
+			}
+			assertAssertable(type, Type.of(p.value), p);
+			return;
 		}
-		return Type.tuple(items) as Type;
-	}
-	if (ast.tag === AstTag.ProcTypeExpr) {
-		const params: TypePattern[] = [];
-		for (const param of ast.params) {
-			params.push(reifyType(t, param, strict));
+		case AstTag.Id: {
+			if (
+				!t.values.declareLocal(p.value, {
+					mutable,
+					allowShadow: true,
+					value: type,
+				})
+			) {
+				throw new TypeError("Cannot shadow builtin!", p.start, p.end);
+			}
+			return;
 		}
-		const returns = reifyType(t, ast.returnType, strict);
-		return Type.proc(params, returns) as Type;
-	}
-	if (ast.tag === AstTag.WildCardExpr) {
-		if (strict) {
-			throw new TypeError(
-				"Cannot use a wildcard type here!",
-				ast.start,
-				ast.end
-			);
+		case AstTag.AsPattern: {
+			unify(t, p.left, type, mutable, assert);
+			unify(t, p.right, type, mutable, assert);
+			return;
 		}
-		return Type._ as unknown as Type;
-	}
-	if (ast.tag === AstTag.IdExpr) {
-		const type = t.types.get(ast.value);
-		if (type === undefined) {
-			throw new TypeError("Undefined type!", ast.start, ast.end);
+		case AstTag.TuplePattern: {
+			if (type.kind !== Kind.Tuple) {
+				const pt = Type.print(type);
+				throw new TypeError(
+					`Cannot assign ${pt} to a tuple pattern!`,
+					p.start,
+					p.end
+				);
+			}
+			assertCardinality(type.items, p.items, p, "items");
+			for (const [pi, ti] of zip(p.items, type.items)) {
+				unify(t, pi, ti, mutable, assert);
+			}
+			return;
 		}
-		return type;
+		case AstTag.StructPattern: {
+			const constructor = reifyType(t, p.id);
+			assertAssignable(type, constructor, p);
+			assert2(type.kind === Kind.Struct);
+			for (const fp of p.fieldPatterns) {
+				const sf = assertField(type, fp.id);
+				unify(t, fp.pattern ?? fp.id, sf.type, mutable, assert);
+			}
+			return;
+		}
+		case AstTag.EnumPattern: {
+			if (!assert) {
+				throw new TypeError(
+					"Cannot use an enum variant in a non-asserted pattern!",
+					p.start,
+					p.end
+				);
+			}
+			const constructor = reifyType(t, p.id);
+			assertAssignable(type, constructor, p);
+			assert2(type.kind === Kind.Enum);
+			const variantType = assertVariant(type, p.variant.id);
+			unify(t, p.variant, variantType, mutable, assert);
+		}
 	}
-	throw new Unreachable();
+	unreachable(`${p}`);
 }
 
-function assertReconciled(type: TypePattern, span: Span): Type {
+function reifyUnresolvedType(t: TypeChecker, at: AstType): UnresolvedType {
+	switch (at.tag) {
+		case AstTag.Wildcard: {
+			return Type._;
+		}
+		case AstTag.Id: {
+			const type = t.types.get(at.value);
+			if (type === undefined) {
+				throw new TypeError("Undefined type!", at.start, at.end);
+			}
+			return type;
+		}
+		case AstTag.ProcType: {
+			const params: UnresolvedType[] = [];
+			for (const param of at.params) {
+				params.push(reifyUnresolvedType(t, param));
+			}
+			const returns = reifyUnresolvedType(t, at.returnType);
+			return Type.proc(params, returns);
+		}
+		case AstTag.TupleType: {
+			const items: UnresolvedType[] = [];
+			for (const item of at.items) {
+				items.push(reifyUnresolvedType(t, item));
+			}
+			return Type.tuple(items);
+		}
+	}
+	unreachable(`${at}`);
+}
+
+function reifyType(t: TypeChecker, at: AstType): Type {
+	switch (at.tag) {
+		case AstTag.Wildcard: {
+			throw new TypeError("Cannot use a wildcard type here!", at.start, at.end);
+		}
+		case AstTag.Id: {
+			const type = t.types.get(at.value);
+			if (type === undefined) {
+				throw new TypeError("Undefined type!", at.start, at.end);
+			}
+			return type;
+		}
+		case AstTag.ProcType: {
+			const params: Type[] = [];
+			for (const param of at.params) {
+				params.push(reifyType(t, param));
+			}
+			const returns = reifyType(t, at.returnType);
+			return Type.proc(params, returns);
+		}
+		case AstTag.TupleType: {
+			const items: Type[] = [];
+			for (const item of at.items) {
+				items.push(reifyType(t, item));
+			}
+			return Type.tuple(items);
+		}
+	}
+	unreachable(`${at}`);
+}
+
+function assertResolved(type: UnresolvedType, span: Span): Type {
 	return assertAssignable(type, type, span);
 }
 
 function assertAssignable(
-	from: TypePattern,
-	into: TypePattern,
+	from: UnresolvedType,
+	into: UnresolvedType,
 	span: Span
 ): Type {
-	const reconciled = Type.assignable(from, into);
-	if (reconciled === undefined) {
+	const resolved = Type.assignable(from, into);
+	if (resolved === undefined) {
 		const f = Type.print(from);
 		const t = Type.print(into);
 		throw new TypeError(
@@ -992,12 +1090,12 @@ function assertAssignable(
 			span.end
 		);
 	}
-	return reconciled;
+	return resolved;
 }
 
 function assertAssertable(
-	from: TypePattern,
-	into: TypePattern,
+	from: UnresolvedType,
+	into: UnresolvedType,
 	span: Span
 ): Type {
 	const reconciled = Type.assertable(from, into);
@@ -1031,7 +1129,7 @@ function assertCardinality(
 }
 
 // TODO should this be `name: TokId | TokIntLit` ?
-function assertField(type: StructType, name: IdExpr | LitExpr): StructField {
+function assertField(type: StructType, name: AstId | AstLit): StructField {
 	// TODO git rid of this type assertion
 	const field = Type.findField(type, name.value as string | bigint);
 	if (field === undefined) {
@@ -1042,7 +1140,7 @@ function assertField(type: StructType, name: IdExpr | LitExpr): StructField {
 	return field;
 }
 
-function assertVariant(type: EnumType, name: IdExpr): StructType {
+function assertVariant(type: EnumType, name: AstId): StructType {
 	const variant = Type.findVariant(type, name.value);
 	if (variant === undefined) {
 		const f = name.value;
@@ -1052,7 +1150,7 @@ function assertVariant(type: EnumType, name: IdExpr): StructType {
 	return variant;
 }
 
-function closestTuple(type?: TypePattern): TupleTypePattern {
+function closestTuple(type?: UnresolvedType): UnresolvedTupleType {
 	if (type === undefined || type.kind !== Kind.Tuple) {
 		return Type.Unit;
 	}
@@ -1061,7 +1159,7 @@ function closestTuple(type?: TypePattern): TupleTypePattern {
 
 const EmptyProcType = Type.proc([], Type.Unit);
 
-function closestProc(type?: TypePattern): ProcTypePattern {
+function closestProc(type?: UnresolvedType): UnresolvedProctType {
 	if (type === undefined || type.kind !== Kind.Proc) {
 		return EmptyProcType;
 	}
