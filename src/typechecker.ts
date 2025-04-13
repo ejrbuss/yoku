@@ -593,6 +593,7 @@ function checkMatchExpr(
 		from = check(t, m.testExpr, Type.Bool);
 	}
 	const caseTypes: Type[] = [];
+	const variants = new Set<string>();
 	let exhausted = false;
 	for (const c of m.cases) {
 		if (c.pattern !== undefined) {
@@ -600,6 +601,9 @@ function checkMatchExpr(
 			if (c.assertedType !== undefined) {
 				const into = reifyUnresolvedType(t, c.assertedType);
 				c.resolvedDeclType = assertAssertable(from, into, c.pattern);
+			}
+			if (c.pattern.tag === AstTag.EnumPattern) {
+				variants.add(c.pattern.variant.id.value);
 			}
 		}
 		if (c.testExpr !== undefined) {
@@ -621,6 +625,10 @@ function checkMatchExpr(
 			exhausted = true;
 		}
 		caseTypes.push(check(t, c.thenExpr, d));
+	}
+	// Check if we exhausted all enum cases
+	if (from.kind === Kind.Enum && variants.size === from.variants.length) {
+		exhausted = true;
 	}
 	if (!exhausted) {
 		caseTypes.push(Type.Unit);
@@ -922,6 +930,7 @@ function checkLit(_t: TypeChecker, l: AstLit, d?: UnresolvedType): Type {
 function checkId(t: TypeChecker, i: AstId, _d?: UnresolvedType): Type {
 	const type = t.values.get(i.value);
 	if (type === undefined) {
+		console.log(t.types);
 		throw new TypeError("Undeclared variable!", i.start, i.end);
 	}
 	return type;
@@ -1003,7 +1012,11 @@ function unify(
 			assertAssignable(type, constructor, p);
 			assert2(type.kind === Kind.Enum);
 			const variantType = assertVariant(type, p.variant.id);
-			unify(t, p.variant, variantType, mutable, assert);
+			for (const fp of p.variant.fieldPatterns) {
+				const sf = assertField(variantType, fp.id);
+				unify(t, fp.pattern ?? fp.id, sf.type, mutable, assert);
+			}
+			return;
 		}
 	}
 	unreachable(`${p}`);

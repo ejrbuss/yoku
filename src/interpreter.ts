@@ -185,7 +185,29 @@ function unify(
 			return true;
 		}
 		case AstTag.EnumPattern: {
-			throw new Todo();
+			const enumValue = value as Enum;
+			const enumType = enumValue.$type as EnumType;
+			const variant = enumType.variants[enumValue.$variant];
+			if (variant.name !== p.variant.id.value) {
+				if (throwOnFailure) {
+					const expected = `${enumType.name}.${p.variant.id.value}`;
+					const actual = `${enumType.name}.${variant.name}`;
+					throw new RuntimeError(
+						`Expected ${expected} but found ${actual}!`,
+						p.start,
+						p.end
+					);
+				}
+				return false;
+			}
+			for (const f of p.variant.fieldPatterns) {
+				if (
+					!unify(i, f.pattern ?? f.id, enumValue[f.id.value], throwOnFailure)
+				) {
+					return false;
+				}
+			}
+			return true;
 		}
 	}
 	return unreachable(`${p}`);

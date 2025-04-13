@@ -27,13 +27,13 @@ const _: Int = match Parity.Even {
 	Parity.Even => { 0 }
 } --> ! TypeError
 
-const a: Int =  match Priority.Odd {
+const a: Int =  match Parity.Odd {
 	Parity.Even => { 0 }
 	Parity.Odd => { 1 }
 }
 a --> 1
 
-const b: Int =  match Priority.Even {
+const b: Int =  match Parity.Even {
 	Parity.Even => { 2 }
 	else => { 4 }
 }

@@ -40,6 +40,7 @@ import {
 	AstTupleType,
 	AstProcType,
 	AstDecl,
+	AstEnumPattern,
 } from "./ast.ts";
 import { CodeSource } from "./codesource.ts";
 import { Unreachable } from "./utils.ts";
@@ -996,6 +997,9 @@ function parsePrimaryPattern(p: Parser): AstPattern {
 	) {
 		return parseStructPattern(p);
 	}
+	if (lookAhead(p, TokenType.Id) && lookAhead(p, ".", 1)) {
+		return parseEnumPattern(p);
+	}
 	if (lookAhead(p, "_")) {
 		return parseWildcard(p);
 	}
@@ -1060,6 +1064,20 @@ function parseStructPattern(p: Parser): AstStructPattern {
 		tag: AstTag.StructPattern,
 		id,
 		fieldPatterns,
+		start,
+		end: getEnd(p),
+	};
+}
+
+function parseEnumPattern(p: Parser): AstEnumPattern {
+	const start = getStart(p);
+	const id = parseId(p);
+	consume(p, ".");
+	const variant = parseStructPattern(p);
+	return {
+		tag: AstTag.EnumPattern,
+		id,
+		variant,
 		start,
 		end: getEnd(p),
 	};
