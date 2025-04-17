@@ -270,7 +270,7 @@ function parseEnumDecl(p: Parser): AstEnumDecl {
 	const variants: AstStructDecl[] = [];
 	consume(p, "{");
 	while (hasMore(p) && !lookAhead(p, "}")) {
-		if (!lookAhead(p, "{", 1) && !lookAhead(p, "(")) {
+		if (!lookAhead(p, "{", 1) && !lookAhead(p, "(", 1)) {
 			const variantId = parseId(p);
 			variants.push({
 				tag: AstTag.StructDecl,
@@ -284,6 +284,7 @@ function parseEnumDecl(p: Parser): AstEnumDecl {
 			}
 		} else {
 			variants.push(parseStructDecl(p));
+			match(p, ",");
 		}
 	}
 	consume(p, "}");

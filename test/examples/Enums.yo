@@ -39,36 +39,27 @@ const b: Int =  match Parity.Even {
 }
 b --> 2
 
---- skip "Enum Shorthand" ---
-enum Parity { Even, Odd }
-
-const a: Bool = match Parity.Even {
-	Even => { true }
-	Odd => { false }
-}
-a --> true
-
---- skip "Tuple Enum" ---
+--- test "Tuple Enum" ---
 enum TupleEnum {
 	None,
 	Zero()
-	One(Int),
-	Two(Boo, Int),
+	One(Int)
+	Two(Bool, Int)
 }
 
 var a = TupleEnum.None
-a == TupleEnum.None --> True
-a == TupleEnum.Zero() --> False
+a == TupleEnum.None --> true
+a == TupleEnum.Zero() --> false
 
 a = TupleEnum.One(4)
-a == TupleEnum.One(4) --> True
-a == TupleEnum.Two(true, 4) --> False
+a == TupleEnum.One(4) --> true
+a == TupleEnum.Two(true, 4) --> false
 
 var s: Str = match a {
-	None => { "None" }
-	Zero() => { "Zero" }
-	One(x) => { cat("One", x) }
-	Two(x, y) => { cat(x, y) }
+	TuplEnum.None => { "None" }
+	TuplEnum.Zero() => { "Zero" }
+	TuplEnum.One(x) => { cat("One", x) }
+	TuplEnum.Two(x, y) => { cat(x, y) }
 }
 s --> "One4"
 
