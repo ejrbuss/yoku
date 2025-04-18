@@ -1,0 +1,58 @@
+--- mode Repl ---
+
+--- test "Modules" ---
+
+module M {
+	const x = 1
+	proc f() -> Int { 2 }
+	proc g(n: Int) -> Int { n + 1 }
+	struct S { a: Int } 
+}
+
+M.x --> 1
+M.f() --> 2
+M.g(2) --> 3
+const s: M.S = M.S { a = 4 }
+s --> M.S { a = 4 }
+
+--- skip "Type Modules" ---
+
+impl Int {
+	const x = 1
+	proc f() -> Int { 2 }
+	proc g(n: Int) -> Int { n + 1 }
+}
+
+Int.x --> 1
+Int.f() --> 2
+Int.g(2) --> 3
+
+--- skip "Methods" ---
+
+impl Int {
+	const x = 1
+	proc f() -> Int { 2 }
+	proc g(n: Int) -> Int { n + 1 }
+}
+
+const x = 3
+x.g() --> 4
+(4).g() --> 5
+
+--- skip "Methods on User Defined Types" ---
+
+struct A {}
+struct B {}
+
+impl A {
+	f(a: A) -> Int { 1 }
+}
+
+impl B {
+	f(b: B) -> Int { 2 }
+}
+
+const a = A {}
+a.f() --> 1
+const b = B{}
+b.f() --> 2

@@ -280,30 +280,6 @@ impl TokenData {
 
 ### TODO
 ```yoku
--- enums 
-enum Alignment {
-	Good
-	Bad
-}
-
-const a = Alignment.Good
--- exhaustive matching
-const shout: Str = match a {
-	Good => "yay!"
-	Bad => "boo!"
-}
-
-enum Expr {
-	Add { const left: Expr; const right: Expr }
-	Mul {
-		const left: Expr
-		const rigt: Expr
-	}
-	Div(Int, Int),
-	Num(Int)
-	Zero
-}
-
 -- Impl blocks
 impl Int {
 
@@ -345,13 +321,14 @@ proc secretly_parameterized[T]() -> T {}
 @external           -- similar to builtin, but used for linking
 @test               -- code will be removed outside of tests
 @bake[(Bool, Byte)] -- used to specialize parameterized type
+@generic            -- used to disable specialization
 @packed             -- use packed struct layout
 @align(8)           -- align a struct field
 @export("module")   -- export to a particular module scope
 @acknowledge        -- value must be used in some way
 @annotation         -- used to create a user defined annotation
 
--- Limited type constraints
+-- Limited type constraints?
 @builtin
 export struct Ref[@TypeConstraint.inline T] {}
 
@@ -393,6 +370,14 @@ const assert Result.Error(_): Result.Error[DivisionByZero] = Result.of(proc() { 
 assert f() throws DivisionByZero -- New keyword just for assert ;_;
 assert throws(proc() { f() }) == DivizionByZero.Tag
 
+-- Maybe go the java throws pattern route?
+assert(match f() {
+	throws _: Exception[DivisionByZero] => { true }
+	_ => { false }
+})
+-- shortens to
+const assert throws _: Exception[DivisionByZero] = f() 
+
 -- In general I have some enum, and I want to assert it some variant?
 enum MyEnum {
 	V1(Int)
@@ -402,7 +387,7 @@ const x: MyEnum = ...
 const assert MyEnum.V1(_) = x
 -- throw/result is just nastier because of the extra layer, so maybe throws is worth it?
 
--- use statement
+-- use statement? Or do we just want to rely on closures?
 use file = open("data.txt") -- will call close at end of scope
 
 -- parametrized tests
@@ -442,6 +427,7 @@ const new = match catch V1
 
 -- Eventually only Exception should be throwable
 @builtin
+@generic
 export struct Exception[T] {
 	export const payload: T
 	export const message: Str
