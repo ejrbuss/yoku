@@ -225,6 +225,7 @@ function parseStructDecl(p: Parser): AstStructDecl {
 	consume(p, "struct");
 	const id = parseId(p);
 	const fields: AstStructField[] = [];
+	let tuple = false;
 	if (match(p, "{")) {
 		while (hasMore(p) && !lookAhead(p, "}")) {
 			const mutable = match(p, "const") === undefined;
@@ -238,6 +239,7 @@ function parseStructDecl(p: Parser): AstStructDecl {
 		}
 		consume(p, "}");
 	} else {
+		tuple = true;
 		consume(p, "(");
 		while (hasMore(p) && !lookAhead(p, ")")) {
 			const typeAnnotation = parseType(p);
@@ -260,6 +262,7 @@ function parseStructDecl(p: Parser): AstStructDecl {
 	return {
 		tag: AstTag.StructDecl,
 		id,
+		tuple,
 		fields,
 		start,
 		end: getEnd(p),
@@ -270,6 +273,7 @@ function parseEnumVariant(p: Parser): AstEnumVariant {
 	const id = parseId(p);
 	const fields: AstStructField[] = [];
 	let constant = false;
+	let tuple = false;
 	if (match(p, "{")) {
 		while (hasMore(p) && !lookAhead(p, "}")) {
 			const mutable = match(p, "const") === undefined;
@@ -283,6 +287,7 @@ function parseEnumVariant(p: Parser): AstEnumVariant {
 		}
 		consume(p, "}");
 	} else if (match(p, "(")) {
+		tuple = true;
 		while (hasMore(p) && !lookAhead(p, ")")) {
 			const typeAnnotation = parseType(p);
 			fields.push({
@@ -306,6 +311,7 @@ function parseEnumVariant(p: Parser): AstEnumVariant {
 	return {
 		id,
 		constant,
+		tuple,
 		fields,
 	};
 }
@@ -1090,6 +1096,7 @@ function parseStructPattern(p: Parser): AstStructPattern {
 	const start = getStart(p);
 	const id = parseId(p);
 	const fieldPatterns: AstStructFieldPattern[] = [];
+	let tuple = false;
 	if (match(p, "{")) {
 		while (hasMore(p) && !lookAhead(p, "}")) {
 			const id = parseId(p);
@@ -1102,6 +1109,7 @@ function parseStructPattern(p: Parser): AstStructPattern {
 		consume(p, "}");
 	}
 	if (match(p, "(")) {
+		tuple = true;
 		let i = 0;
 		while (hasMore(p) && !lookAhead(p, ")")) {
 			const pattern = parsePattern(p);
@@ -1121,6 +1129,7 @@ function parseStructPattern(p: Parser): AstStructPattern {
 	return {
 		tag: AstTag.StructPattern,
 		id,
+		tuple,
 		fieldPatterns,
 		start,
 		end: getEnd(p),
@@ -1131,6 +1140,7 @@ function parseEnumVariantPattern(p: Parser): AstEnumVariantPattern {
 	const id = parseId(p);
 	const fieldPatterns: AstStructFieldPattern[] = [];
 	let constant = false;
+	let tuple = false;
 	if (match(p, "{")) {
 		while (hasMore(p) && !lookAhead(p, "}")) {
 			const id = parseId(p);
@@ -1142,6 +1152,7 @@ function parseEnumVariantPattern(p: Parser): AstEnumVariantPattern {
 		}
 		consume(p, "}");
 	} else if (match(p, "(")) {
+		tuple = true;
 		let i = 0;
 		while (hasMore(p) && !lookAhead(p, ")")) {
 			const pattern = parsePattern(p);
@@ -1163,6 +1174,7 @@ function parseEnumVariantPattern(p: Parser): AstEnumVariantPattern {
 	return {
 		id,
 		constant,
+		tuple,
 		fieldPatterns,
 	};
 }

@@ -4,6 +4,7 @@
 struct Empty {}
 const e = Empty {}
 e --> Empty {}
+Empty () --> ! TypeError
 
 --- test "Simple Struct" ---
 struct Point {
@@ -114,3 +115,9 @@ struct Color(Int, Int, Int)
 
 const rgb = Color(255, 0, 125)
 (rgb.0, rgb.1, rgb.2) --> (255, 0, 125)
+
+struct Empty()
+
+var e = Empty()
+e --> Empty()
+e = Empty {} --> ! TypeError

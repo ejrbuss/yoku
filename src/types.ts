@@ -60,12 +60,14 @@ export type StructField = {
 export type StructType = {
 	kind: Kind.Struct;
 	name: string;
+	tuple: boolean;
 	fields: StructField[];
 } & Typed;
 
 export type EnumVariant = {
 	name: string;
 	constant: boolean;
+	tuple: boolean;
 	fields: StructField[];
 };
 
@@ -132,8 +134,12 @@ function tuple<T extends Type | UnresolvedType>(
 	return { $type: Meta, kind: Kind.Tuple, items } as TupleType;
 }
 
-function struct(name: string, fields: StructField[]): StructType {
-	return { $type: Meta, kind: Kind.Struct, name, fields };
+function struct(
+	name: string,
+	tuple: boolean,
+	fields: StructField[]
+): StructType {
+	return { $type: Meta, kind: Kind.Struct, name, tuple, fields };
 }
 
 function _enum(name: string, variants: EnumVariant[]): EnumType {

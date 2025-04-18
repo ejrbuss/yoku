@@ -104,6 +104,7 @@ export type AstStructField = {
 export type AstStructDecl = {
 	tag: AstTag.StructDecl;
 	id: AstId;
+	tuple: boolean;
 	fields: AstStructField[];
 	resolvedType?: Type;
 } & Span;
@@ -111,6 +112,7 @@ export type AstStructDecl = {
 export type AstEnumVariant = {
 	id: AstId;
 	constant: boolean;
+	tuple: boolean;
 	fields: AstStructField[];
 };
 
@@ -338,12 +340,14 @@ export type AstStructFieldPattern = {
 export type AstStructPattern = {
 	tag: AstTag.StructPattern;
 	id: AstId;
+	tuple: boolean;
 	fieldPatterns: AstStructFieldPattern[];
 } & Span;
 
 export type AstEnumVariantPattern = {
 	id: AstId;
 	constant: boolean;
+	tuple: boolean;
 	fieldPatterns: AstStructFieldPattern[];
 };
 

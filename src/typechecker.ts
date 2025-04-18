@@ -301,7 +301,7 @@ function checkStructDecl(
 			type: reifyType(t, field.typeAnnotation),
 		});
 	}
-	const type = Type.struct(s.id.value, fields);
+	const type = Type.struct(s.id.value, s.tuple, fields);
 	declareType(t, s.id, type);
 	s.resolvedType = type;
 	return Type.Any;
@@ -326,6 +326,7 @@ function checkEnumDecl(
 		variants.push({
 			name: variant.id.value,
 			constant: variant.constant,
+			tuple: variant.tuple,
 			fields,
 		});
 	}
@@ -521,7 +522,7 @@ function checkStructExpr(
 	_d?: UnresolvedType
 ): Type {
 	const type = reifyType(t, s.id);
-	if (type.kind !== Kind.Struct) {
+	if (type.kind !== Kind.Struct || type.tuple) {
 		const tp = Type.print(type);
 		throw new TypeError(
 			`Type ${tp} is not constructable!`,
@@ -568,10 +569,10 @@ function checkEnumExpr(
 		);
 	}
 	const variant = assertVariant(type, e.structExpr.id);
-	if (variant.constant) {
+	if (variant.constant || variant.tuple) {
 		const tp = Type.print(type);
 		throw new TypeError(
-			`Type ${tp} is a constant with no fields!`,
+			`Type ${tp}.${variant.name} is not constructable!`,
 			e.id.start,
 			e.id.end
 		);
@@ -938,7 +939,7 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: UnresolvedType): Type {
 	}
 	if (callee === Type.Module && c.proc.tag === AstTag.Id) {
 		const type = t.types.get(c.proc.value);
-		if (type !== undefined && type.kind === Kind.Struct) {
+		if (type !== undefined && type.kind === Kind.Struct && type.tuple) {
 			assertCardinality(c.args, type.fields, c, "fields");
 			for (const [arg, field] of zip(c.args, type.fields)) {
 				const argType = check(t, arg, field.type);
@@ -956,12 +957,14 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: UnresolvedType): Type {
 		const type = t.types.get(c.proc.left.value);
 		if (type !== undefined && type.kind === Kind.Enum) {
 			const variant = assertVariant(type, c.proc.right);
-			assertCardinality(c.args, variant.fields, c, "fields");
-			for (const [arg, field] of zip(c.args, variant.fields)) {
-				const argType = check(t, arg, field.type);
-				assertAssignable(argType, field.type, arg);
+			if (variant.tuple) {
+				assertCardinality(c.args, variant.fields, c, "fields");
+				for (const [arg, field] of zip(c.args, variant.fields)) {
+					const argType = check(t, arg, field.type);
+					assertAssignable(argType, field.type, arg);
+				}
+				return type;
 			}
-			return type;
 		}
 	}
 	const found = Type.print(callee);

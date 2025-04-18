@@ -42,7 +42,7 @@ b --> 2
 --- test "Tuple Enum" ---
 enum TupleEnum {
 	None,
-	Zero(),
+	Zero()
 	One(Int)
 	Two(Bool, Int)
 }
@@ -60,6 +60,7 @@ a = TupleEnum.One(4)
 a == TupleEnum.One(4) --> true
 a == TupleEnum.Two(true, 4) --> false
 
+var assert TupleEnum.One(b) = TupleEnum.None --> ! RuntimeError
 var assert TupleEnum.Two(b, c) = TupleEnum.Two(false, -1)
 b --> false
 c --> -1
@@ -80,3 +81,50 @@ match_tuple(TupleEnum.Two(true, 44)) --> "true44"
 
 
 --- test "Struct Enum" ---
+
+enum StructEnum {
+	None,
+	Zero {}
+	One {
+		var a: Int
+	}
+	Two {
+		var b: Bool
+		var c: Int
+	}
+}
+
+var a: StructEnum = StructEnum.None
+a = StructEnum.None() --> ! TypeError
+a = StructEnum.None {} --> ! TypeError
+a = StructEnum.Zero() --> ! TypeError
+a = StructEnum.Zero {}
+
+a == StructEnum.None --> false
+a == (StructEnum.Zero {}) --> true
+
+a = StructEnum.One { a = 5 }
+a == (StructEnum.Zero {}) --> false
+a == (StructEnum.One { a = 5 }) --> true
+a == (StructEnum.One { a = 6 }) --> false
+a == (StructEnum.Two { b = true, c = 7 }) --> false
+
+var assert StructEnum.One { a = b } = StructEnum.None --> ! RuntimeError
+var assert StructEnum.Two { b, c = d } = StructEnum.Two { b = false, c = 8 }
+b --> false
+d --> 8
+
+proc match_struct(t: StructEnum) -> Str {
+	match t {
+		StructEnum.None => { "None" }
+		StructEnum.Zero {} => { "Zero" }
+		StructEnum.One { a = x } => { cat("One", x) }
+		StructEnum.Two { b = x, c } => { cat(x, c) }
+	}
+}
+
+match_struct(StructEnum.None) --> "None"
+match_struct(StructEnum.Zero {}) --> "Zero"
+match_struct(StructEnum.One { a = 4 }) --> "One4"
+a = StructEnum.Two { b = false, c = 44 }
+match_struct(StructEnum.Two { b = true, ...a }) --> "true44"
