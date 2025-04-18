@@ -1,4 +1,5 @@
-import { Unreachable, zip } from "./utils.ts";
+import { unreachable } from "@std/assert/unreachable";
+import { zip } from "./utils.ts";
 
 export type Typed = { $type: Type };
 
@@ -62,10 +63,16 @@ export type StructType = {
 	fields: StructField[];
 } & Typed;
 
+export type EnumVariant = {
+	name: string;
+	constant: boolean;
+	fields: StructField[];
+};
+
 export type EnumType = {
 	kind: Kind.Enum;
 	name: string;
-	variants: StructType[];
+	variants: EnumVariant[];
 	constants: unknown[];
 } & Typed;
 
@@ -129,12 +136,12 @@ function struct(name: string, fields: StructField[]): StructType {
 	return { $type: Meta, kind: Kind.Struct, name, fields };
 }
 
-function _enum(name: string, variants: StructType[]): EnumType {
+function _enum(name: string, variants: EnumVariant[]): EnumType {
 	return { $type: Meta, kind: Kind.Enum, name, variants, constants: [] };
 }
 
 function findField(
-	type: StructType,
+	type: StructType | EnumVariant,
 	name: string | bigint
 ): StructField | undefined {
 	if (typeof name === "bigint") {
@@ -148,7 +155,7 @@ function findField(
 	return undefined;
 }
 
-function findVariant(type: EnumType, name: string): StructType | undefined {
+function findVariant(type: EnumType, name: string): EnumVariant | undefined {
 	for (const variant of type.variants) {
 		if (variant.name === name) {
 			return variant;
@@ -335,7 +342,7 @@ function reconcile(
 			}
 			return into;
 		}
-		throw new Unreachable();
+		unreachable();
 	}
 	return recurse(from, into);
 }

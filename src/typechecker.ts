@@ -37,6 +37,8 @@ import {
 	AstExpr,
 	AstWhileStmt,
 	AstTypeExpr,
+	AstEnumExpr,
+	Ast,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -49,8 +51,9 @@ import {
 	StructField,
 	StructType,
 	EnumType,
+	EnumVariant,
 } from "./types.ts";
-import { Span, Unreachable, zip, zipLeft } from "./utils.ts";
+import { Span, zip, zipLeft } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
 
 const assert2: typeof assert = assert;
@@ -183,6 +186,8 @@ function check(
 			return checkTupleExpr(t, ast, d);
 		case AstTag.StructExpr:
 			return checkStructExpr(t, ast, d);
+		case AstTag.EnumExpr:
+			return checkEnumExpr(t, ast, d);
 		case AstTag.GroupExpr:
 			return checkGroupExpr(t, ast, d);
 		case AstTag.IfExpr:
@@ -273,9 +278,9 @@ function checkTypeDecl(
 	d: AstTypeDecl,
 	_d?: UnresolvedType
 ): Type {
-	if (!t.values.inGlobalScope) {
-		throw new Unreachable();
-	}
+	// TODO these global assertions will need to become module level assertions
+	// once we have module level scope
+	assert(t.values.inGlobalScope);
 	const type = reifyType(t, d.typeExpr);
 	declareType(t, d.id, type);
 	d.resolvedType = type;
@@ -287,9 +292,7 @@ function checkStructDecl(
 	s: AstStructDecl,
 	_d?: UnresolvedType
 ): Type {
-	if (!t.values.inGlobalScope) {
-		throw new Unreachable();
-	}
+	assert(t.values.inGlobalScope);
 	const fields: StructField[] = [];
 	for (const field of s.fields) {
 		fields.push({
@@ -309,10 +312,8 @@ function checkEnumDecl(
 	e: AstEnumDecl,
 	_d?: UnresolvedType
 ): Type {
-	if (!t.values.inGlobalScope) {
-		throw new Unreachable();
-	}
-	const variants: StructType[] = [];
+	assert(t.values.inGlobalScope);
+	const variants: EnumVariant[] = [];
 	for (const variant of e.variants) {
 		const fields: StructField[] = [];
 		for (const field of variant.fields) {
@@ -322,8 +323,11 @@ function checkEnumDecl(
 				type: reifyType(t, field.typeAnnotation),
 			});
 		}
-		const variantType = Type.struct(variant.id.value, fields);
-		variants.push(variantType);
+		variants.push({
+			name: variant.id.value,
+			constant: variant.constant,
+			fields,
+		});
 	}
 	const type = Type.enum(e.id.value, variants);
 	declareType(t, e.id, type);
@@ -336,9 +340,7 @@ function checkTestDecl(
 	d: AstTestDecl,
 	_d?: UnresolvedType
 ): Type {
-	if (!t.values.inGlobalScope) {
-		throw new Unreachable();
-	}
+	assert(t.values.inGlobalScope);
 	check(t, d.thenExpr);
 	return Type.Any;
 }
@@ -541,7 +543,6 @@ function checkStructExpr(
 		const fieldType = check(t, fieldInit.expr ?? fieldInit.id, field.type);
 		assertAssignable(fieldType, field.type, fieldInit.expr ?? fieldInit.id);
 	}
-
 	if (s.spreadInit !== undefined) {
 		const spreadType = check(t, s.spreadInit, type);
 		assertAssignable(spreadType, type, s.spreadInit);
@@ -549,6 +550,53 @@ function checkStructExpr(
 		assertCardinality(type.fields, initialized, s, "fields");
 	}
 	s.resolvedType = type;
+	return type;
+}
+
+function checkEnumExpr(
+	t: TypeChecker,
+	e: AstEnumExpr,
+	_d?: UnresolvedType
+): Type {
+	const type = reifyType(t, e.id);
+	if (type.kind !== Kind.Enum) {
+		const tp = Type.print(type);
+		throw new TypeError(
+			`Type ${tp} is not constructable!`,
+			e.id.start,
+			e.id.end
+		);
+	}
+	const variant = assertVariant(type, e.structExpr.id);
+	if (variant.constant) {
+		const tp = Type.print(type);
+		throw new TypeError(
+			`Type ${tp} is a constant with no fields!`,
+			e.id.start,
+			e.id.end
+		);
+	}
+	const initialized: string[] = [];
+	for (const fieldInit of e.structExpr.fieldInits) {
+		if (initialized.includes(fieldInit.id.value)) {
+			throw new TypeError(
+				`Duplicate field initializer!`,
+				fieldInit.id.start,
+				fieldInit.id.end
+			);
+		}
+		const field = assertVariantField(type, variant, fieldInit.id);
+		initialized.push(fieldInit.id.value);
+		const fieldType = check(t, fieldInit.expr ?? fieldInit.id, field.type);
+		assertAssignable(fieldType, field.type, fieldInit.expr ?? fieldInit.id);
+	}
+	if (e.structExpr.spreadInit !== undefined) {
+		const spreadType = check(t, e.structExpr.spreadInit, type);
+		assertAssignable(spreadType, type, e.structExpr.spreadInit);
+	} else {
+		assertCardinality(variant.fields, initialized, e, "fields");
+	}
+	e.resolvedType = type;
 	return type;
 }
 
@@ -798,23 +846,13 @@ function checkBinaryExpr(
 						);
 					}
 					const variant = assertVariant(enumType, b.right);
-					if (variant.fields.length !== 0) {
-						const e = enumType.name;
-						const v = variant.name;
-						throw new TypeError(
-							`${e}.${v} cannot be constructed without fields!`,
-							b.start,
-							b.end
-						);
-					}
-					b.resolvedType = enumType;
-					return enumType;
+					return variant.constant ? enumType : Type.Module;
 				}
 			}
 			return checkBinaryExprHelper(t, b, []);
 		}
 		case BinaryOp.As:
-			throw new Unreachable();
+			unreachable(`${Ast.print(b)}`);
 	}
 }
 
@@ -896,7 +934,6 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: UnresolvedType): Type {
 			const argType = check(t, arg, param);
 			assertAssignable(argType, param, arg);
 		}
-		c.resolvedType = callee.returns;
 		return callee.returns;
 	}
 	if (callee === Type.Module && c.proc.tag === AstTag.Id) {
@@ -907,7 +944,23 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: UnresolvedType): Type {
 				const argType = check(t, arg, field.type);
 				assertAssignable(argType, field.type, arg);
 			}
-			c.resolvedType = type;
+			return type;
+		}
+	}
+	if (
+		callee === Type.Module &&
+		c.proc.tag === AstTag.BinaryExpr &&
+		c.proc.left.tag === AstTag.Id &&
+		c.proc.right.tag === AstTag.Id
+	) {
+		const type = t.types.get(c.proc.left.value);
+		if (type !== undefined && type.kind === Kind.Enum) {
+			const variant = assertVariant(type, c.proc.right);
+			assertCardinality(c.args, variant.fields, c, "fields");
+			for (const [arg, field] of zip(c.args, variant.fields)) {
+				const argType = check(t, arg, field.type);
+				assertAssignable(argType, field.type, arg);
+			}
 			return type;
 		}
 	}
@@ -1013,7 +1066,7 @@ function unify(
 			assert2(type.kind === Kind.Enum);
 			const variantType = assertVariant(type, p.variant.id);
 			for (const fp of p.variant.fieldPatterns) {
-				const sf = assertField(variantType, fp.id);
+				const sf = assertVariantField(type, variantType, fp.id);
 				unify(t, fp.pattern ?? fp.id, sf.type, mutable, assert);
 			}
 			return;
@@ -1153,7 +1206,27 @@ function assertField(type: StructType, name: AstId | AstLit): StructField {
 	return field;
 }
 
-function assertVariant(type: EnumType, name: AstId): StructType {
+function assertVariantField(
+	enumType: EnumType,
+	variant: EnumVariant,
+	name: AstId | AstLit
+): StructField {
+	// TODO git rid of this type assertion
+	const field = Type.findField(variant, name.value as string | bigint);
+	if (field === undefined) {
+		const f = name.value;
+		const s = enumType.name;
+		const v = variant.name;
+		throw new TypeError(
+			`No field ${f} on type ${s}.${v}!`,
+			name.start,
+			name.end
+		);
+	}
+	return field;
+}
+
+function assertVariant(type: EnumType, name: AstId): EnumVariant {
 	const variant = Type.findVariant(type, name.value);
 	if (variant === undefined) {
 		const f = name.value;

@@ -1,5 +1,5 @@
 import { BinaryOp, UnaryOp } from "./ops.ts";
-import { Type, TupleType, StructType, ProcType } from "./types.ts";
+import { Type, TupleType, StructType, ProcType, EnumType } from "./types.ts";
 import { Span, sexpr } from "./utils.ts";
 
 export enum AstTag {
@@ -28,6 +28,7 @@ export enum AstTag {
 	BlockExpr = "BlockExpr",
 	TupleExpr = "TupleExpr",
 	StructExpr = "StructExpr",
+	EnumExpr = "EnumExpr",
 	GroupExpr = "GroupExpr",
 	IfExpr = "IfExpr",
 	MatchExpr = "MatchExpr",
@@ -94,6 +95,12 @@ export type AstTypeDecl = {
 	resolvedType?: Type;
 } & Span;
 
+export type AstStructField = {
+	mutable: boolean;
+	id: AstId;
+	typeAnnotation: AstType;
+};
+
 export type AstStructDecl = {
 	tag: AstTag.StructDecl;
 	id: AstId;
@@ -101,16 +108,16 @@ export type AstStructDecl = {
 	resolvedType?: Type;
 } & Span;
 
-export type AstStructField = {
-	mutable: boolean;
+export type AstEnumVariant = {
 	id: AstId;
-	typeAnnotation: AstType;
+	constant: boolean;
+	fields: AstStructField[];
 };
 
 export type AstEnumDecl = {
 	tag: AstTag.EnumDecl;
 	id: AstId;
-	variants: AstStructDecl[];
+	variants: AstEnumVariant[];
 	resolvedType?: Type;
 } & Span;
 
@@ -209,6 +216,13 @@ export type AstStructExpr = {
 	resolvedType?: StructType;
 } & Span;
 
+export type AstEnumExpr = {
+	tag: AstTag.EnumExpr;
+	id: AstId;
+	structExpr: AstStructExpr;
+	resolvedType?: EnumType;
+} & Span;
+
 export type AstStructFieldInit = {
 	id: AstId;
 	expr?: AstExpr;
@@ -274,7 +288,6 @@ export type BinaryExpr = {
 	op: BinaryOp;
 	left: AstExpr;
 	right: AstExpr;
-	resolvedType?: Type;
 } & Span;
 
 export type UnaryExpr = {
@@ -287,13 +300,13 @@ export type CallExpr = {
 	tag: AstTag.CallExpr;
 	proc: AstExpr;
 	args: AstExpr[];
-	resolvedType?: Type;
 } & Span;
 
 export type AstExpr =
 	| BlockExpr
 	| TupleExpr
 	| AstStructExpr
+	| AstEnumExpr
 	| GroupExpr
 	| IfExpr
 	| MatchExpr
@@ -317,21 +330,27 @@ export type AstTuplePattern = {
 	items: AstPattern[];
 } & Span;
 
+export type AstStructFieldPattern = {
+	id: AstId;
+	pattern: AstPattern;
+};
+
 export type AstStructPattern = {
 	tag: AstTag.StructPattern;
 	id: AstId;
 	fieldPatterns: AstStructFieldPattern[];
 } & Span;
 
-export type AstStructFieldPattern = {
+export type AstEnumVariantPattern = {
 	id: AstId;
-	pattern: AstPattern;
+	constant: boolean;
+	fieldPatterns: AstStructFieldPattern[];
 };
 
 export type AstEnumPattern = {
 	tag: AstTag.EnumPattern;
 	id: AstId;
-	variant: AstStructPattern;
+	variant: AstEnumVariantPattern;
 } & Span;
 
 export type AstPattern =

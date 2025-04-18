@@ -41,11 +41,14 @@ import {
 	AstProcType,
 	AstDecl,
 	AstEnumPattern,
+	AstEnumExpr,
+	AstStructExpr,
+	AstEnumVariant,
+	AstEnumVariantPattern,
 } from "./ast.ts";
 import { CodeSource } from "./codesource.ts";
-import { Unreachable } from "./utils.ts";
 import { AssignOp, AssignToBinary, BinaryOp, UnaryOp } from "./ops.ts";
-import { assertArrayIncludes } from "@std/assert/array-includes";
+import { unreachable } from "@std/assert/unreachable";
 
 type TokenMatcher = TokenType | string;
 
@@ -219,7 +222,7 @@ function praseTypeDecl(p: Parser): AstTypeDecl {
 
 function parseStructDecl(p: Parser): AstStructDecl {
 	const start = getStart(p);
-	match(p, "struct");
+	consume(p, "struct");
 	const id = parseId(p);
 	const fields: AstStructField[] = [];
 	if (match(p, "{")) {
@@ -263,27 +266,61 @@ function parseStructDecl(p: Parser): AstStructDecl {
 	};
 }
 
+function parseEnumVariant(p: Parser): AstEnumVariant {
+	const id = parseId(p);
+	const fields: AstStructField[] = [];
+	let constant = false;
+	if (match(p, "{")) {
+		while (hasMore(p) && !lookAhead(p, "}")) {
+			const mutable = match(p, "const") === undefined;
+			if (mutable) {
+				consume(p, "var");
+			}
+			const id = parseId(p);
+			consume(p, ":");
+			const typeAnnotation = parseType(p);
+			fields.push({ mutable, id, typeAnnotation });
+		}
+		consume(p, "}");
+	} else if (match(p, "(")) {
+		while (hasMore(p) && !lookAhead(p, ")")) {
+			const typeAnnotation = parseType(p);
+			fields.push({
+				mutable: false,
+				id: {
+					tag: AstTag.Id,
+					value: `${fields.length}`,
+					start: typeAnnotation.start,
+					end: typeAnnotation.end,
+				},
+				typeAnnotation,
+			});
+			if (!lookAhead(p, ")")) {
+				consume(p, ",");
+			}
+		}
+		consume(p, ")");
+	} else {
+		constant = true;
+	}
+	return {
+		id,
+		constant,
+		fields,
+	};
+}
+
 function parseEnumDecl(p: Parser): AstEnumDecl {
 	const start = getStart(p);
 	consume(p, "enum");
 	const id = parseId(p);
-	const variants: AstStructDecl[] = [];
+	const variants: AstEnumVariant[] = [];
 	consume(p, "{");
 	while (hasMore(p) && !lookAhead(p, "}")) {
-		if (!lookAhead(p, "{", 1) && !lookAhead(p, "(", 1)) {
-			const variantId = parseId(p);
-			variants.push({
-				tag: AstTag.StructDecl,
-				id: variantId,
-				fields: [],
-				start: variantId.start,
-				end: variantId.end,
-			});
-			if (!lookAhead(p, "}")) {
-				consume(p, ",");
-			}
+		variants.push(parseEnumVariant(p));
+		if (!lookAhead(p, "}") && !(lookBehind(p, "}") || lookBehind(p, ")"))) {
+			consume(p, ",");
 		} else {
-			variants.push(parseStructDecl(p));
 			match(p, ",");
 		}
 	}
@@ -460,6 +497,14 @@ function parseExpr(p: Parser): AstExpr {
 	}
 	if (lookAhead(p, TokenType.Id) && lookAhead(p, "{", 1)) {
 		return parseStructExpr(p);
+	}
+	if (
+		lookAhead(p, TokenType.Id) &&
+		lookAhead(p, ".", 1) &&
+		lookAhead(p, TokenType.Id, 2) &&
+		lookAhead(p, "{", 3)
+	) {
+		return parseEnumExpr(p);
 	}
 	return parseSubExpr(p);
 }
@@ -682,7 +727,7 @@ function parsePrimaryExpr(p: Parser): AstExpr {
 		return parseId(p);
 	}
 	consume(p, TokenType.Id, "Expected expression!");
-	throw new Unreachable();
+	unreachable(`${match(p)}`);
 }
 
 function parseTupleOrGroupExpr(p: Parser): TupleExpr | GroupExpr {
@@ -724,36 +769,48 @@ function parseTupleOrGroupExpr(p: Parser): TupleExpr | GroupExpr {
 	}
 }
 
-function parseStructExpr(p: Parser): AstExpr {
+function parseStructExpr(p: Parser): AstStructExpr {
 	const start = getStart(p);
 	const id = parseId(p);
-	if (match(p, "{")) {
-		const fieldInits: AstStructFieldInit[] = [];
-		let spreadInit: undefined | AstExpr;
-		while (hasMore(p) && !lookAhead(p, "}")) {
-			if (match(p, "...")) {
-				spreadInit = parseExpr(p);
-				match(p, ",");
-				break;
-			}
-			const id = parseId(p);
-			const expr = match(p, "=") ? parseExpr(p) : undefined;
-			fieldInits.push({ id, expr });
-			if (!lookAhead(p, "}")) {
-				consume(p, ",");
-			}
+	const fieldInits: AstStructFieldInit[] = [];
+	let spreadInit: undefined | AstExpr;
+	consume(p, "{");
+	while (hasMore(p) && !lookAhead(p, "}")) {
+		if (match(p, "...")) {
+			spreadInit = parseExpr(p);
+			match(p, ",");
+			break;
 		}
-		consume(p, "}");
-		return {
-			tag: AstTag.StructExpr,
-			id: id,
-			fieldInits,
-			spreadInit,
-			start,
-			end: getEnd(p),
-		};
+		const id = parseId(p);
+		const expr = match(p, "=") ? parseExpr(p) : undefined;
+		fieldInits.push({ id, expr });
+		if (!lookAhead(p, "}")) {
+			consume(p, ",");
+		}
 	}
-	return id;
+	consume(p, "}");
+	return {
+		tag: AstTag.StructExpr,
+		id,
+		fieldInits,
+		spreadInit,
+		start,
+		end: getEnd(p),
+	};
+}
+
+function parseEnumExpr(p: Parser): AstEnumExpr {
+	const start = getStart(p);
+	const id = parseId(p);
+	consume(p, ".");
+	const structExpr = parseStructExpr(p);
+	return {
+		tag: AstTag.EnumExpr,
+		id,
+		structExpr,
+		start,
+		end: getEnd(p),
+	};
 }
 
 function parseBlockExpr(p: Parser): BlockExpr {
@@ -1070,11 +1127,51 @@ function parseStructPattern(p: Parser): AstStructPattern {
 	};
 }
 
+function parseEnumVariantPattern(p: Parser): AstEnumVariantPattern {
+	const id = parseId(p);
+	const fieldPatterns: AstStructFieldPattern[] = [];
+	let constant = false;
+	if (match(p, "{")) {
+		while (hasMore(p) && !lookAhead(p, "}")) {
+			const id = parseId(p);
+			const pattern = match(p, "=") ? parsePattern(p) : id;
+			fieldPatterns.push({ id, pattern });
+			if (!lookAhead(p, "}")) {
+				consume(p, ",");
+			}
+		}
+		consume(p, "}");
+	} else if (match(p, "(")) {
+		let i = 0;
+		while (hasMore(p) && !lookAhead(p, ")")) {
+			const pattern = parsePattern(p);
+			const id: AstId = {
+				tag: AstTag.Id,
+				value: `${i++}`,
+				start: pattern.start,
+				end: pattern.end,
+			};
+			fieldPatterns.push({ id, pattern });
+			if (!lookAhead(p, ")")) {
+				consume(p, ",");
+			}
+		}
+		consume(p, ")");
+	} else {
+		constant = true;
+	}
+	return {
+		id,
+		constant,
+		fieldPatterns,
+	};
+}
+
 function parseEnumPattern(p: Parser): AstEnumPattern {
 	const start = getStart(p);
 	const id = parseId(p);
 	consume(p, ".");
-	const variant = parseStructPattern(p);
+	const variant = parseEnumVariantPattern(p);
 	return {
 		tag: AstTag.EnumPattern,
 		id,

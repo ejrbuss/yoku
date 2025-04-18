@@ -37,19 +37,21 @@ import {
 	UnaryExpr,
 	Ast,
 	AstWhileStmt,
+	AstEnumExpr,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
 import {
 	EnumType,
+	EnumVariant,
 	Kind,
-	ProcType,
 	StructType,
 	TupleType,
 	Type,
 } from "./types.ts";
-import { enumerate, structurallyEq, Todo, Unreachable, zip } from "./utils.ts";
+import { enumerate, structurallyEq, zip } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
+import { assert } from "@std/assert/assert";
 
 export class RuntimeError {
 	constructor(
@@ -256,6 +258,8 @@ function interperate(
 			return interperateTupleExpr(i, ast);
 		case AstTag.StructExpr:
 			return interperateStructExpr(i, ast);
+		case AstTag.EnumExpr:
+			return interperateEnumExpr(i, ast);
 		case AstTag.GroupExpr:
 			return interperateGroupExpr(i, ast);
 		case AstTag.IfExpr:
@@ -449,21 +453,35 @@ function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 function interperateStructExpr(i: Interpreter, s: AstStructExpr): unknown {
 	const type = s.resolvedType as StructType;
 	const fields: Record<string, unknown> = {};
-	const initialized: string[] = [];
 	if (s.spreadInit !== undefined) {
 		const spread = interperate(i, s.spreadInit) as Struct;
 		for (const [i, field] of enumerate(type.fields)) {
 			fields[field.name ?? i] = spread[field.name ?? i];
-			if (field.name) {
-				initialized.push(field.name);
-			}
 		}
 	}
 	for (const fieldInit of s.fieldInits) {
 		fields[fieldInit.id.value] = interperate(i, fieldInit.expr ?? fieldInit.id);
-		initialized.push(fieldInit.id.value);
 	}
 	return Struct.create(type, fields);
+}
+
+function interperateEnumExpr(i: Interpreter, e: AstEnumExpr): unknown {
+	const type = e.resolvedType;
+	assert(type?.kind === Kind.Enum);
+	const variant = Type.findVariant(type, e.structExpr.id.value);
+	assert(variant);
+	const fields: Record<string, unknown> = {};
+	if (e.structExpr.spreadInit !== undefined) {
+		const spread = interperate(i, e.structExpr.spreadInit);
+		assert(Enum.is(spread));
+		for (const [i, field] of enumerate(variant.fields)) {
+			fields[field.name ?? i] = spread[field.name ?? i];
+		}
+	}
+	for (const fieldInit of e.structExpr.fieldInits) {
+		fields[fieldInit.id.value] = interperate(i, fieldInit.expr ?? fieldInit.id);
+	}
+	return Enum.create(type, type.variants.indexOf(variant), fields);
 }
 
 function interperateGroupExpr(i: Interpreter, g: GroupExpr): unknown {
@@ -519,7 +537,9 @@ function interperateThrowExpr(i: Interpreter, t: ThrowExpr): unknown {
 
 function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 	const capture = i.scopes.capture();
-	return Proc.create(undefined, p.resolvedType as ProcType, (args) => {
+	const procType = p.resolvedType;
+	assert(procType?.kind === Kind.Proc);
+	return Proc.create(undefined, procType, (args) => {
 		const scopesSave = i.scopes;
 		i.scopes = capture;
 		capture.openScope();
@@ -542,7 +562,9 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 }
 
 function interperateTypeExpr(_i: Interpreter, t: AstTypeExpr): unknown {
-	return t.resolvedType as Type;
+	const type = t.resolvedType;
+	assert(type);
+	return type;
 }
 
 function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
@@ -635,18 +657,23 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 				return (left as Struct)[(b.right as AstId).value];
 			}
 			if (type === Type.Module) {
-				const enumType = b.resolvedType as EnumType;
-				const variant = enumType.variants.findIndex(
-					(variant) => variant.name === (b.right as AstId).value
-				);
-				let constant = enumType.constants[variant];
-				if (constant === undefined) {
-					constant = Enum.create(enumType, variant, {});
-					enumType.constants[variant] = constant;
+				assert(Module.is(left));
+				const enumType = left.type;
+				assert(enumType?.kind === Kind.Enum);
+				const variant = Type.findVariant(
+					enumType,
+					(b.right as AstId).value
+				) as EnumVariant;
+				if (!variant.constant) {
+					return left;
 				}
-				return constant;
+				const vi = enumType.variants.indexOf(variant);
+				if (enumType.constants[vi] === undefined) {
+					enumType.constants[vi] = Enum.create(enumType, vi, {});
+				}
+				return enumType.constants[vi];
 			}
-			throw new Unreachable();
+			unreachable();
 		}
 	}
 }
@@ -670,8 +697,25 @@ function interperateCallExpr(i: Interpreter, c: CallExpr): unknown {
 	for (const arg of c.args) {
 		args.push(interperate(i, arg));
 	}
-	if (Type.of(proc) === Type.Module) {
-		return Struct.create(c.resolvedType as StructType, { ...args });
+	if (Type.of(proc) === Type.Module && c.proc.tag === AstTag.Id) {
+		const structModule = interperate(i, c.proc) as Module;
+		const structType = structModule.type as StructType;
+		return Struct.create(structType, { ...args });
+	}
+	if (
+		Type.of(proc) === Type.Module &&
+		c.proc.tag === AstTag.BinaryExpr &&
+		c.proc.right.tag == AstTag.Id
+	) {
+		const enumModule = interperate(i, c.proc.left) as Module;
+		const enumType = enumModule.type as EnumType;
+		const variant = Type.findVariant(
+			enumType,
+			c.proc.right.value
+		) as EnumVariant;
+		return Enum.create(enumType, enumType.variants.indexOf(variant), {
+			...args,
+		});
 	}
 	return (proc as Proc).impl(args);
 }

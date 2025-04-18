@@ -7,7 +7,7 @@ import {
 	Type,
 	EnumType,
 } from "./types.ts";
-import { enumerate, Unreachable } from "./utils.ts";
+import { enumerate } from "./utils.ts";
 
 export const Unit = null;
 
@@ -16,7 +16,7 @@ export type Proc = {
 	impl: (args: unknown[]) => unknown;
 } & Typed;
 
-export const Proc = { create: createProc };
+export const Proc = { create: createProc, is: isProc };
 
 function createProc(
 	name: string | undefined,
@@ -26,17 +26,25 @@ function createProc(
 	return { $type: type, name, impl };
 }
 
+function isProc(value: unknown): value is Proc {
+	return Type.of(value).kind === Kind.Proc;
+}
+
 export type Tuple = { items: unknown[] } & Typed;
 
-export const Tuple = { create: createTuple };
+export const Tuple = { create: createTuple, is: isTuple };
 
 function createTuple(type: TupleType, items: unknown[]): Tuple {
 	return { $type: type, items };
 }
 
+function isTuple(value: unknown): value is Tuple {
+	return Type.of(value).kind === Kind.Tuple;
+}
+
 export type Struct = Record<string, unknown> & Typed;
 
-export const Struct = { create: createStruct };
+export const Struct = { create: createStruct, is: isStruct };
 
 function createStruct(
 	type: StructType,
@@ -45,12 +53,16 @@ function createStruct(
 	return { $type: type, ...values };
 }
 
+function isStruct(value: unknown): value is Struct {
+	return Type.of(value).kind === Kind.Struct;
+}
+
 export type Enum = Record<string, unknown> &
 	Typed & {
 		$variant: number;
 	};
 
-export const Enum = { create: createEnum };
+export const Enum = { create: createEnum, is: isEnum };
 
 function createEnum(
 	type: EnumType,
@@ -60,12 +72,20 @@ function createEnum(
 	return { $type: type, $variant: variant, ...values };
 }
 
+function isEnum(value: unknown): value is Enum {
+	return Type.of(value).kind === Kind.Enum;
+}
+
 export type Module = { name: string; type?: Type } & Typed;
 
-export const Module = { create: createModule };
+export const Module = { create: createModule, is: isModule };
 
 function createModule(name: string, type?: Type) {
 	return { $type: Type.Module, name, type };
+}
+
+function isModule(value: unknown): value is Module {
+	return Type.of(value) === Type.Module;
 }
 
 export function print(v: unknown): string {

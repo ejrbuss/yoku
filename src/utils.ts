@@ -4,13 +4,7 @@ export class Todo extends Error {
 	}
 }
 
-export class Unreachable extends Error {
-	constructor(impossible?: unknown) {
-		super(`Reached the unreachable: ${impossible}`);
-	}
-}
-
-type NonNull = Record<string, unknown>;
+export type NonNull = Record<string, unknown>;
 
 export function structurallyEq(a: unknown, b: unknown): boolean {
 	const aStack: NonNull[] = [];
