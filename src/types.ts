@@ -11,6 +11,7 @@ export enum Kind {
 	Struct = "Struct",
 	Enum = "Enum",
 	Variant = "Variant",
+	Module = "Module",
 }
 
 export type Type =
@@ -19,7 +20,12 @@ export type Type =
 	| TupleType
 	| StructType
 	| EnumType
-	| VariantType;
+	| VariantType
+	| ModuleType;
+
+type HasFields<T> = T extends { fields: Field[] } ? T : never;
+
+export type TypeWithFields = HasFields<Type>;
 
 export type UnresolvedType =
 	| Type
@@ -58,7 +64,7 @@ export type UnresolvedTupleType = {
 	items: UnresolvedType[];
 } & Typed;
 
-export type StructField = {
+export type Field = {
 	mutable: boolean;
 	name: string;
 	type: Type;
@@ -68,7 +74,7 @@ export type StructType = {
 	kind: Kind.Struct;
 	name: string;
 	tuple: boolean;
-	fields: StructField[];
+	fields: Field[];
 } & Typed;
 
 export type EnumType = {
@@ -84,7 +90,14 @@ export type VariantType = {
 	constant: boolean;
 	tuple: boolean;
 	enum: EnumType;
-	fields: StructField[];
+	fields: Field[];
+};
+
+export type ModuleType = {
+	kind: Kind.Module;
+	name: string;
+	associatedType?: Type;
+	fields: Field[];
 };
 
 const Meta = {
@@ -104,6 +117,7 @@ export const Type = {
 	tuple,
 	struct,
 	enum: _enum,
+	module,
 	Type: Meta, // TODO Type[T]
 	_: Wildcard,
 	Any: primitive("Any"),
@@ -113,7 +127,6 @@ export const Type = {
 	Int: primitive("Int"),
 	Float: primitive("Float"),
 	Str: primitive("Str"),
-	Module: primitive("Module"), // TODO Module[T]
 	findField,
 	findVariant,
 	of,
@@ -143,11 +156,7 @@ function tuple<T extends Type | UnresolvedType>(
 	return { $type: Meta, kind: Kind.Tuple, items } as TupleType;
 }
 
-function struct(
-	name: string,
-	tuple: boolean,
-	fields: StructField[]
-): StructType {
+function struct(name: string, tuple: boolean, fields: Field[]): StructType {
 	return { $type: Meta, kind: Kind.Struct, name, tuple, fields };
 }
 
@@ -172,10 +181,16 @@ function _enum(
 	return enum_;
 }
 
-function findField(
-	type: StructType | VariantType,
-	name: string | bigint
-): StructField | undefined {
+function module(name: string, associatedType?: Type): ModuleType {
+	return {
+		kind: Kind.Module,
+		name,
+		associatedType,
+		fields: [],
+	};
+}
+
+function findField(type: TypeWithFields, name: string): Field | undefined {
 	if (typeof name === "bigint") {
 		return type.fields[Number(name)];
 	}
@@ -217,11 +232,6 @@ function of(v: unknown): Type {
 	if (type !== undefined) {
 		return type;
 	}
-	console.log({
-		v,
-		"typeof v": typeof v,
-		array: Array.isArray(v),
-	});
 	throw new Error(`Cannot find type! ${v}`);
 }
 
@@ -254,8 +264,12 @@ function print(t: UnresolvedType): string {
 		case Kind.Enum: {
 			return t.name;
 		}
-		case Kind.Variant:
+		case Kind.Variant: {
 			return `${t.enum.name}.${t.name}`;
+		}
+		case Kind.Module: {
+			return `module ${t.name}`;
+		}
 	}
 }
 

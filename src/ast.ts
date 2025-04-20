@@ -1,5 +1,12 @@
 import { BinaryOp, UnaryOp } from "./ops.ts";
-import { Type, TupleType, StructType, ProcType, EnumType } from "./types.ts";
+import {
+	Type,
+	TupleType,
+	StructType,
+	ProcType,
+	EnumType,
+	ModuleType,
+} from "./types.ts";
 import { Span, sexpr } from "./utils.ts";
 
 export enum AstTag {
@@ -92,7 +99,7 @@ export type AstTypeDecl = {
 	tag: AstTag.TypeDecl;
 	id: AstId;
 	typeExpr: AstType;
-	resolvedType?: Type;
+	moduleType?: ModuleType;
 } & Span;
 
 export type AstStructField = {
@@ -106,7 +113,7 @@ export type AstStructDecl = {
 	id: AstId;
 	tuple: boolean;
 	fields: AstStructField[];
-	resolvedType?: Type;
+	moduleType?: ModuleType;
 } & Span;
 
 export type AstEnumVariant = {
@@ -120,7 +127,7 @@ export type AstEnumDecl = {
 	tag: AstTag.EnumDecl;
 	id: AstId;
 	variants: AstEnumVariant[];
-	resolvedType?: Type;
+	moduleType?: ModuleType;
 } & Span;
 
 export type AstTestDecl = {

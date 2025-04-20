@@ -29,5 +29,4 @@ export const BuiltinTypes = {
 	Int: Type.Int,
 	Float: Type.Float,
 	Str: Type.Str,
-	Module: Type.Module,
 };

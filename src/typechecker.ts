@@ -48,13 +48,16 @@ import {
 	UnresolvedType,
 	UnresolvedTupleType,
 	UnresolvedProcType,
-	StructField,
-	StructType,
+	Field,
 	EnumType,
 	VariantType,
+	ModuleType,
+	TypeWithFields,
 } from "./types.ts";
 import { Span, zip, zipLeft } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
+import { Module } from "./core.ts";
+import { types } from "node:util";
 
 const assert2: typeof assert = assert;
 
@@ -81,12 +84,15 @@ export const TypeChecker = {
 };
 
 function create(): TypeChecker {
-	const values = new Scopes<Type>();
-	const types = new Scopes<Type>();
-	const loops = new Scopes<true>();
+	const t: TypeChecker = {
+		types: new Scopes(),
+		values: new Scopes(),
+		loops: new Scopes(),
+		returns: [],
+	};
 	for (const [id, builtin] of Object.entries(Builtins)) {
 		assert(
-			values.declareGlobal(id, {
+			t.values.declareGlobal(id, {
 				mutable: false,
 				allowShadow: false,
 				value: Type.of(builtin),
@@ -95,21 +101,21 @@ function create(): TypeChecker {
 	}
 	for (const [id, builtinType] of Object.entries(BuiltinTypes)) {
 		assert(
-			types.declareGlobal(id, {
+			t.types.declareGlobal(id, {
 				mutable: false,
 				allowShadow: false,
 				value: builtinType,
 			})
 		);
 		assert(
-			values.declareGlobal(id, {
+			t.values.declareGlobal(id, {
 				mutable: false,
 				allowShadow: false,
-				value: Type.Module,
+				value: Type.module(id, builtinType),
 			})
 		);
 	}
-	return { types, values, loops, returns: [] };
+	return t;
 }
 
 function checkExternal(t: TypeChecker, a: AstModule): Type {
@@ -124,7 +130,8 @@ function checkExternal(t: TypeChecker, a: AstModule): Type {
 	}
 }
 
-function declareType(t: TypeChecker, id: AstId, type: Type): void {
+function declareType(t: TypeChecker, id: AstId, type: Type): ModuleType {
+	const module = Type.module(id.value, type);
 	if (
 		!t.types.declareLocal(id.value, {
 			mutable: false,
@@ -134,12 +141,13 @@ function declareType(t: TypeChecker, id: AstId, type: Type): void {
 		!t.values.declareLocal(id.value, {
 			mutable: false,
 			allowShadow: false,
-			value: Type.Module,
+			value: module,
 		})
 	) {
 		// TODO link original decl
 		throw new TypeError("Cannot redeclare type!", id.start, id.end);
 	}
+	return module;
 }
 
 function check(
@@ -282,8 +290,8 @@ function checkTypeDecl(
 	// once we have module level scope
 	assert(t.values.inGlobalScope);
 	const type = reifyType(t, d.typeExpr);
-	declareType(t, d.id, type);
-	d.resolvedType = type;
+	const module = declareType(t, d.id, type);
+	d.moduleType = module;
 	return Type.Any;
 }
 
@@ -293,9 +301,9 @@ function checkStructDecl(
 	_d?: UnresolvedType
 ): Type {
 	assert(t.values.inGlobalScope);
-	const fields: StructField[] = [];
+	const fields: Field[] = [];
 	const type = Type.struct(s.id.value, s.tuple, fields);
-	declareType(t, s.id, type);
+	const module = declareType(t, s.id, type);
 	for (const field of s.fields) {
 		fields.push({
 			mutable: field.mutable,
@@ -303,7 +311,7 @@ function checkStructDecl(
 			type: reifyType(t, field.typeAnnotation),
 		});
 	}
-	s.resolvedType = type;
+	s.moduleType = module;
 	return Type.Any;
 }
 
@@ -314,9 +322,9 @@ function checkEnumDecl(
 ): Type {
 	assert(t.values.inGlobalScope);
 	const type = Type.enum(e.id.value, []);
-	declareType(t, e.id, type);
+	const module = declareType(t, e.id, type);
 	for (const variant of e.variants) {
-		const fields: StructField[] = [];
+		const fields: Field[] = [];
 		for (const field of variant.fields) {
 			fields.push({
 				mutable: field.mutable,
@@ -324,16 +332,24 @@ function checkEnumDecl(
 				type: reifyType(t, field.typeAnnotation),
 			});
 		}
-		type.variants.push({
+		const variantType: VariantType = {
 			kind: Kind.Variant,
 			name: variant.id.value,
 			constant: variant.constant,
 			tuple: variant.tuple,
 			enum: type,
 			fields,
+		};
+		type.variants.push(variantType);
+		module.fields.push({
+			mutable: false,
+			name: variant.id.value,
+			type: variant.constant
+				? type
+				: Type.module(variant.id.value, variantType),
 		});
 	}
-	e.resolvedType = type;
+	e.moduleType = module;
 	return Type.Any;
 }
 
@@ -835,21 +851,18 @@ function checkBinaryExpr(
 				}
 				return field.type;
 			}
-			if (l === Type.Module && b.left.tag === AstTag.Id) {
-				const enumType = t.types.get(b.left.value);
-				if (enumType?.kind === Kind.Enum) {
-					if (b.right.tag !== AstTag.Id) {
-						const lp = Type.print(enumType);
-						const rp = Type.print(check(t, b.right));
-						throw new TypeError(
-							`Operator . cannot be applied to ${lp} and ${rp}!`,
-							b.start,
-							b.end
-						);
-					}
-					const variant = assertVariant(enumType, b.right);
-					return variant.constant ? enumType : Type.Module;
+			if (l.kind === Kind.Module) {
+				if (b.right.tag !== AstTag.Id) {
+					const lp = Type.print(l);
+					const rp = Type.print(check(t, b.right));
+					throw new TypeError(
+						`Operator . cannot be applied to ${lp} and ${rp}!`,
+						b.start,
+						b.end
+					);
 				}
+				const field = assertField(l, b.right);
+				return field.type;
 			}
 			return checkBinaryExprHelper(t, b, []);
 		}
@@ -938,34 +951,27 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: UnresolvedType): Type {
 		}
 		return callee.returns;
 	}
-	if (callee === Type.Module && c.proc.tag === AstTag.Id) {
-		const type = t.types.get(c.proc.value);
-		if (type !== undefined && type.kind === Kind.Struct && type.tuple) {
-			assertCardinality(c.args, type.fields, c, "fields");
-			for (const [arg, field] of zip(c.args, type.fields)) {
+	if (callee.kind === Kind.Module) {
+		const associatedType = callee.associatedType;
+		if (
+			associatedType?.kind === Kind.Struct ||
+			associatedType?.kind === Kind.Variant
+		) {
+			if (!associatedType.tuple) {
+				throw new TypeError(
+					"Cannot use a tuple constructor for a non tuple struct!",
+					c.start,
+					c.end
+				);
+			}
+			assertCardinality(c.args, associatedType.fields, c, "fields");
+			for (const [arg, field] of zip(c.args, associatedType.fields)) {
 				const argType = check(t, arg, field.type);
 				assertAssignable(argType, field.type, arg);
 			}
-			return type;
-		}
-	}
-	if (
-		callee === Type.Module &&
-		c.proc.tag === AstTag.BinaryExpr &&
-		c.proc.left.tag === AstTag.Id &&
-		c.proc.right.tag === AstTag.Id
-	) {
-		const type = t.types.get(c.proc.left.value);
-		if (type !== undefined && type.kind === Kind.Enum) {
-			const variant = assertVariant(type, c.proc.right);
-			if (variant.tuple) {
-				assertCardinality(c.args, variant.fields, c, "fields");
-				for (const [arg, field] of zip(c.args, variant.fields)) {
-					const argType = check(t, arg, field.type);
-					assertAssignable(argType, field.type, arg);
-				}
-				return type;
-			}
+			return associatedType.kind === Kind.Variant
+				? associatedType.enum
+				: associatedType;
 		}
 	}
 	const found = Type.print(callee);
@@ -1199,12 +1205,9 @@ function assertCardinality(
 }
 
 // TODO should this be `name: TokId | TokIntLit` ?
-function assertField(
-	type: StructType | VariantType,
-	name: AstId | AstLit
-): StructField {
+function assertField(type: TypeWithFields, name: AstId | AstLit): Field {
 	// TODO get rid of this type assertion
-	const field = Type.findField(type, name.value as string | bigint);
+	const field = Type.findField(type, `${name.value}`);
 	if (field === undefined) {
 		const s = Type.print(type);
 		const f = name.value;

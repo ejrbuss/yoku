@@ -1,4 +1,4 @@
-import { Builtins } from "./builtins.ts";
+import { Builtins, BuiltinTypes } from "./builtins.ts";
 import { Enum, Module, print, Proc, Struct, Tuple, Unit } from "./core.ts";
 import {
 	AstAssertStmt,
@@ -41,17 +41,11 @@ import {
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
-import {
-	EnumType,
-	Kind,
-	StructType,
-	TupleType,
-	Type,
-	VariantType,
-} from "./types.ts";
-import { enumerate, structurallyEq, zip } from "./utils.ts";
+import { EnumType, Kind, StructType, TupleType, Type } from "./types.ts";
+import { NonNull, enumerate, structurallyEq, zip } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
 import { assert } from "@std/assert/assert";
+import { TypeChecker } from "./typechecker.ts";
 
 export class RuntimeError {
 	constructor(
@@ -80,18 +74,8 @@ export type Interpreter = {
 
 export const Interpreter = { create, interperate };
 
-const BuiltinTypes = {
-	Type: Type.Type,
-	Any: Type.Any,
-	Never: Type.Never,
-	Bool: Type.Bool,
-	Int: Type.Int,
-	Float: Type.Float,
-	Str: Type.Str,
-	Module: Type.Module,
-};
-
-function create(test: boolean): Interpreter {
+// TODO: think about how we can do this without passing the type checker to the interpreter
+function create(typeChecker: TypeChecker, test: boolean): Interpreter {
 	const scopes = new Scopes();
 	for (const [id, builtin] of Object.entries(Builtins)) {
 		scopes.declareGlobal(id, {
@@ -104,7 +88,7 @@ function create(test: boolean): Interpreter {
 		scopes.declareGlobal(id, {
 			mutable: false,
 			allowShadow: false,
-			value: Module.create(id, builtinType),
+			value: Module.create(id, typeChecker.values.get(id) as Type, builtinType),
 		});
 	}
 	return { scopes, test };
@@ -307,17 +291,50 @@ function interperateProcDecl(i: Interpreter, p: AstProcDecl): unknown {
 }
 
 function interperateTypeDecl(i: Interpreter, t: AstTypeDecl): unknown {
-	unify(i, t.id, Module.create(t.id.value, t.resolvedType), true);
+	assert(t.moduleType);
+	const module = Module.create(
+		t.id.value,
+		t.moduleType,
+		t.moduleType.associatedType
+	);
+	unify(i, t.id, module, true);
 	return Unit;
 }
 
 function interperateStructDecl(i: Interpreter, s: AstStructDecl): unknown {
-	unify(i, s.id, Module.create(s.id.value, s.resolvedType), true);
+	assert(s.moduleType);
+	const module = Module.create(
+		s.id.value,
+		s.moduleType,
+		s.moduleType.associatedType
+	);
+	unify(i, s.id, module, true);
 	return Unit;
 }
 
 function interperateEnumDecl(i: Interpreter, e: AstEnumDecl): unknown {
-	unify(i, e.id, Module.create(e.id.value, e.resolvedType), true);
+	assert(e.moduleType);
+	const module = Module.create(
+		e.id.value,
+		e.moduleType,
+		e.moduleType.associatedType
+	);
+	unify(i, e.id, module, true);
+	assert(e.moduleType.associatedType?.kind == Kind.Enum);
+	for (const variant of e.moduleType.associatedType.variants) {
+		if (variant.constant) {
+			module[variant.name] = Enum.create(
+				variant.enum,
+				variant.enum.variants.indexOf(variant),
+				{}
+			);
+		} else {
+			module[variant.name] = Module.create(
+				variant.name,
+				Type.module(variant.name, variant)
+			);
+		}
+	}
 	return Unit;
 }
 
@@ -648,30 +665,18 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 		case BinaryOp.Member: {
 			const left = interperate(i, b.left);
 			const type = Type.of(left);
+			// TODO normalize tuples as stucts
 			if (type.kind === Kind.Tuple) {
 				return (left as Tuple).items[
 					Number((b.right as AstLit).value as bigint)
 				];
 			}
-			if (type.kind === Kind.Struct) {
-				return (left as Struct)[(b.right as AstId).value];
-			}
-			if (type === Type.Module) {
-				assert(Module.is(left));
-				const enumType = left.type;
-				assert(enumType?.kind === Kind.Enum);
-				const variant = Type.findVariant(
-					enumType,
-					(b.right as AstId).value
-				) as VariantType;
-				if (!variant.constant) {
-					return left;
-				}
-				const vi = enumType.variants.indexOf(variant);
-				if (enumType.constants[vi] === undefined) {
-					enumType.constants[vi] = Enum.create(enumType, vi, {});
-				}
-				return enumType.constants[vi];
+			if (
+				type.kind === Kind.Struct ||
+				type.kind === Kind.Enum ||
+				type.kind === Kind.Module
+			) {
+				return (left as NonNull)[`${(b.right as AstId).value}`];
 			}
 			unreachable();
 		}
@@ -697,25 +702,18 @@ function interperateCallExpr(i: Interpreter, c: CallExpr): unknown {
 	for (const arg of c.args) {
 		args.push(interperate(i, arg));
 	}
-	if (Type.of(proc) === Type.Module && c.proc.tag === AstTag.Id) {
-		const structModule = interperate(i, c.proc) as Module;
-		const structType = structModule.type as StructType;
-		return Struct.create(structType, { ...args });
-	}
-	if (
-		Type.of(proc) === Type.Module &&
-		c.proc.tag === AstTag.BinaryExpr &&
-		c.proc.right.tag == AstTag.Id
-	) {
-		const enumModule = interperate(i, c.proc.left) as Module;
-		const enumType = enumModule.type as EnumType;
-		const variant = Type.findVariant(
-			enumType,
-			c.proc.right.value
-		) as VariantType;
-		return Enum.create(enumType, enumType.variants.indexOf(variant), {
-			...args,
-		});
+	const type = Type.of(proc);
+	if (type.kind === Kind.Module) {
+		assert(type.associatedType);
+		if (type.associatedType.kind === Kind.Struct) {
+			return Struct.create(type.associatedType, { ...args });
+		}
+		if (type.associatedType.kind === Kind.Variant) {
+			const variant = type.associatedType.enum.variants.indexOf(
+				type.associatedType
+			);
+			return Enum.create(type.associatedType.enum, variant, { ...args });
+		}
 	}
 	return (proc as Proc).impl(args);
 }

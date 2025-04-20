@@ -57,10 +57,10 @@ function isStruct(value: unknown): value is Struct {
 	return Type.of(value).kind === Kind.Struct;
 }
 
-export type Enum = Record<string, unknown> &
-	Typed & {
-		$variant: number;
-	};
+export type Enum = Record<string, unknown> & {
+	// TODO: does numeric variant even make sense?
+	$variant: number;
+} & Typed;
 
 export const Enum = { create: createEnum, is: isEnum };
 
@@ -76,16 +76,23 @@ function isEnum(value: unknown): value is Enum {
 	return Type.of(value).kind === Kind.Enum;
 }
 
-export type Module = { name: string; type?: Type } & Typed;
+export type Module = Record<string, unknown> & {
+	$name: string;
+	$associatedType?: Type;
+} & Typed;
 
 export const Module = { create: createModule, is: isModule };
 
-function createModule(name: string, type?: Type) {
-	return { $type: Type.Module, name, type };
+function createModule(
+	name: string,
+	moduleType: Type,
+	associatedType?: Type
+): Module {
+	return { $type: moduleType, $name: name, $associatedType: associatedType };
 }
 
 function isModule(value: unknown): value is Module {
-	return Type.of(value) === Type.Module;
+	return Type.of(value).kind === Kind.Module;
 }
 
 export function print(v: unknown): string {
@@ -106,12 +113,10 @@ export function print(v: unknown): string {
 		return v as string;
 	}
 	if (type === Type.Type) {
-		return `Type[${Type.print(v as Type)}]`;
+		return `type ${Type.print(v as Type)}`;
 	}
-	if (type === Type.Module) {
-		const module = v as Module;
-		const name = module.type ? Type.print(module.type) : module.name;
-		return `Module[${name}]`;
+	if (type.kind === Kind.Module) {
+		return `module ${(v as Module).$name}`;
 	}
 	if (type.kind === Kind.Proc) {
 		const proc = v as Proc;
