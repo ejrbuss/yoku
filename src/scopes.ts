@@ -8,7 +8,7 @@ export type Decl<T> = {
 	sourceLocation?: Span;
 };
 
-type Scope<T> = Record<string, Decl<T>>;
+export type Scope<T> = Record<string, Decl<T>>;
 
 export class Scopes<T> {
 	// Global scope is created by default
@@ -58,9 +58,9 @@ export class Scopes<T> {
 		this.scopes.push({});
 	}
 
-	dropScope(): void {
+	dropScope(): Scope<T> {
 		assert(this.scopes.length > 1, "You cannot pop the global scope!");
-		this.scopes.pop();
+		return this.scopes.pop() as Scope<T>;
 	}
 
 	capture(): Scopes<T> {

@@ -40,6 +40,7 @@ import {
 	AstEnumExpr,
 	Ast,
 	AstModuleDecl,
+	AstQualifiedId,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -54,6 +55,7 @@ import {
 	VariantType,
 	ModuleType,
 	TypeWithFields,
+	TupleType,
 } from "./types.ts";
 import { Span, zip, zipLeft } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
@@ -217,6 +219,8 @@ function check(
 			return checkCallExpr(t, ast, d);
 		case AstTag.Lit:
 			return checkLit(t, ast, d);
+		case AstTag.QualifiedId:
+			return checkQualifiedId(t, ast, d);
 		case AstTag.Id:
 			return checkId(t, ast, d);
 	}
@@ -365,8 +369,25 @@ function checkModuleDecl(
 	m: AstModuleDecl,
 	_d?: UnresolvedType
 ): Type {
-	const module = Type.module(m.id.value);
-	// TODO check declarations
+	const module = declareType(t, m.id, Type.Unit);
+	t.types.openScope();
+	t.values.openScope();
+	for (const decl of m.decls) {
+		check(t, decl);
+	}
+	const values = t.values.dropScope();
+	for (const [name, decl] of Object.entries(values)) {
+		module.fields.push({
+			name,
+			mutable: decl.mutable,
+			type: decl.value,
+		});
+	}
+	const types = t.types.dropScope();
+	for (const [name, decl] of Object.entries(types)) {
+		module.types[name] = decl.value;
+	}
+	m.resolvedModuleType = module;
 	return module;
 }
 
@@ -814,67 +835,21 @@ function checkBinaryExpr(
 		}
 		case BinaryOp.Member: {
 			const l = check(t, b.left);
-			if (l.kind === Kind.Tuple) {
-				if (b.right.tag !== AstTag.Lit || typeof b.right.value !== "bigint") {
-					const lp = Type.print(l);
-					const rp = Type.print(check(t, b.right));
-					throw new TypeError(
-						`Operator . cannot be applied to ${lp} and ${rp}!`,
-						b.start,
-						b.end
-					);
-				}
-				if (b.right.value >= l.items.length) {
-					throw new TypeError(
-						`Tuple of length ${l.items.length} has no item ${b.right.value}!`,
-						b.start,
-						b.end
-					);
-				}
-				return l.items[Number(b.right.value)];
+			if (l.kind === Kind.Tuple && b.right.tag === AstTag.Id) {
+				const item = assertItem(l, b.right);
+				return item;
 			}
-			if (l.kind === Kind.Struct) {
-				if (
-					b.right.tag !== AstTag.Id &&
-					(b.right.tag !== AstTag.Lit || typeof b.right.value !== "bigint")
-				) {
-					const lp = Type.print(l);
-					const rp = Type.print(check(t, b.right));
-					throw new TypeError(
-						`Operator . cannot be applied to ${lp} and ${rp}!`,
-						b.start,
-						b.end
-					);
-				}
-				const field = assertField(l, b.right);
-				if (field === undefined) {
-					const struct = l.name;
-					const field = b.right.value;
-					throw new TypeError(
-						`Struct ${struct} has no field ${field}!`,
-						b.start,
-						b.end
-					);
-				}
-				return field.type;
-			}
-			if (l.kind === Kind.Module) {
-				if (b.right.tag !== AstTag.Id) {
-					const lp = Type.print(l);
-					const rp = Type.print(check(t, b.right));
-					throw new TypeError(
-						`Operator . cannot be applied to ${lp} and ${rp}!`,
-						b.start,
-						b.end
-					);
-				}
+			if (
+				(l.kind === Kind.Struct ||
+					l.kind === Kind.Variant ||
+					l.kind === Kind.Module) &&
+				b.right.tag === AstTag.Id
+			) {
 				const field = assertField(l, b.right);
 				return field.type;
 			}
 			return checkBinaryExprHelper(t, b, []);
 		}
-		case BinaryOp.As:
-			unreachable(`${Ast.print(b)}`);
 	}
 }
 
@@ -997,10 +972,44 @@ function checkLit(_t: TypeChecker, l: AstLit, d?: UnresolvedType): Type {
 	return Type.of(l.value);
 }
 
+function checkQualifiedId(
+	t: TypeChecker,
+	q: AstQualifiedId,
+	_d?: UnresolvedType
+): Type {
+	const [first, ...rest] = q.ids;
+	let type = check(t, first);
+	for (const id of rest) {
+		if (type.kind === Kind.Tuple) {
+			const itemType = type.items[id.value as unknown as number];
+			if (itemType === undefined) {
+				const t = Type.print(type);
+				const i = id.value;
+				throw new TypeError(`${t} has no item ${i}!`, id.start, id.end);
+			}
+			type = itemType;
+		} else if (
+			type.kind === Kind.Struct ||
+			type.kind === Kind.Variant ||
+			type.kind === Kind.Module
+		) {
+			const field = assertField(type, id);
+			type = field.type;
+		} else {
+			const l = Type.print(type);
+			throw new TypeError(
+				`Operator . cannot be applied to ${l}`,
+				q.start,
+				id.start
+			);
+		}
+	}
+	return type;
+}
+
 function checkId(t: TypeChecker, i: AstId, _d?: UnresolvedType): Type {
 	const type = t.values.get(i.value);
 	if (type === undefined) {
-		console.log(t.types);
 		throw new TypeError("Undeclared variable!", i.start, i.end);
 	}
 	return type;
@@ -1104,6 +1113,13 @@ function reifyUnresolvedType(t: TypeChecker, at: AstType): UnresolvedType {
 			}
 			return type;
 		}
+		case AstTag.QualifiedId: {
+			const module = check(t, at);
+			if (module.kind !== Kind.Module || module.associatedType === undefined) {
+				throw new TypeError("Undefined type!", at.start, at.end);
+			}
+			return module.associatedType;
+		}
 		case AstTag.ProcType: {
 			const params: UnresolvedType[] = [];
 			for (const param of at.params) {
@@ -1134,6 +1150,13 @@ function reifyType(t: TypeChecker, at: AstType): Type {
 				throw new TypeError("Undefined type!", at.start, at.end);
 			}
 			return type;
+		}
+		case AstTag.QualifiedId: {
+			const module = check(t, at);
+			if (module.kind !== Kind.Module || module.associatedType === undefined) {
+				throw new TypeError("Undefined type!", at.start, at.end);
+			}
+			return module.associatedType;
 		}
 		case AstTag.ProcType: {
 			const params: Type[] = [];
@@ -1211,16 +1234,24 @@ function assertCardinality(
 	}
 }
 
-// TODO should this be `name: TokId | TokIntLit` ?
-function assertField(type: TypeWithFields, name: AstId | AstLit): Field {
-	// TODO get rid of this type assertion
-	const field = Type.findField(type, `${name.value}`);
+function assertField(type: TypeWithFields, name: AstId): Field {
+	const field = Type.findField(type, name.value);
 	if (field === undefined) {
 		const s = Type.print(type);
 		const f = name.value;
 		throw new TypeError(`${s} has no field ${f}!`, name.start, name.end);
 	}
 	return field;
+}
+
+function assertItem(type: TupleType, name: AstId): Type {
+	const item = type.items[name.value as unknown as number];
+	if (item === undefined) {
+		const t = Type.print(type);
+		const i = name.value;
+		throw new TypeError(`${t} has no item ${i}!`, name.start, name.end);
+	}
+	return item;
 }
 
 function assertVariant(type: EnumType, name: AstId): VariantType {

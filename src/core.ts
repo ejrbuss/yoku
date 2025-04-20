@@ -76,18 +76,13 @@ function isEnum(value: unknown): value is Enum {
 }
 
 export type Module = Record<string, unknown> & {
-	$name: string;
 	$associatedType?: Type;
 } & Typed;
 
 export const Module = { create: createModule, is: isModule };
 
-function createModule(
-	name: string,
-	moduleType: Type,
-	associatedType?: Type
-): Module {
-	return { $type: moduleType, $name: name, $associatedType: associatedType };
+function createModule(moduleType: Type, associatedType?: Type): Module {
+	return { $type: moduleType, $associatedType: associatedType };
 }
 
 function isModule(value: unknown): value is Module {

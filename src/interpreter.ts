@@ -89,7 +89,7 @@ function create(typeChecker: TypeChecker, test: boolean): Interpreter {
 		scopes.declareGlobal(id, {
 			mutable: false,
 			allowShadow: false,
-			value: Module.create(id, typeChecker.values.get(id) as Type, builtinType),
+			value: Module.create(typeChecker.values.get(id) as Type, builtinType),
 		});
 	}
 	return { scopes, test };
@@ -295,33 +295,21 @@ function interperateProcDecl(i: Interpreter, p: AstProcDecl): unknown {
 
 function interperateTypeDecl(i: Interpreter, t: AstTypeDecl): unknown {
 	assert(t.moduleType);
-	const module = Module.create(
-		t.id.value,
-		t.moduleType,
-		t.moduleType.associatedType
-	);
+	const module = Module.create(t.moduleType, t.moduleType.associatedType);
 	unify(i, t.id, module, true);
 	return Unit;
 }
 
 function interperateStructDecl(i: Interpreter, s: AstStructDecl): unknown {
 	assert(s.moduleType);
-	const module = Module.create(
-		s.id.value,
-		s.moduleType,
-		s.moduleType.associatedType
-	);
+	const module = Module.create(s.moduleType, s.moduleType.associatedType);
 	unify(i, s.id, module, true);
 	return Unit;
 }
 
 function interperateEnumDecl(i: Interpreter, e: AstEnumDecl): unknown {
 	assert(e.moduleType);
-	const module = Module.create(
-		e.id.value,
-		e.moduleType,
-		e.moduleType.associatedType
-	);
+	const module = Module.create(e.moduleType, e.moduleType.associatedType);
 	unify(i, e.id, module, true);
 	assert(e.moduleType.associatedType?.kind == Kind.Enum);
 	for (const variant of e.moduleType.associatedType.variants) {
@@ -332,10 +320,7 @@ function interperateEnumDecl(i: Interpreter, e: AstEnumDecl): unknown {
 				{}
 			);
 		} else {
-			module[variant.name] = Module.create(
-				variant.name,
-				Type.module(variant.name, variant)
-			);
+			module[variant.name] = Module.create(Type.module(variant.name, variant));
 		}
 	}
 	return Unit;
@@ -355,7 +340,17 @@ function interperateTestDecl(i: Interpreter, t: AstTestDecl): unknown {
 }
 
 function interperateModuleDecl(i: Interpreter, m: AstModuleDecl): unknown {
-	// TODO
+	assert(m.resolvedModuleType);
+	const module = Module.create(m.resolvedModuleType);
+	i.scopes.openScope();
+	for (const decl of m.decls) {
+		interperate(i, decl);
+	}
+	const values = i.scopes.dropScope();
+	for (const [name, decl] of Object.entries(values)) {
+		module[name] = decl.value;
+	}
+	unify(i, m.id, module, true);
 	return Unit;
 }
 

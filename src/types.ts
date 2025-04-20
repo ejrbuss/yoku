@@ -98,6 +98,7 @@ export type ModuleType = {
 	name: string;
 	associatedType?: Type;
 	fields: Field[];
+	types: Record<string, Type>;
 };
 
 const Meta = {
@@ -187,6 +188,7 @@ function module(name: string, associatedType?: Type): ModuleType {
 		name,
 		associatedType,
 		fields: [],
+		types: {},
 	};
 }
 

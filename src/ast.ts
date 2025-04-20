@@ -13,6 +13,7 @@ export enum AstTag {
 	Root = "Root",
 	Wildcard = "Wildcard",
 	Lit = "Lit",
+	QualifiedId = "QualifiedId",
 	Id = "Id",
 	// Declarations
 	VarDecl = "VarDecl",
@@ -72,6 +73,11 @@ export type AstWildcard = {
 export type AstLit = {
 	tag: AstTag.Lit;
 	value: unknown;
+} & Span;
+
+export type AstQualifiedId = {
+	tag: AstTag.QualifiedId;
+	ids: AstId[];
 } & Span;
 
 export type AstId = {
@@ -141,6 +147,7 @@ export type AstModuleDecl = {
 	tag: AstTag.ModuleDecl;
 	id: AstId;
 	decls: AstDecl[];
+	resolvedModuleType?: ModuleType;
 } & Span;
 
 export type AstDecl =
@@ -334,6 +341,7 @@ export type AstExpr =
 	| UnaryExpr
 	| CallExpr
 	| AstLit
+	| AstQualifiedId
 	| AstId;
 
 export type AstAsPattern = {
@@ -379,6 +387,7 @@ export type AstPattern =
 	| AstEnumPattern
 	| AstWildcard
 	| AstLit
+	| AstQualifiedId
 	| AstId;
 
 export type AstProcType = {
@@ -392,7 +401,12 @@ export type AstTupleType = {
 	items: AstType[];
 } & Span;
 
-export type AstType = AstProcType | AstTupleType | AstWildcard | AstId;
+export type AstType =
+	| AstProcType
+	| AstTupleType
+	| AstWildcard
+	| AstQualifiedId
+	| AstId;
 
 export type Ast = AstRoot | AstDecl | AstStmt | AstExpr | AstPattern;
 

@@ -9,6 +9,7 @@ import {
 	AstBreakStmt,
 	AstVarDecl,
 	AstRoot,
+	AstQualifiedId,
 	AstId,
 	AstReturnStmt,
 	AstAssertStmt,
@@ -714,12 +715,7 @@ function parseCallExpr(p: Parser): AstExpr {
 				end: getEnd(p),
 			};
 		} else if (match(p, ".")) {
-			let right: Ast;
-			if (lookAhead(p, TokenType.Id)) {
-				right = parseId(p);
-			} else {
-				right = parseLit(p);
-			}
+			const right = parseMemberId(p);
 			expr = {
 				tag: AstTag.BinaryExpr,
 				op: BinaryOp.Member,
@@ -997,7 +993,7 @@ function parseType(p: Parser): AstType {
 	if (lookAhead(p, "_")) {
 		return parseWildcard(p);
 	}
-	return parseId(p, "Expected type!");
+	return parseQualifiedId(p, "Expected type!");
 }
 
 function parseProcType(p: Parser): AstProcType {
@@ -1057,7 +1053,7 @@ function parsePattern(p: Parser): AstPattern {
 
 function parseAsPattern(p: Parser): AstPattern {
 	let left = parsePrimaryPattern(p);
-	while (match(p, BinaryOp.As)) {
+	while (match(p, "as")) {
 		const right = parsePrimaryPattern(p);
 		left = {
 			tag: AstTag.AsPattern,
@@ -1231,8 +1227,42 @@ function parseLit(p: Parser): AstLit {
 	};
 }
 
+function parseQualifiedId(p: Parser, note?: string): AstQualifiedId | AstId {
+	const start = getStart(p);
+	const ids = [parseId(p)];
+	while (match(p, ".")) {
+		ids.push(parseMemberId(p, note));
+	}
+	if (ids.length === 1) {
+		return ids[0];
+	}
+	return {
+		tag: AstTag.QualifiedId,
+		ids,
+		start,
+		end: getEnd(p),
+	};
+}
+
 function parseId(p: Parser, note?: string): AstId {
 	const id = consume(p, TokenType.Id, note);
+	return {
+		tag: AstTag.Id,
+		value: id.image,
+		start: id.start,
+		end: id.end,
+	};
+}
+
+function parseMemberId(p: Parser, note?: string): AstId {
+	let id: Token;
+	const lit = lookAhead(p, TokenType.Lit);
+	if (typeof lit?.value === "bigint") {
+		consume(p);
+		id = lit;
+	} else {
+		id = consume(p, TokenType.Id, note);
+	}
 	return {
 		tag: AstTag.Id,
 		value: id.image,

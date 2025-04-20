@@ -16,7 +16,6 @@ export enum BinaryOp {
 	Id = "===",
 	NotId = "!==",
 	Member = ".",
-	As = "as",
 }
 
 export enum UnaryOp {
