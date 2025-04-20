@@ -70,6 +70,23 @@ a.f() --> 1
 const b = B{}
 b.f() --> 2
 
+--- skip "This Type" ---
+
+impl Int {
+	proc f(x: This) -> This { x + 1 }
+}
+
+Int.f(2) --> 3
+(3).f() --> 4
+
+--- skip "Methods on Anonymous Types" ---
+
+impl (Int, Int) {
+	proc sum((x, y): (Int, Int)) -> { x + y }
+}
+
+(3, 4).sum() --> 7
+
 --- skip "Lazy Proc Declaraction Order" ---
 
 module M {

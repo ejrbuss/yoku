@@ -39,6 +39,7 @@ import {
 	AstTypeExpr,
 	AstModuleDecl,
 	AstQualifiedId,
+	AstImplDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -50,7 +51,6 @@ import {
 	UnresolvedProcType,
 	Field,
 	VariantType,
-	ModuleType,
 	TypeWithFields,
 	TupleType,
 } from "./types.ts";
@@ -107,7 +107,7 @@ function create(): TypeChecker {
 			t.values.declareGlobal(id, {
 				mutable: false,
 				allowShadow: false,
-				value: Type.module(id, builtinType),
+				value: Type.moduleOf(builtinType),
 			})
 		);
 	}
@@ -126,8 +126,7 @@ function checkExternal(t: TypeChecker, a: AstRoot): Type {
 	}
 }
 
-function declareType(t: TypeChecker, id: AstId, type: Type): ModuleType {
-	const module = Type.module(id.value, type);
+function declareType(t: TypeChecker, id: AstId, type: Type) {
 	if (
 		!t.types.declareLocal(id.value, {
 			mutable: false,
@@ -137,13 +136,12 @@ function declareType(t: TypeChecker, id: AstId, type: Type): ModuleType {
 		!t.values.declareLocal(id.value, {
 			mutable: false,
 			allowShadow: false,
-			value: module,
+			value: Type.moduleOf(type),
 		})
 	) {
 		// TODO link original decl
 		throw new TypeError("Cannot redeclare type!", id.start, id.end);
 	}
-	return module;
 }
 
 function check(
@@ -168,6 +166,8 @@ function check(
 			return checkTestDecl(t, ast, d);
 		case AstTag.ModuleDecl:
 			return checkModuleDecl(t, ast, d);
+		case AstTag.ImplDecl:
+			return checkImplDecl(t, ast, d);
 		case AstTag.BreakStmt:
 			return checkBreakStmt(t, ast, d);
 		case AstTag.ContinueStmt:
@@ -212,8 +212,6 @@ function check(
 			return checkCallExpr(t, ast, d);
 		case AstTag.Lit:
 			return checkLit(t, ast, d);
-		case AstTag.QualifiedId:
-			return checkQualifiedId(t, ast, d);
 		case AstTag.Id:
 			return checkId(t, ast, d);
 	}
@@ -284,11 +282,9 @@ function checkTypeDecl(
 	d: AstTypeDecl,
 	_d?: UnresolvedType
 ): Type {
-	// TODO these global assertions will need to become module level assertions
-	// once we have module level scope
 	const type = reifyType(t, d.typeExpr);
-	const module = declareType(t, d.id, type);
-	d.moduleType = module;
+	declareType(t, d.id, type);
+	d.moduleType = Type.moduleOf(type);
 	return Type.Any;
 }
 
@@ -299,7 +295,7 @@ function checkStructDecl(
 ): Type {
 	const fields: Field[] = [];
 	const type = Type.struct(s.id.value, s.tuple, fields);
-	const module = declareType(t, s.id, type);
+	declareType(t, s.id, type);
 	for (const field of s.fields) {
 		fields.push({
 			mutable: field.mutable,
@@ -307,7 +303,7 @@ function checkStructDecl(
 			type: reifyType(t, field.typeAnnotation),
 		});
 	}
-	s.moduleType = module;
+	s.moduleType = Type.moduleOf(type);
 	return Type.Any;
 }
 
@@ -317,7 +313,8 @@ function checkEnumDecl(
 	_d?: UnresolvedType
 ): Type {
 	const type = Type.enum(e.id.value, []);
-	const module = declareType(t, e.id, type);
+	declareType(t, e.id, type);
+	const module = Type.moduleOf(type);
 	for (const variant of e.variants) {
 		const fields: Field[] = [];
 		for (const field of variant.fields) {
@@ -339,10 +336,9 @@ function checkEnumDecl(
 		module.fields.push({
 			mutable: false,
 			name: variant.id.value,
-			type: variant.constant
-				? variantType
-				: Type.module(variant.id.value, variantType),
+			type: variant.constant ? variantType : Type.moduleOf(variantType),
 		});
+		module.types[variant.id.value] = variantType;
 	}
 	e.moduleType = module;
 	return Type.Any;
@@ -362,7 +358,8 @@ function checkModuleDecl(
 	m: AstModuleDecl,
 	_d?: UnresolvedType
 ): Type {
-	const module = declareType(t, m.id, Type.Unit);
+	const module = Type.module(m.id.value);
+	declareType(t, m.id, module);
 	t.types.openScope();
 	t.values.openScope();
 	for (const decl of m.decls) {
@@ -381,7 +378,34 @@ function checkModuleDecl(
 		module.types[name] = decl.value;
 	}
 	m.resolvedModuleType = module;
-	return module;
+	return Type.Any;
+}
+
+function checkImplDecl(
+	t: TypeChecker,
+	i: AstImplDecl,
+	_d?: UnresolvedType
+): Type {
+	const type = reifyType(t, i.type);
+	// t.types.openScope();
+	// t.values.openScope();
+	// for (const decl of m.decls) {
+	// 	check(t, decl);
+	// }
+	// const values = t.values.dropScope();
+	// for (const [name, decl] of Object.entries(values)) {
+	// 	module.fields.push({
+	// 		name,
+	// 		mutable: decl.mutable,
+	// 		type: decl.value,
+	// 	});
+	// }
+	// const types = t.types.dropScope();
+	// for (const [name, decl] of Object.entries(types)) {
+	// 	module.types[name] = decl.value;
+	// }
+	// m.resolvedModuleType = module;
+	return Type.Any;
 }
 
 function checkBreakStmt(
@@ -751,7 +775,6 @@ function checkTypeExpr(
 	_d?: UnresolvedType
 ): Type {
 	e.resolvedType = reifyType(t, e.type);
-	// TODO eventually, Type should be a parameterized type Type[T]
 	return Type.Type;
 }
 
@@ -928,41 +951,6 @@ function checkLit(_t: TypeChecker, l: AstLit, d?: UnresolvedType): Type {
 	return Type.of(l.value);
 }
 
-function checkQualifiedId(
-	t: TypeChecker,
-	q: AstQualifiedId,
-	_d?: UnresolvedType
-): Type {
-	const [first, ...rest] = q.ids;
-	let type = check(t, first);
-	for (const id of rest) {
-		if (type.kind === Kind.Tuple) {
-			const itemType = type.items[id.value as unknown as number];
-			if (itemType === undefined) {
-				const t = Type.print(type);
-				const i = id.value;
-				throw new TypeError(`${t} has no item ${i}!`, id.start, id.end);
-			}
-			type = itemType;
-		} else if (
-			type.kind === Kind.Struct ||
-			type.kind === Kind.Variant ||
-			type.kind === Kind.Module
-		) {
-			const field = assertField(type, id);
-			type = field.type;
-		} else {
-			const l = Type.print(type);
-			throw new TypeError(
-				`Operator . cannot be applied to ${l}`,
-				q.start,
-				id.start
-			);
-		}
-	}
-	return type;
-}
-
 function checkId(t: TypeChecker, i: AstId, _d?: UnresolvedType): Type {
 	const type = t.values.get(i.value);
 	if (type === undefined) {
@@ -1109,11 +1097,7 @@ function reifyUnresolvedType(t: TypeChecker, at: AstType): UnresolvedType {
 			return type;
 		}
 		case AstTag.QualifiedId: {
-			const module = check(t, at);
-			if (module.kind !== Kind.Module || module.associatedType === undefined) {
-				throw new TypeError("Undefined type!", at.start, at.end);
-			}
-			return module.associatedType;
+			return reifyQualifiedId(t, at);
 		}
 		case AstTag.ProcType: {
 			const params: UnresolvedType[] = [];
@@ -1147,14 +1131,7 @@ function reifyType(t: TypeChecker, at: AstType): Type {
 			return type;
 		}
 		case AstTag.QualifiedId: {
-			const type = check(t, at);
-			if (type.kind === Kind.Module && type.associatedType !== undefined) {
-				return type.associatedType;
-			}
-			if (type.kind === Kind.Variant && type.constant) {
-				return type;
-			}
-			throw new TypeError("Undefined type!", at.start, at.end);
+			return reifyQualifiedId(t, at);
 		}
 		case AstTag.ProcType: {
 			const params: Type[] = [];
@@ -1173,6 +1150,22 @@ function reifyType(t: TypeChecker, at: AstType): Type {
 		}
 	}
 	unreachable(`${at}`);
+}
+
+function reifyQualifiedId(t: TypeChecker, q: AstQualifiedId): Type {
+	const [first, ...rest] = q.ids;
+	let type = reifyType(t, first);
+	for (const id of rest) {
+		const outerMod = Type.moduleOf(type);
+		const innerType = outerMod.types[id.value];
+		if (innerType === undefined) {
+			const m = Type.print(outerMod);
+			const t = id.value;
+			throw new TypeError(`${m} has no type ${t}!`, id.start, id.end);
+		}
+		type = innerType;
+	}
+	return type;
 }
 
 function assertResolved(type: UnresolvedType, span: Span): Type {

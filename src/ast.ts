@@ -22,6 +22,7 @@ export enum AstTag {
 	EnumDecl = "EnumDecl",
 	TestDecl = "TestDecl",
 	ModuleDecl = "ModuleDecl",
+	ImplDecl = "ImplDecl",
 	// Statements
 	BreakStmt = "BreakStmt",
 	ContinueStmt = "ContinueStmt",
@@ -147,6 +148,13 @@ export type AstModuleDecl = {
 	resolvedModuleType?: ModuleType;
 } & Span;
 
+export type AstImplDecl = {
+	tag: AstTag.ImplDecl;
+	type: AstType;
+	decls: AstDecl[];
+	resolvedModuleType?: ModuleType;
+} & Span;
+
 export type AstDecl =
 	| AstVarDecl
 	| AstProcDecl
@@ -154,7 +162,8 @@ export type AstDecl =
 	| AstStructDecl
 	| AstEnumDecl
 	| AstTestDecl
-	| AstModuleDecl;
+	| AstModuleDecl
+	| AstImplDecl;
 
 export type AstBreakStmt = {
 	tag: AstTag.BreakStmt;
@@ -330,7 +339,6 @@ export type AstExpr =
 	| UnaryExpr
 	| CallExpr
 	| AstLit
-	| AstQualifiedId
 	| AstId;
 
 export type AstAsPattern = {

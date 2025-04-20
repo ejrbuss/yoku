@@ -119,7 +119,7 @@ export const Type = {
 	struct,
 	enum: _enum,
 	module,
-	Type: Meta, // TODO Type[T]
+	Type: Meta,
 	_: Wildcard,
 	Any: primitive("Any"),
 	Never: primitive("Never"),
@@ -130,11 +130,15 @@ export const Type = {
 	Str: primitive("Str"),
 	findField,
 	findVariant,
+	moduleOf,
 	of,
 	print,
+	equal,
 	assignable,
 	assertable,
 };
+
+const ModuleRegistry: [Type, ModuleType][] = [];
 
 function primitive(name: string): PrimitiveType {
 	return { $type: Meta, kind: Kind.Primitive, name };
@@ -213,6 +217,20 @@ function findVariant(type: EnumType, name: string): VariantType | undefined {
 	return undefined;
 }
 
+function moduleOf(type: Type): ModuleType {
+	if (type.kind === Kind.Module) {
+		return type;
+	}
+	for (const [t, m] of ModuleRegistry) {
+		if (equal(type, t)) {
+			return m;
+		}
+	}
+	const m = module(Type.print(type), type);
+	ModuleRegistry.push([type, m]);
+	return m;
+}
+
 function of(v: unknown): Type {
 	switch (typeof v) {
 		case "boolean":
@@ -273,6 +291,43 @@ function print(t: UnresolvedType): string {
 			return `module ${t.name}`;
 		}
 	}
+}
+
+function equal(t1: Type, t2: Type): boolean {
+	if (t1 === t2) {
+		return true;
+	}
+	if (t1.kind !== t2.kind) {
+		return false;
+	}
+	if (t1.kind === Kind.Tuple) {
+		assert(t2.kind === Kind.Tuple);
+		if (t1.items.length !== t2.items.length) {
+			return false;
+		}
+		for (const [i1, i2] of zip(t1.items, t2.items)) {
+			if (!equal(i1, i2)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	if (t1.kind === Kind.Proc) {
+		assert(t2.kind === Kind.Proc);
+		if (t1.params.length !== t2.params.length) {
+			return false;
+		}
+		if (!equal(t1.returns, t2.returns)) {
+			return false;
+		}
+		for (const [p1, p2] of zip(t1.params, t2.params)) {
+			if (!equal(p1, p2)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	return false;
 }
 
 function assignable(

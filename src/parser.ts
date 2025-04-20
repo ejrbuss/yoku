@@ -43,6 +43,7 @@ import {
 	AstEnumVariant,
 	AstModuleDecl,
 	AstConstructorPattern,
+	AstImplDecl,
 } from "./ast.ts";
 import { CodeSource } from "./codesource.ts";
 import { AssignOp, AssignToBinary, BinaryOp, UnaryOp } from "./ops.ts";
@@ -127,6 +128,9 @@ function parseDecl(p: Parser, replMode: boolean): AstDecl | AstStmt {
 	}
 	if (lookAhead(p, "module")) {
 		return parseModuleDecl(p);
+	}
+	if (lookAhead(p, "impl")) {
+		return parseImplDecl(p);
 	}
 	if (replMode) {
 		return parseStmt(p);
@@ -369,6 +373,25 @@ function parseModuleDecl(p: Parser): AstModuleDecl {
 	return {
 		tag: AstTag.ModuleDecl,
 		id,
+		decls,
+		start,
+		end: getEnd(p),
+	};
+}
+
+function parseImplDecl(p: Parser): AstImplDecl {
+	const start = getStart(p);
+	consume(p, "impl");
+	const type = parseType(p);
+	const decls: AstDecl[] = [];
+	consume(p, "{");
+	while (hasMore(p) && !lookAhead(p, "}")) {
+		decls.push(parseDecl(p, false) as AstDecl);
+	}
+	consume(p, "}");
+	return {
+		tag: AstTag.ImplDecl,
+		type,
 		decls,
 		start,
 		end: getEnd(p),

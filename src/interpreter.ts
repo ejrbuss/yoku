@@ -38,6 +38,7 @@ import {
 	Ast,
 	AstWhileStmt,
 	AstModuleDecl,
+	AstImplDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -219,6 +220,8 @@ function interperate(
 			return interperateTestDecl(i, ast);
 		case AstTag.ModuleDecl:
 			return interperateModuleDecl(i, ast);
+		case AstTag.ImplDecl:
+			return interperateImplDecl(i, ast);
 		case AstTag.BreakStmt:
 			return interperateBreakStmt(i, ast);
 		case AstTag.ContinueStmt:
@@ -312,7 +315,7 @@ function interperateEnumDecl(i: Interpreter, e: AstEnumDecl): unknown {
 		if (variant.constant) {
 			module[variant.name] = Enum.create(variant, {});
 		} else {
-			module[variant.name] = Module.create(Type.module(variant.name, variant));
+			module[variant.name] = Module.create(Type.moduleOf(variant));
 		}
 	}
 	return Unit;
@@ -343,6 +346,10 @@ function interperateModuleDecl(i: Interpreter, m: AstModuleDecl): unknown {
 		module[name] = decl.value;
 	}
 	unify(i, m.id, module, true);
+	return Unit;
+}
+
+function interperateImplDecl(i: Interpreter, d: AstImplDecl): unknown {
 	return Unit;
 }
 
