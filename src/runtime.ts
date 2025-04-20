@@ -41,7 +41,7 @@ export const Runtime = { create: createRuntime, run, printError, reportError };
 
 function createRuntime(options: Partial<Runtime> = {}): Runtime {
 	const typeChecker = TypeChecker.create();
-	const interpreter = Interpreter.create(typeChecker, options.test ?? false);
+	const interpreter = Interpreter.create(options.test ?? false);
 	return { typeChecker, interpreter, ...options, debug: false };
 }
 

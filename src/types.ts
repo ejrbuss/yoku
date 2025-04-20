@@ -131,6 +131,8 @@ export const Type = {
 	findField,
 	findVariant,
 	moduleOf,
+	isThisArg,
+	withoutThisArg,
 	of,
 	print,
 	equal,
@@ -138,7 +140,8 @@ export const Type = {
 	assertable,
 };
 
-const ModuleRegistry: [Type, ModuleType][] = [];
+// TODO: this is evil global state that will break things
+const ModuleTypeRegistry: [Type, ModuleType][] = [];
 
 function primitive(name: string): PrimitiveType {
 	return { $type: Meta, kind: Kind.Primitive, name };
@@ -221,14 +224,23 @@ function moduleOf(type: Type): ModuleType {
 	if (type.kind === Kind.Module) {
 		return type;
 	}
-	for (const [t, m] of ModuleRegistry) {
+	for (const [t, m] of ModuleTypeRegistry) {
 		if (equal(type, t)) {
 			return m;
 		}
 	}
 	const m = module(Type.print(type), type);
-	ModuleRegistry.push([type, m]);
+	ModuleTypeRegistry.push([type, m]);
 	return m;
+}
+
+function isThisArg(procType: Type, thisType: Type): boolean {
+	return procType.kind === Kind.Proc && procType.params[0] === thisType;
+}
+
+function withoutThisArg(procType: Type): ProcType {
+	assert(procType.kind === Kind.Proc);
+	return proc(procType.params.slice(1), procType.returns);
 }
 
 function of(v: unknown): Type {

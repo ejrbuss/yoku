@@ -1,3 +1,4 @@
+import { types } from "node:util";
 import {
 	Typed,
 	Kind,
@@ -6,6 +7,7 @@ import {
 	TupleType,
 	Type,
 	VariantType,
+	ModuleType,
 } from "./types.ts";
 import { enumerate } from "./utils.ts";
 
@@ -69,18 +71,23 @@ function isEnum(value: unknown): value is Enum {
 	return Type.of(value).kind === Kind.Variant;
 }
 
-export type Module = Record<string, unknown> & {
-	$associatedType?: Type;
-} & Typed;
+export type Module = Record<string, unknown> & Typed;
 
-export const Module = { create: createModule, is: isModule };
+export const Module = { is: isModule, for: moduleFor };
 
-function createModule(moduleType: Type, associatedType?: Type): Module {
-	return { $type: moduleType, $associatedType: associatedType };
-}
+const ModuleRegistry = new Map<ModuleType, Module>();
 
 function isModule(value: unknown): value is Module {
 	return Type.of(value).kind === Kind.Module;
+}
+
+function moduleFor(moduleType: ModuleType): Module {
+	let module = ModuleRegistry.get(moduleType);
+	if (module === undefined) {
+		module = { $type: moduleType };
+		ModuleRegistry.set(moduleType, module);
+	}
+	return module;
 }
 
 export function print(v: unknown): string {

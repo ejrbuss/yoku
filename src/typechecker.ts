@@ -377,7 +377,7 @@ function checkModuleDecl(
 	for (const [name, decl] of Object.entries(types)) {
 		module.types[name] = decl.value;
 	}
-	m.resolvedModuleType = module;
+	m.moduleType = module;
 	return Type.Any;
 }
 
@@ -387,24 +387,25 @@ function checkImplDecl(
 	_d?: UnresolvedType
 ): Type {
 	const type = reifyType(t, i.type);
-	// t.types.openScope();
-	// t.values.openScope();
-	// for (const decl of m.decls) {
-	// 	check(t, decl);
-	// }
-	// const values = t.values.dropScope();
-	// for (const [name, decl] of Object.entries(values)) {
-	// 	module.fields.push({
-	// 		name,
-	// 		mutable: decl.mutable,
-	// 		type: decl.value,
-	// 	});
-	// }
-	// const types = t.types.dropScope();
-	// for (const [name, decl] of Object.entries(types)) {
-	// 	module.types[name] = decl.value;
-	// }
-	// m.resolvedModuleType = module;
+	const module = Type.moduleOf(type);
+	t.types.openScope();
+	t.values.openScope();
+	for (const decl of i.decls) {
+		check(t, decl);
+	}
+	const values = t.values.dropScope();
+	for (const [name, decl] of Object.entries(values)) {
+		module.fields.push({
+			name,
+			mutable: decl.mutable,
+			type: decl.value,
+		});
+	}
+	const types = t.types.dropScope();
+	for (const [name, decl] of Object.entries(types)) {
+		module.types[name] = decl.value;
+	}
+	i.moduleType = module;
 	return Type.Any;
 }
 
@@ -821,15 +822,27 @@ function checkBinaryExpr(
 					l.kind === Kind.Module) &&
 				b.right.tag === AstTag.Id
 			) {
-				const field = assertField(l, b.right);
-				return field.type;
+				const field = Type.findField(l, b.right.value);
+				if (field !== undefined) {
+					return field.type;
+				}
 			}
-			const lp = Type.print(l);
-			throw new TypeError(
-				`Type ${lp} has no members!`,
-				b.left.start,
-				b.left.end
-			);
+			if (b.right.tag === AstTag.Id) {
+				const module = Type.moduleOf(l);
+				const field = assertField(module, b.right);
+				if (Type.isThisArg(field.type, l)) {
+					b.moduleType = module;
+					return Type.withoutThisArg(field.type);
+				}
+				const lp = Type.print(l);
+				const f = b.right.value;
+				throw new TypeError(
+					`${lp} has no field or method ${f}!`,
+					b.right.start,
+					b.right.end
+				);
+			}
+			return checkBinaryExprHelper(t, b, []);
 		}
 	}
 }

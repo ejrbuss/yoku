@@ -40,35 +40,38 @@ Int.x --> 1
 Int.f() --> 2
 Int.g(2) --> 3
 
---- skip "Methods" ---
+--- test "Methods" ---
 
 impl Int {
 	const x = 1
 	proc f() -> Int { 2 }
 	proc g(n: Int) -> Int { n + 1 }
+	proc h(n: Int, m: Int) -> Int { n * m }
 }
 
 const x = 3
 x.g() --> 4
 (4).g() --> 5
+x.h(5) --> 15
+(6).h(7) --> 42
 
---- skip "Methods on User Defined Types" ---
+--- test "Methods on User Defined Types" ---
 
 struct A {}
 struct B {}
 
 impl A {
-	f(a: A) -> Int { 1 }
+	proc f(a: A) -> Int { 1 }
 }
 
 impl B {
-	f(b: B) -> Int { 2 }
+	proc f(b: B, n: Int) -> Int { 2 + n }
 }
 
 const a = A {}
 a.f() --> 1
 const b = B{}
-b.f() --> 2
+b.f(2) --> 4
 
 --- skip "This Type" ---
 
@@ -83,9 +86,11 @@ Int.f(2) --> 3
 
 impl (Int, Int) {
 	proc sum((x, y): (Int, Int)) -> { x + y }
+	proc product(p: This) -> { p.0 * p.y }
 }
 
 (3, 4).sum() --> 7
+(5, 6).product() --> 30
 
 --- skip "Lazy Proc Declaraction Order" ---
 
@@ -103,3 +108,8 @@ module M {
 
 M.one() --> 1
 M.two() --> 2
+
+--- skip "Module Redeclarations" ---
+
+Int.x --> ! TypeError
+x.g() --> ! TypeError

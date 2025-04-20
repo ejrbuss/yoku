@@ -145,14 +145,14 @@ export type AstModuleDecl = {
 	tag: AstTag.ModuleDecl;
 	id: AstId;
 	decls: AstDecl[];
-	resolvedModuleType?: ModuleType;
+	moduleType?: ModuleType;
 } & Span;
 
 export type AstImplDecl = {
 	tag: AstTag.ImplDecl;
 	type: AstType;
 	decls: AstDecl[];
-	resolvedModuleType?: ModuleType;
+	moduleType?: ModuleType;
 } & Span;
 
 export type AstDecl =
@@ -311,6 +311,7 @@ export type BinaryExpr = {
 	op: BinaryOp;
 	left: AstExpr;
 	right: AstExpr;
+	moduleType?: ModuleType;
 } & Span;
 
 export type UnaryExpr = {

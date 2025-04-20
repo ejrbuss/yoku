@@ -46,7 +46,7 @@ import { Kind, TupleType, Type, VariantType } from "./types.ts";
 import { NonNull, enumerate, structurallyEq, zip } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
 import { assert } from "@std/assert/assert";
-import { TypeChecker } from "./typechecker.ts";
+import { types } from "node:util";
 
 export class RuntimeError {
 	constructor(
@@ -75,8 +75,7 @@ export type Interpreter = {
 
 export const Interpreter = { create, interperate };
 
-// TODO: think about how we can do this without passing the type checker to the interpreter
-function create(typeChecker: TypeChecker, test: boolean): Interpreter {
+function create(test: boolean): Interpreter {
 	const scopes = new Scopes();
 	for (const [id, builtin] of Object.entries(Builtins)) {
 		scopes.declareGlobal(id, {
@@ -89,7 +88,7 @@ function create(typeChecker: TypeChecker, test: boolean): Interpreter {
 		scopes.declareGlobal(id, {
 			mutable: false,
 			allowShadow: false,
-			value: Module.create(typeChecker.values.get(id) as Type, builtinType),
+			value: Module.for(Type.moduleOf(builtinType)),
 		});
 	}
 	return { scopes, test };
@@ -294,28 +293,28 @@ function interperateProcDecl(i: Interpreter, p: AstProcDecl): unknown {
 
 function interperateTypeDecl(i: Interpreter, t: AstTypeDecl): unknown {
 	assert(t.moduleType);
-	const module = Module.create(t.moduleType, t.moduleType.associatedType);
+	const module = Module.for(t.moduleType);
 	unify(i, t.id, module, true);
 	return Unit;
 }
 
 function interperateStructDecl(i: Interpreter, s: AstStructDecl): unknown {
 	assert(s.moduleType);
-	const module = Module.create(s.moduleType, s.moduleType.associatedType);
+	const module = Module.for(s.moduleType);
 	unify(i, s.id, module, true);
 	return Unit;
 }
 
 function interperateEnumDecl(i: Interpreter, e: AstEnumDecl): unknown {
 	assert(e.moduleType);
-	const module = Module.create(e.moduleType, e.moduleType.associatedType);
+	const module = Module.for(e.moduleType);
 	unify(i, e.id, module, true);
 	assert(e.moduleType.associatedType?.kind == Kind.Enum);
 	for (const variant of e.moduleType.associatedType.variants) {
 		if (variant.constant) {
 			module[variant.name] = Enum.create(variant, {});
 		} else {
-			module[variant.name] = Module.create(Type.moduleOf(variant));
+			module[variant.name] = Module.for(Type.moduleOf(variant));
 		}
 	}
 	return Unit;
@@ -335,8 +334,8 @@ function interperateTestDecl(i: Interpreter, t: AstTestDecl): unknown {
 }
 
 function interperateModuleDecl(i: Interpreter, m: AstModuleDecl): unknown {
-	assert(m.resolvedModuleType);
-	const module = Module.create(m.resolvedModuleType);
+	assert(m.moduleType);
+	const module = Module.for(m.moduleType);
 	i.scopes.openScope();
 	for (const decl of m.decls) {
 		interperate(i, decl);
@@ -350,6 +349,16 @@ function interperateModuleDecl(i: Interpreter, m: AstModuleDecl): unknown {
 }
 
 function interperateImplDecl(i: Interpreter, d: AstImplDecl): unknown {
+	assert(d.moduleType);
+	const module = Module.for(d.moduleType);
+	i.scopes.openScope();
+	for (const decl of d.decls) {
+		interperate(i, decl);
+	}
+	const values = i.scopes.dropScope();
+	for (const [name, decl] of Object.entries(values)) {
+		module[name] = decl.value;
+	}
 	return Unit;
 }
 
@@ -659,9 +668,20 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 		case BinaryOp.Member: {
 			const left = interperate(i, b.left);
 			const type = Type.of(left);
+			if (b.moduleType !== undefined) {
+				const module = Module.for(b.moduleType);
+				const unbound = module[(b.right as AstId).value];
+				assert(Proc.is(unbound));
+				const bound = Proc.create(
+					unbound.name,
+					Type.withoutThisArg(unbound.$type),
+					(args) => unbound.impl([left, ...args])
+				);
+				return bound;
+			}
 			if (type.kind === Kind.Tuple) {
 				return (left as Tuple).items[
-					Number((b.right as AstLit).value as bigint)
+					(b.right as AstLit).value as unknown as number
 				];
 			}
 			if (
