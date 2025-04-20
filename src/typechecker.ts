@@ -49,7 +49,6 @@ import {
 	UnresolvedTupleType,
 	UnresolvedProcType,
 	Field,
-	EnumType,
 	VariantType,
 	ModuleType,
 	TypeWithFields,
@@ -57,8 +56,6 @@ import {
 } from "./types.ts";
 import { Span, zip, zipLeft } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
-
-const assert2: typeof assert = assert;
 
 export type TypeChecker = {
 	types: Scopes<Type>;
@@ -1253,16 +1250,6 @@ function assertItem(type: TupleType, name: AstId): Type {
 		throw new TypeError(`${t} has no item ${i}!`, name.start, name.end);
 	}
 	return item;
-}
-
-function assertVariant(type: EnumType, name: AstId): VariantType {
-	const variant = Type.findVariant(type, name.value);
-	if (variant === undefined) {
-		const f = name.value;
-		const e = Type.print(type);
-		throw new TypeError(`No variant ${f} on type ${e}!`, name.start, name.end);
-	}
-	return variant;
 }
 
 function closestTuple(type?: UnresolvedType): UnresolvedTupleType {

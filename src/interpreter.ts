@@ -41,7 +41,7 @@ import {
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
-import { EnumType, Kind, TupleType, Type, VariantType } from "./types.ts";
+import { Kind, TupleType, Type, VariantType } from "./types.ts";
 import { NonNull, enumerate, structurallyEq, zip } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
 import { assert } from "@std/assert/assert";

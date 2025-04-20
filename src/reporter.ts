@@ -1,5 +1,4 @@
 import { magenta, yellow, gray, red, underline, blue } from "@std/fmt/colors";
-import { Span } from "./utils.ts";
 import { CodeSource } from "./codesource.ts";
 import { Tokenizer, TokenType } from "./tokens.ts";
 
