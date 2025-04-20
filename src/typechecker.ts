@@ -294,6 +294,8 @@ function checkStructDecl(
 ): Type {
 	assert(t.values.inGlobalScope);
 	const fields: StructField[] = [];
+	const type = Type.struct(s.id.value, s.tuple, fields);
+	declareType(t, s.id, type);
 	for (const field of s.fields) {
 		fields.push({
 			mutable: field.mutable,
@@ -301,8 +303,6 @@ function checkStructDecl(
 			type: reifyType(t, field.typeAnnotation),
 		});
 	}
-	const type = Type.struct(s.id.value, s.tuple, fields);
-	declareType(t, s.id, type);
 	s.resolvedType = type;
 	return Type.Any;
 }
@@ -314,6 +314,8 @@ function checkEnumDecl(
 ): Type {
 	assert(t.values.inGlobalScope);
 	const variants: EnumVariant[] = [];
+	const type = Type.enum(e.id.value, variants);
+	declareType(t, e.id, type);
 	for (const variant of e.variants) {
 		const fields: StructField[] = [];
 		for (const field of variant.fields) {
@@ -330,8 +332,6 @@ function checkEnumDecl(
 			fields,
 		});
 	}
-	const type = Type.enum(e.id.value, variants);
-	declareType(t, e.id, type);
 	e.resolvedType = type;
 	return Type.Any;
 }

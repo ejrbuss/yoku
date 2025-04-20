@@ -134,10 +134,8 @@ export function print(v: unknown): string {
 	if (type.kind === Kind.Struct) {
 		const struct = v as Struct;
 		const fields: string[] = [];
-		let tupleStruct = false;
 		for (const [i, field] of enumerate(type.fields)) {
-			if (field.name === undefined) {
-				tupleStruct = true;
+			if (type.tuple) {
 				fields.push(print(`${print(struct[i])}`));
 			} else {
 				fields.push(print(`${field.name} = ${print(struct[field.name])}`));
@@ -145,7 +143,7 @@ export function print(v: unknown): string {
 		}
 		if (fields.length === 0) {
 			return `${type.name}`;
-		} else if (tupleStruct) {
+		} else if (type.tuple) {
 			return `${type.name}(${fields.join(", ")})`;
 		} else {
 			return `${type.name} { ${fields.join(", ")} }`;
@@ -155,18 +153,16 @@ export function print(v: unknown): string {
 		const enum_ = v as Enum;
 		const fields: string[] = [];
 		const variant = type.variants[enum_.$variant];
-		let tupleStruct = false;
 		for (const [i, field] of enumerate(variant.fields)) {
-			if (field.name === undefined) {
-				tupleStruct = true;
-				fields.push(print(`${print([enum_[i]])}`));
+			if (variant.tuple) {
+				fields.push(print(`${print(enum_[i])}`));
 			} else {
 				fields.push(print(`${field.name} = ${print(enum_[field.name])}`));
 			}
 		}
-		if (fields.length === 0) {
+		if (variant.constant) {
 			return `${type.name}.${variant.name}`;
-		} else if (tupleStruct) {
+		} else if (variant.tuple) {
 			return `${type.name}.${variant.name}(${fields.join(", ")})`;
 		} else {
 			return `${type.name}.${variant.name} { ${fields.join(", ")} }`;

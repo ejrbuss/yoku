@@ -128,3 +128,17 @@ match_struct(StructEnum.Zero {}) --> "Zero"
 match_struct(StructEnum.One { a = 4 }) --> "One4"
 a = StructEnum.Two { b = false, c = 44 }
 match_struct(StructEnum.Two { b = true, ...a }) --> "true44"
+
+--- test "Recursive Enums" ---
+enum List {
+	Empty,
+	Cons(Int, List)
+}
+
+var l = List.Empty
+l = List.Cons(1, l)
+l = List.Cons(2, l)
+l --> List.Cons(2, List.Cons(1, List.Empty))
+
+cat(List.Empty, "") --> "List.Empty"
+cat(List.Cons(1, List.Empty), "") --> "List.Cons(1, List.Empty)"

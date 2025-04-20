@@ -191,6 +191,11 @@ function of(v: unknown): Type {
 	if (type !== undefined) {
 		return type;
 	}
+	console.log({
+		v,
+		"typeof v": typeof v,
+		array: Array.isArray(v),
+	});
 	throw new Error(`Cannot find type! ${v}`);
 }
 
