@@ -47,11 +47,11 @@ import {
 	Type,
 	UnresolvedType,
 	UnresolvedTupleType,
-	UnresolvedProctType,
+	UnresolvedProcType,
 	StructField,
 	StructType,
 	EnumType,
-	EnumVariant,
+	VariantType,
 } from "./types.ts";
 import { Span, zip, zipLeft } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
@@ -313,8 +313,7 @@ function checkEnumDecl(
 	_d?: UnresolvedType
 ): Type {
 	assert(t.values.inGlobalScope);
-	const variants: EnumVariant[] = [];
-	const type = Type.enum(e.id.value, variants);
+	const type = Type.enum(e.id.value, []);
 	declareType(t, e.id, type);
 	for (const variant of e.variants) {
 		const fields: StructField[] = [];
@@ -325,10 +324,12 @@ function checkEnumDecl(
 				type: reifyType(t, field.typeAnnotation),
 			});
 		}
-		variants.push({
+		type.variants.push({
+			kind: Kind.Variant,
 			name: variant.id.value,
 			constant: variant.constant,
 			tuple: variant.tuple,
+			enum: type,
 			fields,
 		});
 	}
@@ -586,7 +587,7 @@ function checkEnumExpr(
 				fieldInit.id.end
 			);
 		}
-		const field = assertVariantField(type, variant, fieldInit.id);
+		const field = assertField(variant, fieldInit.id);
 		initialized.push(fieldInit.id.value);
 		const fieldType = check(t, fieldInit.expr ?? fieldInit.id, field.type);
 		assertAssignable(fieldType, field.type, fieldInit.expr ?? fieldInit.id);
@@ -1069,7 +1070,7 @@ function unify(
 			assert2(type.kind === Kind.Enum);
 			const variantType = assertVariant(type, p.variant.id);
 			for (const fp of p.variant.fieldPatterns) {
-				const sf = assertVariantField(type, variantType, fp.id);
+				const sf = assertField(variantType, fp.id);
 				unify(t, fp.pattern ?? fp.id, sf.type, mutable, assert);
 			}
 			return;
@@ -1198,38 +1199,21 @@ function assertCardinality(
 }
 
 // TODO should this be `name: TokId | TokIntLit` ?
-function assertField(type: StructType, name: AstId | AstLit): StructField {
-	// TODO git rid of this type assertion
-	const field = Type.findField(type, name.value as string | bigint);
-	if (field === undefined) {
-		const f = name.value;
-		const s = Type.print(type);
-		throw new TypeError(`No field ${f} on type ${s}!`, name.start, name.end);
-	}
-	return field;
-}
-
-function assertVariantField(
-	enumType: EnumType,
-	variant: EnumVariant,
+function assertField(
+	type: StructType | VariantType,
 	name: AstId | AstLit
 ): StructField {
-	// TODO git rid of this type assertion
-	const field = Type.findField(variant, name.value as string | bigint);
+	// TODO get rid of this type assertion
+	const field = Type.findField(type, name.value as string | bigint);
 	if (field === undefined) {
+		const s = Type.print(type);
 		const f = name.value;
-		const s = enumType.name;
-		const v = variant.name;
-		throw new TypeError(
-			`No field ${f} on type ${s}.${v}!`,
-			name.start,
-			name.end
-		);
+		throw new TypeError(`${s} has no field ${f}!`, name.start, name.end);
 	}
 	return field;
 }
 
-function assertVariant(type: EnumType, name: AstId): EnumVariant {
+function assertVariant(type: EnumType, name: AstId): VariantType {
 	const variant = Type.findVariant(type, name.value);
 	if (variant === undefined) {
 		const f = name.value;
@@ -1248,7 +1232,7 @@ function closestTuple(type?: UnresolvedType): UnresolvedTupleType {
 
 const EmptyProcType = Type.proc([], Type.Unit);
 
-function closestProc(type?: UnresolvedType): UnresolvedProctType {
+function closestProc(type?: UnresolvedType): UnresolvedProcType {
 	if (type === undefined || type.kind !== Kind.Proc) {
 		return EmptyProcType;
 	}

@@ -43,11 +43,11 @@ import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
 import {
 	EnumType,
-	EnumVariant,
 	Kind,
 	StructType,
 	TupleType,
 	Type,
+	VariantType,
 } from "./types.ts";
 import { enumerate, structurallyEq, zip } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
@@ -663,7 +663,7 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 				const variant = Type.findVariant(
 					enumType,
 					(b.right as AstId).value
-				) as EnumVariant;
+				) as VariantType;
 				if (!variant.constant) {
 					return left;
 				}
@@ -712,7 +712,7 @@ function interperateCallExpr(i: Interpreter, c: CallExpr): unknown {
 		const variant = Type.findVariant(
 			enumType,
 			c.proc.right.value
-		) as EnumVariant;
+		) as VariantType;
 		return Enum.create(enumType, enumType.variants.indexOf(variant), {
 			...args,
 		});

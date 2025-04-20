@@ -1,5 +1,5 @@
-import { unreachable } from "@std/assert/unreachable";
 import { zip } from "./utils.ts";
+import { assert } from "@std/assert/assert";
 
 export type Typed = { $type: Type };
 
@@ -10,14 +10,21 @@ export enum Kind {
 	Tuple = "Tuple",
 	Struct = "Struct",
 	Enum = "Enum",
+	Variant = "Variant",
 }
 
-export type Type = PrimitiveType | ProcType | TupleType | StructType | EnumType;
+export type Type =
+	| PrimitiveType
+	| ProcType
+	| TupleType
+	| StructType
+	| EnumType
+	| VariantType;
 
 export type UnresolvedType =
 	| Type
 	| WildcardType
-	| UnresolvedProctType
+	| UnresolvedProcType
 	| UnresolvedTupleType;
 
 export type WildcardType = {
@@ -35,7 +42,7 @@ export type ProcType = {
 	returns: Type;
 } & Typed;
 
-export type UnresolvedProctType = {
+export type UnresolvedProcType = {
 	kind: Kind.Proc;
 	params: UnresolvedType[];
 	returns: UnresolvedType;
@@ -64,19 +71,21 @@ export type StructType = {
 	fields: StructField[];
 } & Typed;
 
-export type EnumVariant = {
-	name: string;
-	constant: boolean;
-	tuple: boolean;
-	fields: StructField[];
-};
-
 export type EnumType = {
 	kind: Kind.Enum;
 	name: string;
-	variants: EnumVariant[];
+	variants: VariantType[];
 	constants: unknown[];
 } & Typed;
+
+export type VariantType = {
+	kind: Kind.Variant;
+	name: string;
+	constant: boolean;
+	tuple: boolean;
+	enum: EnumType;
+	fields: StructField[];
+};
 
 const Meta = {
 	kind: Kind.Primitive,
@@ -123,8 +132,8 @@ function proc<P extends Type | UnresolvedType, R extends Type | UnresolvedType>(
 ): P extends Type
 	? R extends Type
 		? ProcType
-		: UnresolvedProctType
-	: UnresolvedProctType {
+		: UnresolvedProcType
+	: UnresolvedProcType {
 	return { $type: Meta, kind: Kind.Proc, params, returns } as ProcType;
 }
 
@@ -142,12 +151,29 @@ function struct(
 	return { $type: Meta, kind: Kind.Struct, name, tuple, fields };
 }
 
-function _enum(name: string, variants: EnumVariant[]): EnumType {
-	return { $type: Meta, kind: Kind.Enum, name, variants, constants: [] };
+function _enum(
+	name: string,
+	variants: Omit<VariantType, "kind" | "enum">[]
+): EnumType {
+	const enum_: EnumType = {
+		$type: Meta,
+		kind: Kind.Enum,
+		name,
+		variants: [],
+		constants: [],
+	};
+	for (const variant of variants) {
+		enum_.variants.push({
+			kind: Kind.Variant,
+			enum: enum_,
+			...variant,
+		});
+	}
+	return enum_;
 }
 
 function findField(
-	type: StructType | EnumVariant,
+	type: StructType | VariantType,
 	name: string | bigint
 ): StructField | undefined {
 	if (typeof name === "bigint") {
@@ -161,7 +187,7 @@ function findField(
 	return undefined;
 }
 
-function findVariant(type: EnumType, name: string): EnumVariant | undefined {
+function findVariant(type: EnumType, name: string): VariantType | undefined {
 	for (const variant of type.variants) {
 		if (variant.name === name) {
 			return variant;
@@ -228,6 +254,8 @@ function print(t: UnresolvedType): string {
 		case Kind.Enum: {
 			return t.name;
 		}
+		case Kind.Variant:
+			return `${t.enum.name}.${t.name}`;
 	}
 }
 
@@ -274,15 +302,15 @@ function reconcile(
 		}
 		// If both types are wildcards the type is ambiguous and cannot
 		// reconciled
-		if (from === Type._ && into === Type._) {
+		if (from.kind === Kind.Wildcard && into.kind === Kind.Wildcard) {
 			return undefined;
 		}
 		// Otherwise resolve the wildcards by passing the other type
 		// next to itself
-		if (from === Type._) {
+		if (from.kind === Kind.Wildcard) {
 			return reconcile(into, into);
 		}
-		if (into === Type._) {
+		if (into.kind === Kind.Wildcard) {
 			return reconcile(from, from);
 		}
 		// Kinds must match
@@ -297,7 +325,8 @@ function reconcile(
 			return into;
 		}
 		// Procs are reconcilable if their params and return types are
-		if (from.kind === Kind.Proc && into.kind === Kind.Proc) {
+		if (from.kind === Kind.Proc) {
+			assert(into.kind === Kind.Proc);
 			if (from.params.length !== into.params.length) {
 				return undefined;
 			}
@@ -321,7 +350,8 @@ function reconcile(
 			return result;
 		}
 		// Tuples are reconcilable if their items are reconcilable
-		if (from.kind === Kind.Tuple && into.kind === Kind.Tuple) {
+		if (from.kind === Kind.Tuple) {
+			assert(into.kind === Kind.Tuple);
 			if (from.items.length !== into.items.length) {
 				return undefined;
 			}
@@ -339,21 +369,11 @@ function reconcile(
 			}
 			return result;
 		}
-		// Structs are nominal, and so must be identical
-		if (from.kind === Kind.Struct && into.kind === Kind.Struct) {
-			if (from !== into) {
-				return undefined;
-			}
-			return into;
+		// All other types are nominal and so must be identical
+		if (from !== into) {
+			return undefined;
 		}
-		// Enums are nominal, and so must be identical
-		if (from.kind === Kind.Enum && into.kind === Kind.Enum) {
-			if (from !== into) {
-				return undefined;
-			}
-			return into;
-		}
-		unreachable();
+		return into;
 	}
 	return recurse(from, into);
 }
