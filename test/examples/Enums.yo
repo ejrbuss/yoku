@@ -72,7 +72,7 @@ c --> -1
 proc match_tuple(t: TupleEnum) -> Str {
 	match t {
 		TupleEnum.None => { "None" }
-		TupleEnum.Zero => { "Zero" }
+		TupleEnum.Zero() => { "Zero" }
 		TupleEnum.One(x) => { cat("One", x) }
 		TupleEnum.Two(x, y) => { cat(x, y) }
 	}

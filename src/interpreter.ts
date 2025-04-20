@@ -161,38 +161,38 @@ function unify(
 			}
 			return true;
 		}
-		case AstTag.StructPattern: {
-			const struct = value as Struct;
-			for (const f of p.fieldPatterns) {
-				if (!unify(i, f.pattern ?? f.id, struct[f.id.value], throwOnFailure)) {
+		case AstTag.ConstructorPattern: {
+			if (Struct.is(value)) {
+				for (const f of p.fieldPatterns) {
+					if (!unify(i, f.pattern ?? f.id, value[f.id.value], throwOnFailure)) {
+						return false;
+					}
+				}
+				return true;
+			}
+			if (Enum.is(value)) {
+				const actualVariant = value.$type as VariantType;
+				const expectedVariant = p.resolvedType as VariantType;
+				if (actualVariant !== expectedVariant) {
+					if (throwOnFailure) {
+						const e = Type.print(expectedVariant);
+						const a = Type.print(actualVariant);
+						throw new RuntimeError(
+							`Expected ${e} but found ${a}!`,
+							p.start,
+							p.end
+						);
+					}
 					return false;
 				}
-			}
-			return true;
-		}
-		case AstTag.EnumPattern: {
-			const enumValue = value as Enum;
-			const variant = enumValue.$type as VariantType;
-			if (variant.name !== p.variant.id.value) {
-				if (throwOnFailure) {
-					const expected = `${variant.enum.name}.${p.variant.id.value}`;
-					const actual = Type.print(variant);
-					throw new RuntimeError(
-						`Expected ${expected} but found ${actual}!`,
-						p.start,
-						p.end
-					);
+				for (const f of p.fieldPatterns) {
+					if (!unify(i, f.pattern ?? f.id, value[f.id.value], throwOnFailure)) {
+						return false;
+					}
 				}
-				return false;
+				return true;
 			}
-			for (const f of p.variant.fieldPatterns) {
-				if (
-					!unify(i, f.pattern ?? f.id, enumValue[f.id.value], throwOnFailure)
-				) {
-					return false;
-				}
-			}
-			return true;
+			return unreachable(print(value));
 		}
 	}
 	return unreachable(`${p}`);

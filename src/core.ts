@@ -66,7 +66,7 @@ function createEnum(type: VariantType, values: Record<string, unknown>): Enum {
 }
 
 function isEnum(value: unknown): value is Enum {
-	return Type.of(value).kind === Kind.Enum;
+	return Type.of(value).kind === Kind.Variant;
 }
 
 export type Module = Record<string, unknown> & {

@@ -28,7 +28,7 @@ m(M.E.C) --> 1
 m(M.E.T(2)) --> 2
 m(M.E.S { f = 3 }) --> 3
 
---- skip "Type Modules" ---
+--- test "Impl Modules" ---
 
 impl Int {
 	const x = 1
@@ -70,7 +70,7 @@ a.f() --> 1
 const b = B{}
 b.f() --> 2
 
---- skip "Proc Declaration Order" ---
+--- skip "Lazy Proc Declaraction Order" ---
 
 module M {
 

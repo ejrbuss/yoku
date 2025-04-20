@@ -649,8 +649,11 @@ function checkMatchExpr(
 				const into = reifyUnresolvedType(t, c.assertedType);
 				c.resolvedDeclType = assertAssertable(from, into, c.pattern);
 			}
-			if (c.pattern.tag === AstTag.EnumPattern) {
-				variants.add(c.pattern.variant.id.value);
+			if (c.pattern.tag === AstTag.ConstructorPattern) {
+				const variant = reifyType(t, c.pattern.qualifiedId);
+				if (variant.kind === Kind.Variant) {
+					variants.add(variant.name);
+				}
 			}
 		}
 		if (c.testExpr !== undefined) {
@@ -1025,37 +1028,71 @@ function unify(
 			}
 			return;
 		}
-		case AstTag.StructPattern: {
-			const constructor = reifyType(t, p.id);
-			assertAssignable(type, constructor, p);
-			assert2(type.kind === Kind.Struct);
-			for (const fp of p.fieldPatterns) {
-				const sf = assertField(type, fp.id);
-				unify(t, fp.pattern ?? fp.id, sf.type, mutable, assert);
-			}
-			return;
-		}
-		case AstTag.EnumPattern: {
-			if (!assert) {
+		case AstTag.ConstructorPattern: {
+			const constructor = reifyType(t, p.qualifiedId);
+			assert
+				? assertAssertable(type, constructor, p)
+				: assertAssignable(type, constructor, p);
+			if (
+				constructor.kind === Kind.Variant &&
+				constructor.constant &&
+				!p.constant
+			) {
+				const c = Type.print(constructor);
 				throw new TypeError(
-					"Cannot use an enum variant in a non-asserted pattern!",
+					`Cannot destructure constant ${c}!`,
 					p.start,
 					p.end
 				);
 			}
-			const constructor = reifyType(t, p.id);
-			assert2(
-				constructor.kind === Kind.Enum || constructor.kind === Kind.Variant
-			);
-			const variantType = assertVariant(
-				constructor.kind === Kind.Variant ? constructor.enum : constructor,
-				p.variant.id
-			);
-			assertAssertable(type, variantType, p);
-			for (const fp of p.variant.fieldPatterns) {
-				const sf = assertField(variantType, fp.id);
-				unify(t, fp.pattern ?? fp.id, sf.type, mutable, assert);
+			if (
+				constructor.kind === Kind.Variant &&
+				!constructor.constant &&
+				p.constant
+			) {
+				const c = Type.print(constructor);
+				throw new TypeError(
+					`Type ${c} expects destructure pattern!`,
+					p.start,
+					p.end
+				);
 			}
+			if (
+				(constructor.kind === Kind.Struct ||
+					constructor.kind === Kind.Variant) &&
+				constructor.tuple &&
+				!p.tuple
+			) {
+				const c = Type.print(constructor);
+				throw new TypeError(
+					`Type ${c} expects a tuple destructure pattern!`,
+					p.start,
+					p.end
+				);
+			}
+			if (
+				(constructor.kind === Kind.Struct ||
+					constructor.kind === Kind.Variant) &&
+				!constructor.tuple &&
+				p.tuple
+			) {
+				const c = Type.print(constructor);
+				throw new TypeError(
+					`Type ${c} expects a struct destructure pattern!`,
+					p.start,
+					p.end
+				);
+			}
+			if (
+				constructor.kind === Kind.Struct ||
+				constructor.kind === Kind.Variant
+			) {
+				for (const fp of p.fieldPatterns) {
+					const sf = assertField(constructor, fp.id);
+					unify(t, fp.pattern ?? fp.id, sf.type, mutable, assert);
+				}
+			}
+			p.resolvedType = constructor;
 			return;
 		}
 	}
@@ -1113,11 +1150,14 @@ function reifyType(t: TypeChecker, at: AstType): Type {
 			return type;
 		}
 		case AstTag.QualifiedId: {
-			const module = check(t, at);
-			if (module.kind !== Kind.Module || module.associatedType === undefined) {
-				throw new TypeError("Undefined type!", at.start, at.end);
+			const type = check(t, at);
+			if (type.kind === Kind.Module && type.associatedType !== undefined) {
+				return type.associatedType;
 			}
-			return module.associatedType;
+			if (type.kind === Kind.Variant && type.constant) {
+				return type;
+			}
+			throw new TypeError("Undefined type!", at.start, at.end);
 		}
 		case AstTag.ProcType: {
 			const params: Type[] = [];

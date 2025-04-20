@@ -29,8 +29,7 @@ import {
 	GroupExpr,
 	AstPattern,
 	AstTuplePattern,
-	AstStructFieldPattern,
-	AstStructPattern,
+	AstFieldPattern,
 	AstLit,
 	AstWildcard,
 	AstWhileStmt,
@@ -40,11 +39,10 @@ import {
 	AstTupleType,
 	AstProcType,
 	AstDecl,
-	AstEnumPattern,
 	AstConstructorExpr,
 	AstEnumVariant,
-	AstEnumVariantPattern,
 	AstModuleDecl,
+	AstConstructorPattern,
 } from "./ast.ts";
 import { CodeSource } from "./codesource.ts";
 import { AssignOp, AssignToBinary, BinaryOp, UnaryOp } from "./ops.ts";
@@ -1048,14 +1046,8 @@ function parsePrimaryPattern(p: Parser): AstPattern {
 	if (lookAhead(p, "(")) {
 		return parseTuplePattern(p);
 	}
-	if (
-		lookAhead(p, TokenType.Id) &&
-		(lookAhead(p, "(", 1) || lookAhead(p, "{", 1))
-	) {
-		return parseStructPattern(p);
-	}
-	if (lookAhead(p, TokenType.Id) && lookAhead(p, ".", 1)) {
-		return parseEnumPattern(p);
+	if (lookAheadForConstructorPattern(p)) {
+		return parseConstructorPattern(p);
 	}
 	if (lookAhead(p, "_")) {
 		return parseWildcard(p);
@@ -1085,53 +1077,10 @@ function parseTuplePattern(p: Parser): AstTuplePattern {
 	};
 }
 
-function parseStructPattern(p: Parser): AstStructPattern {
+function parseConstructorPattern(p: Parser): AstConstructorPattern {
 	const start = getStart(p);
-	const id = parseId(p);
-	const fieldPatterns: AstStructFieldPattern[] = [];
-	let tuple = false;
-	if (match(p, "{")) {
-		while (hasMore(p) && !lookAhead(p, "}")) {
-			const id = parseId(p);
-			const pattern = match(p, "=") ? parsePattern(p) : id;
-			fieldPatterns.push({ id, pattern });
-			if (!lookAhead(p, "}")) {
-				consume(p, ",");
-			}
-		}
-		consume(p, "}");
-	}
-	if (match(p, "(")) {
-		tuple = true;
-		let i = 0;
-		while (hasMore(p) && !lookAhead(p, ")")) {
-			const pattern = parsePattern(p);
-			const id: AstId = {
-				tag: AstTag.Id,
-				value: `${i++}`,
-				start: pattern.start,
-				end: pattern.end,
-			};
-			fieldPatterns.push({ id, pattern });
-			if (!lookAhead(p, ")")) {
-				consume(p, ",");
-			}
-		}
-		consume(p, ")");
-	}
-	return {
-		tag: AstTag.StructPattern,
-		id,
-		tuple,
-		fieldPatterns,
-		start,
-		end: getEnd(p),
-	};
-}
-
-function parseEnumVariantPattern(p: Parser): AstEnumVariantPattern {
-	const id = parseId(p);
-	const fieldPatterns: AstStructFieldPattern[] = [];
+	const qualifiedId = parseQualifiedId(p);
+	const fieldPatterns: AstFieldPattern[] = [];
 	let constant = false;
 	let tuple = false;
 	if (match(p, "{")) {
@@ -1165,22 +1114,11 @@ function parseEnumVariantPattern(p: Parser): AstEnumVariantPattern {
 		constant = true;
 	}
 	return {
-		id,
+		tag: AstTag.ConstructorPattern,
+		qualifiedId,
 		constant,
 		tuple,
 		fieldPatterns,
-	};
-}
-
-function parseEnumPattern(p: Parser): AstEnumPattern {
-	const start = getStart(p);
-	const id = parseId(p);
-	consume(p, ".");
-	const variant = parseEnumVariantPattern(p);
-	return {
-		tag: AstTag.EnumPattern,
-		id,
-		variant,
 		start,
 		end: getEnd(p),
 	};
@@ -1265,6 +1203,16 @@ function lookAheadForConstructor(p: Parser): boolean {
 			return false;
 		}
 		position++;
+	}
+	return false;
+}
+
+function lookAheadForConstructorPattern(p: Parser): boolean {
+	if (!lookAhead(p, TokenType.Id)) {
+		return false;
+	}
+	if (lookAhead(p, "{", 1) || lookAhead(p, "(", 1) || lookAhead(p, ".", 1)) {
+		return true;
 	}
 	return false;
 }

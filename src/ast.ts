@@ -48,8 +48,7 @@ export enum AstTag {
 	// Patterns
 	AsPattern = "AsPattern",
 	TuplePattern = "TuplePattern",
-	StructPattern = "StructPattern",
-	EnumPattern = "EnumPattern",
+	ConstructorPattern = "ConstructorPattern",
 	LitPattern = "LitPattern",
 	WildcardPattern = "WildcardPattern",
 	// Types
@@ -345,39 +344,26 @@ export type AstTuplePattern = {
 	items: AstPattern[];
 } & Span;
 
-export type AstStructFieldPattern = {
+export type AstFieldPattern = {
 	id: AstId;
 	pattern: AstPattern;
 };
 
-export type AstStructPattern = {
-	tag: AstTag.StructPattern;
-	id: AstId;
-	tuple: boolean;
-	fieldPatterns: AstStructFieldPattern[];
-} & Span;
-
-export type AstEnumVariantPattern = {
-	id: AstId;
+export type AstConstructorPattern = {
+	tag: AstTag.ConstructorPattern;
+	qualifiedId: AstQualifiedId;
 	constant: boolean;
 	tuple: boolean;
-	fieldPatterns: AstStructFieldPattern[];
-};
-
-export type AstEnumPattern = {
-	tag: AstTag.EnumPattern;
-	id: AstId;
-	variant: AstEnumVariantPattern;
+	fieldPatterns: AstFieldPattern[];
+	resolvedType?: Type;
 } & Span;
 
 export type AstPattern =
 	| AstAsPattern
 	| AstTuplePattern
-	| AstStructPattern
-	| AstEnumPattern
+	| AstConstructorPattern
 	| AstWildcard
 	| AstLit
-	| AstQualifiedId
 	| AstId;
 
 export type AstProcType = {
