@@ -27,13 +27,15 @@ const _: Int = match Parity.Even {
 	Parity.Even => { 0 }
 } --> ! TypeError
 
-const a: Int =  match Parity.Odd {
+var p: Parity = Parity.Odd
+const a: Int =  match p {
 	Parity.Even => { 0 }
 	Parity.Odd => { 1 }
 }
 a --> 1
 
-const b: Int =  match Parity.Even {
+p = Parity.Even
+const b: Int =  match p {
 	Parity.Even => { 2 }
 	else => { 4 }
 }
@@ -60,8 +62,10 @@ a = TupleEnum.One(4)
 a == TupleEnum.One(4) --> true
 a == TupleEnum.Two(true, 4) --> false
 
-var assert TupleEnum.One(b) = TupleEnum.None --> ! RuntimeError
-var assert TupleEnum.Two(b, c) = TupleEnum.Two(false, -1)
+a = TupleEnum.None
+var assert TupleEnum.One(b) = a --> ! RuntimeError
+a = TupleEnum.Two(false, -1)
+var assert TupleEnum.Two(b, c) = a
 b --> false
 c --> -1
 
@@ -109,8 +113,10 @@ a == (StructEnum.One { a = 5 }) --> true
 a == (StructEnum.One { a = 6 }) --> false
 a == (StructEnum.Two { b = true, c = 7 }) --> false
 
-var assert StructEnum.One { a = b } = StructEnum.None --> ! RuntimeError
-var assert StructEnum.Two { b, c = d } = StructEnum.Two { b = false, c = 8 }
+a = StructEnum.None
+var assert StructEnum.One { a = b } = a --> ! RuntimeError
+a = StructEnum.Two { b = false, c = 8 }
+var assert StructEnum.Two { b, c = d } = a
 b --> false
 d --> 8
 
@@ -126,8 +132,8 @@ proc match_struct(t: StructEnum) -> Str {
 match_struct(StructEnum.None) --> "None"
 match_struct(StructEnum.Zero {}) --> "Zero"
 match_struct(StructEnum.One { a = 4 }) --> "One4"
-a = StructEnum.Two { b = false, c = 44 }
-match_struct(StructEnum.Two { b = true, ...a }) --> "true44"
+var b = StructEnum.Two { b = false, c = 44 }
+match_struct(StructEnum.Two { b = true, ...b }) --> "true44"
 
 --- test "Recursive Enums" ---
 enum List {
@@ -135,10 +141,44 @@ enum List {
 	Cons(Int, List)
 }
 
-var l = List.Empty
+var l: List = List.Empty
 l = List.Cons(1, l)
 l = List.Cons(2, l)
 l --> List.Cons(2, List.Cons(1, List.Empty))
 
 cat(List.Empty, "") --> "List.Empty"
 cat(List.Cons(1, List.Empty), "") --> "List.Cons(1, List.Empty)"
+
+--- test "Narrowed Enums" ---
+enum E {
+	Constant,
+	Tuple(Int, Int),
+	Struct { var x: Int, var y: Int }
+}
+
+var a: E = E.Constant
+var b = E.Constant
+a = b
+b = a --> ! TypeError
+
+var c = E.Tuple(1, 2)
+c.0 --> 1
+c.1 --> 2
+
+var d: E.Tuple = E.Tuple(3, 4)
+d.0 --> 3
+d.1 --> 4
+c = d
+d = c
+
+var e = E.Struct { x = 5, y = 6 }
+e.x --> 5
+e.y --> 6
+
+var f: E = e
+f == e --> true
+f === e --> true
+if const g: E.Struct = f {
+	cat("ignored", "")
+	g.x + g.y
+} --> 11

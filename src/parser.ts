@@ -1,6 +1,5 @@
 import { Token, Tokenizer, TokenType } from "./tokens.ts";
 import {
-	Ast,
 	AstTag,
 	ProcExpr,
 	IfExpr,
@@ -22,8 +21,8 @@ import {
 	Case,
 	AstStructDecl,
 	ThrowExpr,
-	AstStructField,
-	AstStructFieldInit,
+	AstFieldDecl,
+	AstFieldInit,
 	AstProcDecl,
 	AstEnumDecl,
 	AstExpr,
@@ -42,8 +41,7 @@ import {
 	AstProcType,
 	AstDecl,
 	AstEnumPattern,
-	AstEnumExpr,
-	AstStructExpr,
+	AstConstructorExpr,
 	AstEnumVariant,
 	AstEnumVariantPattern,
 	AstModuleDecl,
@@ -225,7 +223,7 @@ function parseStructDecl(p: Parser): AstStructDecl {
 	const start = getStart(p);
 	consume(p, "struct");
 	const id = parseId(p);
-	const fields: AstStructField[] = [];
+	const fields: AstFieldDecl[] = [];
 	let tuple = false;
 	if (match(p, "{")) {
 		while (hasMore(p) && !lookAhead(p, "}")) {
@@ -237,6 +235,7 @@ function parseStructDecl(p: Parser): AstStructDecl {
 			consume(p, ":");
 			const typeAnnotation = parseType(p);
 			fields.push({ mutable, id, typeAnnotation });
+			match(p, ",");
 		}
 		consume(p, "}");
 	} else {
@@ -272,7 +271,7 @@ function parseStructDecl(p: Parser): AstStructDecl {
 
 function parseEnumVariant(p: Parser): AstEnumVariant {
 	const id = parseId(p);
-	const fields: AstStructField[] = [];
+	const fields: AstFieldDecl[] = [];
 	let constant = false;
 	let tuple = false;
 	if (match(p, "{")) {
@@ -285,6 +284,7 @@ function parseEnumVariant(p: Parser): AstEnumVariant {
 			consume(p, ":");
 			const typeAnnotation = parseType(p);
 			fields.push({ mutable, id, typeAnnotation });
+			match(p, ",");
 		}
 		consume(p, "}");
 	} else if (match(p, "(")) {
@@ -521,16 +521,8 @@ function parseExpr(p: Parser): AstExpr {
 	if (lookAhead(p, "throw")) {
 		return parseThrowExpr(p);
 	}
-	if (lookAhead(p, TokenType.Id) && lookAhead(p, "{", 1)) {
-		return parseStructExpr(p);
-	}
-	if (
-		lookAhead(p, TokenType.Id) &&
-		lookAhead(p, ".", 1) &&
-		lookAhead(p, TokenType.Id, 2) &&
-		lookAhead(p, "{", 3)
-	) {
-		return parseEnumExpr(p);
+	if (lookAheadForConstructor(p)) {
+		return parseConstructorExpr(p);
 	}
 	return parseSubExpr(p);
 }
@@ -790,10 +782,10 @@ function parseTupleOrGroupExpr(p: Parser): TupleExpr | GroupExpr {
 	}
 }
 
-function parseStructExpr(p: Parser): AstStructExpr {
+function parseConstructorExpr(p: Parser): AstConstructorExpr {
 	const start = getStart(p);
-	const id = parseId(p);
-	const fieldInits: AstStructFieldInit[] = [];
+	const qualifiedId = parseQualifiedId(p);
+	const fieldInits: AstFieldInit[] = [];
 	let spreadInit: undefined | AstExpr;
 	consume(p, "{");
 	while (hasMore(p) && !lookAhead(p, "}")) {
@@ -811,24 +803,10 @@ function parseStructExpr(p: Parser): AstStructExpr {
 	}
 	consume(p, "}");
 	return {
-		tag: AstTag.StructExpr,
-		id,
+		tag: AstTag.ConstructorExpr,
+		qualifiedId,
 		fieldInits,
 		spreadInit,
-		start,
-		end: getEnd(p),
-	};
-}
-
-function parseEnumExpr(p: Parser): AstEnumExpr {
-	const start = getStart(p);
-	const id = parseId(p);
-	consume(p, ".");
-	const structExpr = parseStructExpr(p);
-	return {
-		tag: AstTag.EnumExpr,
-		id,
-		structExpr,
 		start,
 		end: getEnd(p),
 	};
@@ -1227,14 +1205,11 @@ function parseLit(p: Parser): AstLit {
 	};
 }
 
-function parseQualifiedId(p: Parser, note?: string): AstQualifiedId | AstId {
+function parseQualifiedId(p: Parser, note?: string): AstQualifiedId {
 	const start = getStart(p);
 	const ids = [parseId(p)];
 	while (match(p, ".")) {
 		ids.push(parseMemberId(p, note));
-	}
-	if (ids.length === 1) {
-		return ids[0];
 	}
 	return {
 		tag: AstTag.QualifiedId,
@@ -1269,6 +1244,29 @@ function parseMemberId(p: Parser, note?: string): AstId {
 		start: id.start,
 		end: id.end,
 	};
+}
+
+function lookAheadForConstructor(p: Parser): boolean {
+	let position = 0;
+	if (!lookAhead(p, TokenType.Id, position++)) {
+		return false;
+	}
+	while (hasMore(p)) {
+		if (lookAhead(p, "{", position)) {
+			return true;
+		}
+		if (!lookAhead(p, ".", position++)) {
+			return false;
+		}
+		if (
+			!lookAhead(p, TokenType.Id, position) &&
+			typeof lookAhead(p, TokenType.Lit, position)?.value !== "bigint"
+		) {
+			return false;
+		}
+		position++;
+	}
+	return false;
 }
 
 function hasMore(p: Parser): boolean {

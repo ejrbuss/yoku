@@ -18,7 +18,7 @@ import {
 	ProcExpr,
 	AstReturnStmt,
 	AstStructDecl,
-	AstStructExpr,
+	AstConstructorExpr,
 	ThrowExpr,
 	TupleExpr,
 	AstAssignFieldStmt,
@@ -37,12 +37,11 @@ import {
 	UnaryExpr,
 	Ast,
 	AstWhileStmt,
-	AstEnumExpr,
 	AstModuleDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
-import { EnumType, Kind, StructType, TupleType, Type } from "./types.ts";
+import { EnumType, Kind, TupleType, Type, VariantType } from "./types.ts";
 import { NonNull, enumerate, structurallyEq, zip } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
 import { assert } from "@std/assert/assert";
@@ -173,12 +172,11 @@ function unify(
 		}
 		case AstTag.EnumPattern: {
 			const enumValue = value as Enum;
-			const enumType = enumValue.$type as EnumType;
-			const variant = enumType.variants[enumValue.$variant];
+			const variant = enumValue.$type as VariantType;
 			if (variant.name !== p.variant.id.value) {
 				if (throwOnFailure) {
-					const expected = `${enumType.name}.${p.variant.id.value}`;
-					const actual = `${enumType.name}.${variant.name}`;
+					const expected = `${variant.enum.name}.${p.variant.id.value}`;
+					const actual = Type.print(variant);
 					throw new RuntimeError(
 						`Expected ${expected} but found ${actual}!`,
 						p.start,
@@ -243,10 +241,8 @@ function interperate(
 			return interperateBlockExpr(i, ast);
 		case AstTag.TupleExpr:
 			return interperateTupleExpr(i, ast);
-		case AstTag.StructExpr:
-			return interperateStructExpr(i, ast);
-		case AstTag.EnumExpr:
-			return interperateEnumExpr(i, ast);
+		case AstTag.ConstructorExpr:
+			return interperateConstructorExpr(i, ast);
 		case AstTag.GroupExpr:
 			return interperateGroupExpr(i, ast);
 		case AstTag.IfExpr:
@@ -314,11 +310,7 @@ function interperateEnumDecl(i: Interpreter, e: AstEnumDecl): unknown {
 	assert(e.moduleType.associatedType?.kind == Kind.Enum);
 	for (const variant of e.moduleType.associatedType.variants) {
 		if (variant.constant) {
-			module[variant.name] = Enum.create(
-				variant.enum,
-				variant.enum.variants.indexOf(variant),
-				{}
-			);
+			module[variant.name] = Enum.create(variant, {});
 		} else {
 			module[variant.name] = Module.create(Type.module(variant.name, variant));
 		}
@@ -470,38 +462,29 @@ function interperateTupleExpr(i: Interpreter, t: TupleExpr): unknown {
 	return Tuple.create(t.resolvedType as TupleType, items);
 }
 
-function interperateStructExpr(i: Interpreter, s: AstStructExpr): unknown {
-	const type = s.resolvedType as StructType;
-	const fields: Record<string, unknown> = {};
+function interperateConstructorExpr(
+	i: Interpreter,
+	s: AstConstructorExpr
+): unknown {
+	const type = s.resolvedType;
+	assert(type);
+	const values: Record<string, unknown> = {};
 	if (s.spreadInit !== undefined) {
 		const spread = interperate(i, s.spreadInit) as Struct;
 		for (const [i, field] of enumerate(type.fields)) {
-			fields[field.name ?? i] = spread[field.name ?? i];
+			values[field.name ?? i] = spread[field.name ?? i];
 		}
 	}
 	for (const fieldInit of s.fieldInits) {
-		fields[fieldInit.id.value] = interperate(i, fieldInit.expr ?? fieldInit.id);
+		values[fieldInit.id.value] = interperate(i, fieldInit.expr ?? fieldInit.id);
 	}
-	return Struct.create(type, fields);
-}
-
-function interperateEnumExpr(i: Interpreter, e: AstEnumExpr): unknown {
-	const type = e.resolvedType;
-	assert(type?.kind === Kind.Enum);
-	const variant = Type.findVariant(type, e.structExpr.id.value);
-	assert(variant);
-	const fields: Record<string, unknown> = {};
-	if (e.structExpr.spreadInit !== undefined) {
-		const spread = interperate(i, e.structExpr.spreadInit);
-		assert(Enum.is(spread));
-		for (const [i, field] of enumerate(variant.fields)) {
-			fields[field.name ?? i] = spread[field.name ?? i];
-		}
+	if (type.kind === Kind.Struct) {
+		return Struct.create(type, values);
 	}
-	for (const fieldInit of e.structExpr.fieldInits) {
-		fields[fieldInit.id.value] = interperate(i, fieldInit.expr ?? fieldInit.id);
+	if (type.kind === Kind.Variant) {
+		return Enum.create(type, values);
 	}
-	return Enum.create(type, type.variants.indexOf(variant), fields);
+	unreachable(`${Type.print(type)}`);
 }
 
 function interperateGroupExpr(i: Interpreter, g: GroupExpr): unknown {
@@ -512,6 +495,7 @@ function interperateIfExpr(i: Interpreter, f: IfExpr): unknown {
 	if (f.pattern !== undefined) {
 		const value = interperate(i, f.testExpr);
 		if (unify(i, f.pattern, value, false, f.resolvedDeclType)) {
+			console.log("was true!");
 			return interperate(i, f.thenExpr);
 		} else if (f.elseExpr !== undefined) {
 			return interperate(i, f.elseExpr);
@@ -675,7 +659,7 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 			}
 			if (
 				type.kind === Kind.Struct ||
-				type.kind === Kind.Enum ||
+				type.kind === Kind.Variant ||
 				type.kind === Kind.Module
 			) {
 				return (left as NonNull)[`${(b.right as AstId).value}`];
@@ -711,10 +695,7 @@ function interperateCallExpr(i: Interpreter, c: CallExpr): unknown {
 			return Struct.create(type.associatedType, { ...args });
 		}
 		if (type.associatedType.kind === Kind.Variant) {
-			const variant = type.associatedType.enum.variants.indexOf(
-				type.associatedType
-			);
-			return Enum.create(type.associatedType.enum, variant, { ...args });
+			return Enum.create(type.associatedType, { ...args });
 		}
 	}
 	return (proc as Proc).impl(args);

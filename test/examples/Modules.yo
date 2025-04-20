@@ -7,6 +7,7 @@ module M {
 	proc f() -> Int { 2 }
 	proc g(n: Int) -> Int { n + 1 }
 	struct S { var a: Int } 
+	enum E { C, T(Int), S { var f: Int } }
 }
 
 M.x --> 1
@@ -14,6 +15,18 @@ M.f() --> 2
 M.g(2) --> 3
 const s: M.S = M.S { a = 4 }
 s --> M.S { a = 4 }
+
+proc m(x: M.E) -> Int {
+	match x {
+		M.E.C => { 1 }
+		M.E.T(y) => { y }
+		M.E.S { f = z } => { z }
+	}
+}
+
+m(M.E.C) --> 1
+m(M.E.T(2)) --> 2
+m(M.E.S { f = 3 }) --> 3
 
 --- skip "Type Modules" ---
 

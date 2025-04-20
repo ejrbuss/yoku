@@ -5,7 +5,7 @@ import {
 	StructType,
 	TupleType,
 	Type,
-	EnumType,
+	VariantType,
 } from "./types.ts";
 import { enumerate } from "./utils.ts";
 
@@ -57,18 +57,12 @@ function isStruct(value: unknown): value is Struct {
 	return Type.of(value).kind === Kind.Struct;
 }
 
-export type Enum = Record<string, unknown> & {
-	$variant: number;
-} & Typed;
+export type Enum = Record<string, unknown> & Typed;
 
 export const Enum = { create: createEnum, is: isEnum };
 
-function createEnum(
-	type: EnumType,
-	variant: number,
-	values: Record<string, unknown>
-): Enum {
-	return { $type: type, $variant: variant, ...values };
+function createEnum(type: VariantType, values: Record<string, unknown>): Enum {
+	return { $type: type, ...values };
 }
 
 function isEnum(value: unknown): value is Enum {
@@ -148,23 +142,22 @@ export function print(v: unknown): string {
 			return `${type.name} { ${fields.join(", ")} }`;
 		}
 	}
-	if (type.kind === Kind.Enum) {
+	if (type.kind === Kind.Variant) {
 		const enum_ = v as Enum;
 		const fields: string[] = [];
-		const variant = type.variants[enum_.$variant];
-		for (const [i, field] of enumerate(variant.fields)) {
-			if (variant.tuple) {
+		for (const [i, field] of enumerate(type.fields)) {
+			if (type.tuple) {
 				fields.push(print(`${print(enum_[i])}`));
 			} else {
 				fields.push(print(`${field.name} = ${print(enum_[field.name])}`));
 			}
 		}
-		if (variant.constant) {
-			return `${type.name}.${variant.name}`;
-		} else if (variant.tuple) {
-			return `${type.name}.${variant.name}(${fields.join(", ")})`;
+		if (type.constant) {
+			return `${type.enum.name}.${type.name}`;
+		} else if (type.tuple) {
+			return `${type.enum.name}.${type.name}(${fields.join(", ")})`;
 		} else {
-			return `${type.name}.${variant.name} { ${fields.join(", ")} }`;
+			return `${type.enum.name}.${type.name} { ${fields.join(", ")} }`;
 		}
 	}
 	return `!!! Unknown Value: ${v} !!!`;

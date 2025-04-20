@@ -292,6 +292,14 @@ impl Int {
 Int.add(3, 4) --> 7
 (3).add(4) --> 7
 
+-- Allow narrowing on variant types? ie.
+enum OptionalInt {
+	None,
+	Some(Int),
+}
+const x = OptionalInt.Some(4) -- x has type OptionalInt.Some here
+x.0 --> 4
+
 -- String interpolation
 -- Try/Catch/Throw
 

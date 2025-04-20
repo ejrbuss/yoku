@@ -18,7 +18,7 @@ import {
 	ProcExpr,
 	AstReturnStmt,
 	AstStructDecl,
-	AstStructExpr,
+	AstConstructorExpr,
 	ThrowExpr,
 	TupleExpr,
 	UnaryExpr,
@@ -37,8 +37,6 @@ import {
 	AstExpr,
 	AstWhileStmt,
 	AstTypeExpr,
-	AstEnumExpr,
-	Ast,
 	AstModuleDecl,
 	AstQualifiedId,
 } from "./ast.ts";
@@ -195,10 +193,8 @@ function check(
 			return checkBlockExpr(t, ast, d);
 		case AstTag.TupleExpr:
 			return checkTupleExpr(t, ast, d);
-		case AstTag.StructExpr:
-			return checkStructExpr(t, ast, d);
-		case AstTag.EnumExpr:
-			return checkEnumExpr(t, ast, d);
+		case AstTag.ConstructorExpr:
+			return checkConstructorExpr(t, ast, d);
 		case AstTag.GroupExpr:
 			return checkGroupExpr(t, ast, d);
 		case AstTag.IfExpr:
@@ -347,7 +343,7 @@ function checkEnumDecl(
 			mutable: false,
 			name: variant.id.value,
 			type: variant.constant
-				? type
+				? variantType
 				: Type.module(variant.id.value, variantType),
 		});
 	}
@@ -561,22 +557,25 @@ function checkTupleExpr(
 	return type;
 }
 
-function checkStructExpr(
+function checkConstructorExpr(
 	t: TypeChecker,
-	s: AstStructExpr,
+	c: AstConstructorExpr,
 	_d?: UnresolvedType
 ): Type {
-	const type = reifyType(t, s.id);
-	if (type.kind !== Kind.Struct || type.tuple) {
+	const type = reifyType(t, c.qualifiedId);
+	if (
+		(type.kind !== Kind.Struct || type.tuple) &&
+		(type.kind !== Kind.Variant || type.tuple || type.constant)
+	) {
 		const tp = Type.print(type);
 		throw new TypeError(
 			`Type ${tp} is not constructable!`,
-			s.id.start,
-			s.id.end
+			c.qualifiedId.start,
+			c.qualifiedId.end
 		);
 	}
 	const initialized: string[] = [];
-	for (const fieldInit of s.fieldInits) {
+	for (const fieldInit of c.fieldInits) {
 		if (initialized.includes(fieldInit.id.value)) {
 			throw new TypeError(
 				`Duplicate field initializer!`,
@@ -589,60 +588,13 @@ function checkStructExpr(
 		const fieldType = check(t, fieldInit.expr ?? fieldInit.id, field.type);
 		assertAssignable(fieldType, field.type, fieldInit.expr ?? fieldInit.id);
 	}
-	if (s.spreadInit !== undefined) {
-		const spreadType = check(t, s.spreadInit, type);
-		assertAssignable(spreadType, type, s.spreadInit);
+	if (c.spreadInit !== undefined) {
+		const spreadType = check(t, c.spreadInit, type);
+		assertAssignable(spreadType, type, c.spreadInit);
 	} else {
-		assertCardinality(type.fields, initialized, s, "fields");
+		assertCardinality(type.fields, initialized, c, "fields");
 	}
-	s.resolvedType = type;
-	return type;
-}
-
-function checkEnumExpr(
-	t: TypeChecker,
-	e: AstEnumExpr,
-	_d?: UnresolvedType
-): Type {
-	const type = reifyType(t, e.id);
-	if (type.kind !== Kind.Enum) {
-		const tp = Type.print(type);
-		throw new TypeError(
-			`Type ${tp} is not constructable!`,
-			e.id.start,
-			e.id.end
-		);
-	}
-	const variant = assertVariant(type, e.structExpr.id);
-	if (variant.constant || variant.tuple) {
-		const tp = Type.print(type);
-		throw new TypeError(
-			`Type ${tp}.${variant.name} is not constructable!`,
-			e.id.start,
-			e.id.end
-		);
-	}
-	const initialized: string[] = [];
-	for (const fieldInit of e.structExpr.fieldInits) {
-		if (initialized.includes(fieldInit.id.value)) {
-			throw new TypeError(
-				`Duplicate field initializer!`,
-				fieldInit.id.start,
-				fieldInit.id.end
-			);
-		}
-		const field = assertField(variant, fieldInit.id);
-		initialized.push(fieldInit.id.value);
-		const fieldType = check(t, fieldInit.expr ?? fieldInit.id, field.type);
-		assertAssignable(fieldType, field.type, fieldInit.expr ?? fieldInit.id);
-	}
-	if (e.structExpr.spreadInit !== undefined) {
-		const spreadType = check(t, e.structExpr.spreadInit, type);
-		assertAssignable(spreadType, type, e.structExpr.spreadInit);
-	} else {
-		assertCardinality(variant.fields, initialized, e, "fields");
-	}
-	e.resolvedType = type;
+	c.resolvedType = type;
 	return type;
 }
 
@@ -660,11 +612,12 @@ function checkIfExpr(t: TypeChecker, i: IfExpr, d?: UnresolvedType): Type {
 		if (i.assertedType !== undefined) {
 			declType = reifyUnresolvedType(t, i.assertedType);
 		}
-		const from = check(t, i.testExpr, declType);
+		let type = check(t, i.testExpr, declType);
 		if (declType !== undefined) {
-			i.resolvedDeclType = assertAssertable(from, declType, i.pattern);
+			type = assertAssertable(type, declType, i.pattern);
+			i.resolvedDeclType = type;
 		}
-		unify(t, i.pattern, from, i.mutable, true);
+		unify(t, i.pattern, type, i.mutable, true);
 	} else {
 		const from = check(t, i.testExpr, Type.Bool);
 		assertAssignable(from, Type.Bool, i.testExpr);
@@ -848,7 +801,12 @@ function checkBinaryExpr(
 				const field = assertField(l, b.right);
 				return field.type;
 			}
-			return checkBinaryExprHelper(t, b, []);
+			const lp = Type.print(l);
+			throw new TypeError(
+				`Type ${lp} has no members!`,
+				b.left.start,
+				b.left.end
+			);
 		}
 	}
 }
@@ -951,9 +909,7 @@ function checkCallExpr(t: TypeChecker, c: CallExpr, _d?: UnresolvedType): Type {
 				const argType = check(t, arg, field.type);
 				assertAssignable(argType, field.type, arg);
 			}
-			return associatedType.kind === Kind.Variant
-				? associatedType.enum
-				: associatedType;
+			return associatedType;
 		}
 	}
 	const found = Type.print(callee);
@@ -1088,9 +1044,14 @@ function unify(
 				);
 			}
 			const constructor = reifyType(t, p.id);
-			assertAssignable(type, constructor, p);
-			assert2(type.kind === Kind.Enum);
-			const variantType = assertVariant(type, p.variant.id);
+			assert2(
+				constructor.kind === Kind.Enum || constructor.kind === Kind.Variant
+			);
+			const variantType = assertVariant(
+				constructor.kind === Kind.Variant ? constructor.enum : constructor,
+				p.variant.id
+			);
+			assertAssertable(type, variantType, p);
 			for (const fp of p.variant.fieldPatterns) {
 				const sf = assertField(variantType, fp.id);
 				unify(t, fp.pattern ?? fp.id, sf.type, mutable, assert);

@@ -2,10 +2,9 @@ import { BinaryOp, UnaryOp } from "./ops.ts";
 import {
 	Type,
 	TupleType,
-	StructType,
 	ProcType,
-	EnumType,
 	ModuleType,
+	TypeWithFields,
 } from "./types.ts";
 import { Span, sexpr } from "./utils.ts";
 
@@ -36,8 +35,7 @@ export enum AstTag {
 	// Expressions
 	BlockExpr = "BlockExpr",
 	TupleExpr = "TupleExpr",
-	StructExpr = "StructExpr",
-	EnumExpr = "EnumExpr",
+	ConstructorExpr = "ConstructorExpr",
 	GroupExpr = "GroupExpr",
 	IfExpr = "IfExpr",
 	MatchExpr = "MatchExpr",
@@ -109,7 +107,7 @@ export type AstTypeDecl = {
 	moduleType?: ModuleType;
 } & Span;
 
-export type AstStructField = {
+export type AstFieldDecl = {
 	mutable: boolean;
 	id: AstId;
 	typeAnnotation: AstType;
@@ -119,7 +117,7 @@ export type AstStructDecl = {
 	tag: AstTag.StructDecl;
 	id: AstId;
 	tuple: boolean;
-	fields: AstStructField[];
+	fields: AstFieldDecl[];
 	moduleType?: ModuleType;
 } & Span;
 
@@ -127,7 +125,7 @@ export type AstEnumVariant = {
 	id: AstId;
 	constant: boolean;
 	tuple: boolean;
-	fields: AstStructField[];
+	fields: AstFieldDecl[];
 };
 
 export type AstEnumDecl = {
@@ -232,22 +230,15 @@ export type TupleExpr = {
 	resolvedType?: TupleType;
 } & Span;
 
-export type AstStructExpr = {
-	tag: AstTag.StructExpr;
-	id: AstId;
-	fieldInits: AstStructFieldInit[];
+export type AstConstructorExpr = {
+	tag: AstTag.ConstructorExpr;
+	qualifiedId: AstQualifiedId;
+	fieldInits: AstFieldInit[];
 	spreadInit?: AstExpr;
-	resolvedType?: StructType;
+	resolvedType?: TypeWithFields;
 } & Span;
 
-export type AstEnumExpr = {
-	tag: AstTag.EnumExpr;
-	id: AstId;
-	structExpr: AstStructExpr;
-	resolvedType?: EnumType;
-} & Span;
-
-export type AstStructFieldInit = {
+export type AstFieldInit = {
 	id: AstId;
 	expr?: AstExpr;
 };
@@ -329,8 +320,7 @@ export type CallExpr = {
 export type AstExpr =
 	| BlockExpr
 	| TupleExpr
-	| AstStructExpr
-	| AstEnumExpr
+	| AstConstructorExpr
 	| GroupExpr
 	| IfExpr
 	| MatchExpr

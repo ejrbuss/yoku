@@ -289,7 +289,12 @@ function assertable(
 	from: UnresolvedType,
 	into: UnresolvedType
 ): Type | undefined {
+	// Any can be asserted into any type
 	if (from === Type.Any) {
+		return reconcile(into, into);
+	}
+	// Enums can be asserted into their variants
+	if (into.kind === Kind.Variant && assignable(into, from)) {
 		return reconcile(into, into);
 	}
 	return assignable(from, into);
@@ -328,6 +333,13 @@ function reconcile(
 		}
 		if (into.kind === Kind.Wildcard) {
 			return reconcile(from, from);
+		}
+		// Variants can be assigned to their enum
+		if (from.kind === Kind.Variant && into.kind === Kind.Enum) {
+			if (from.enum === into) {
+				return into;
+			}
+			return undefined;
 		}
 		// Kinds must match
 		if (from.kind !== into.kind) {
