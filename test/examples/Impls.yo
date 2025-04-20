@@ -6,7 +6,7 @@ module M {
 	const x = 1
 	proc f() -> Int { 2 }
 	proc g(n: Int) -> Int { n + 1 }
-	struct S { a: Int } 
+	struct S { var a: Int } 
 }
 
 M.x --> 1
@@ -56,3 +56,20 @@ const a = A {}
 a.f() --> 1
 const b = B{}
 b.f() --> 2
+
+--- skip "Proc Declaration Order" ---
+
+module M {
+
+	proc one() -> Int {
+		return two() - 1
+	}
+
+	proc two() -> Int {
+		2
+	}
+
+}
+
+M.one() --> 1
+M.two() --> 2

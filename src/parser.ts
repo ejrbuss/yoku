@@ -8,7 +8,7 @@ import {
 	AstContinueStmt,
 	AstBreakStmt,
 	AstVarDecl,
-	AstModule,
+	AstRoot,
 	AstId,
 	AstReturnStmt,
 	AstAssertStmt,
@@ -45,6 +45,7 @@ import {
 	AstStructExpr,
 	AstEnumVariant,
 	AstEnumVariantPattern,
+	AstModuleDecl,
 } from "./ast.ts";
 import { CodeSource } from "./codesource.ts";
 import { AssignOp, AssignToBinary, BinaryOp, UnaryOp } from "./ops.ts";
@@ -72,7 +73,7 @@ export const Parser = { parse };
 
 const IgnoredTokens = [TokenType.Comment, TokenType.Doc, TokenType.Whitespace];
 
-function parse(source: CodeSource, replMode?: boolean): AstModule {
+function parse(source: CodeSource, replMode?: boolean): AstRoot {
 	const c = CodeSource.checkpoint(source);
 	const tokens = Tokenizer.tokenize(source, IgnoredTokens);
 	for (const t of tokens) {
@@ -83,7 +84,7 @@ function parse(source: CodeSource, replMode?: boolean): AstModule {
 	const p: Parser = { tokens, position: 0 };
 	try {
 		// TODO how should module ID relate to path?
-		return parseModuleDecls(p, source.path, replMode ?? false);
+		return parseRoot(p, source.path, replMode ?? false);
 	} catch (error) {
 		if (error instanceof ParseError && error.needsMoreInput) {
 			CodeSource.restore(source, c);
@@ -92,21 +93,17 @@ function parse(source: CodeSource, replMode?: boolean): AstModule {
 	}
 }
 
-function parseModuleDecls(
-	p: Parser,
-	moduleId: string,
-	replMode: boolean
-): AstModule {
+function parseRoot(p: Parser, moduleId: string, replMode: boolean): AstRoot {
 	const start = getStart(p);
 	const decls: (AstDecl | AstStmt)[] = [];
 	while (hasMore(p)) {
 		decls.push(parseDecl(p, replMode));
 	}
 	return {
-		tag: AstTag.Module,
+		tag: AstTag.Root,
 		id: moduleId,
 		replMode,
-		decls,
+		children: decls,
 		start,
 		end: getEnd(p),
 	};
@@ -130,6 +127,9 @@ function parseDecl(p: Parser, replMode: boolean): AstDecl | AstStmt {
 	}
 	if (lookAhead(p, "test")) {
 		return parseTestDecl(p);
+	}
+	if (lookAhead(p, "module")) {
+		return parseModuleDecl(p);
 	}
 	if (replMode) {
 		return parseStmt(p);
@@ -353,6 +353,25 @@ function parseTestDecl(p: Parser): AstTestDecl {
 		name,
 		thenExpr,
 		start: start,
+		end: getEnd(p),
+	};
+}
+
+function parseModuleDecl(p: Parser): AstModuleDecl {
+	const start = getStart(p);
+	consume(p, "module");
+	const id = parseId(p);
+	const decls: AstDecl[] = [];
+	consume(p, "{");
+	while (hasMore(p) && !lookAhead(p, "}")) {
+		decls.push(parseDecl(p, false) as AstDecl);
+	}
+	consume(p, "}");
+	return {
+		tag: AstTag.ModuleDecl,
+		id,
+		decls,
+		start,
 		end: getEnd(p),
 	};
 }

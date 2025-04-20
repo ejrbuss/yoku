@@ -58,7 +58,6 @@ function isStruct(value: unknown): value is Struct {
 }
 
 export type Enum = Record<string, unknown> & {
-	// TODO: does numeric variant even make sense?
 	$variant: number;
 } & Typed;
 

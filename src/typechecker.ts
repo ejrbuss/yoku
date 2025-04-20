@@ -14,7 +14,7 @@ import {
 	IfExpr,
 	AstLoopStmt,
 	MatchExpr,
-	AstModule,
+	AstRoot,
 	ProcExpr,
 	AstReturnStmt,
 	AstStructDecl,
@@ -39,6 +39,7 @@ import {
 	AstTypeExpr,
 	AstEnumExpr,
 	Ast,
+	AstModuleDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -56,8 +57,6 @@ import {
 } from "./types.ts";
 import { Span, zip, zipLeft } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
-import { Module } from "./core.ts";
-import { types } from "node:util";
 
 const assert2: typeof assert = assert;
 
@@ -118,7 +117,7 @@ function create(): TypeChecker {
 	return t;
 }
 
-function checkExternal(t: TypeChecker, a: AstModule): Type {
+function checkExternal(t: TypeChecker, a: AstRoot): Type {
 	const typesSaved = t.types.copy();
 	const valuesSaved = t.values.copy();
 	try {
@@ -152,12 +151,12 @@ function declareType(t: TypeChecker, id: AstId, type: Type): ModuleType {
 
 function check(
 	t: TypeChecker,
-	ast: AstModule | AstDecl | AstStmt | AstExpr,
+	ast: AstRoot | AstDecl | AstStmt | AstExpr,
 	d?: UnresolvedType
 ): Type {
 	switch (ast.tag) {
-		case AstTag.Module:
-			return checkModule(t, ast, d);
+		case AstTag.Root:
+			return checkRoot(t, ast, d);
 		case AstTag.VarDecl:
 			return checkVarDecl(t, ast, d);
 		case AstTag.ProcDecl:
@@ -170,6 +169,8 @@ function check(
 			return checkEnumDecl(t, ast, d);
 		case AstTag.TestDecl:
 			return checkTestDecl(t, ast, d);
+		case AstTag.ModuleDecl:
+			return checkModuleDecl(t, ast, d);
 		case AstTag.BreakStmt:
 			return checkBreakStmt(t, ast, d);
 		case AstTag.ContinueStmt:
@@ -221,9 +222,9 @@ function check(
 	}
 }
 
-function checkModule(t: TypeChecker, m: AstModule, _d?: UnresolvedType): Type {
+function checkRoot(t: TypeChecker, m: AstRoot, _d?: UnresolvedType): Type {
 	let result: Type = Type.Unit;
-	for (const decl of m.decls) {
+	for (const decl of m.children) {
 		result = check(t, decl);
 	}
 	return m.replMode ? result : Type.Any;
@@ -288,7 +289,6 @@ function checkTypeDecl(
 ): Type {
 	// TODO these global assertions will need to become module level assertions
 	// once we have module level scope
-	assert(t.values.inGlobalScope);
 	const type = reifyType(t, d.typeExpr);
 	const module = declareType(t, d.id, type);
 	d.moduleType = module;
@@ -300,7 +300,6 @@ function checkStructDecl(
 	s: AstStructDecl,
 	_d?: UnresolvedType
 ): Type {
-	assert(t.values.inGlobalScope);
 	const fields: Field[] = [];
 	const type = Type.struct(s.id.value, s.tuple, fields);
 	const module = declareType(t, s.id, type);
@@ -320,7 +319,6 @@ function checkEnumDecl(
 	e: AstEnumDecl,
 	_d?: UnresolvedType
 ): Type {
-	assert(t.values.inGlobalScope);
 	const type = Type.enum(e.id.value, []);
 	const module = declareType(t, e.id, type);
 	for (const variant of e.variants) {
@@ -358,9 +356,18 @@ function checkTestDecl(
 	d: AstTestDecl,
 	_d?: UnresolvedType
 ): Type {
-	assert(t.values.inGlobalScope);
 	check(t, d.thenExpr);
 	return Type.Any;
+}
+
+function checkModuleDecl(
+	t: TypeChecker,
+	m: AstModuleDecl,
+	_d?: UnresolvedType
+): Type {
+	const module = Type.module(m.id.value);
+	// TODO check declarations
+	return module;
 }
 
 function checkBreakStmt(

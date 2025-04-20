@@ -10,7 +10,7 @@ import {
 import { Span, sexpr } from "./utils.ts";
 
 export enum AstTag {
-	Module = "Module",
+	Root = "Root",
 	Wildcard = "Wildcard",
 	Lit = "Lit",
 	Id = "Id",
@@ -21,6 +21,7 @@ export enum AstTag {
 	StructDecl = "StructDecl",
 	EnumDecl = "EnumDecl",
 	TestDecl = "TestDecl",
+	ModuleDecl = "ModuleDecl",
 	// Statements
 	BreakStmt = "BreakStmt",
 	ContinueStmt = "ContinueStmt",
@@ -57,11 +58,11 @@ export enum AstTag {
 	TupleType = "TupleType",
 }
 
-export type AstModule = {
-	tag: AstTag.Module;
+export type AstRoot = {
+	tag: AstTag.Root;
 	id: string;
 	replMode: boolean;
-	decls: (AstDecl | AstStmt)[];
+	children: (AstDecl | AstStmt)[];
 } & Span;
 
 export type AstWildcard = {
@@ -136,13 +137,20 @@ export type AstTestDecl = {
 	thenExpr: AstExpr;
 } & Span;
 
+export type AstModuleDecl = {
+	tag: AstTag.ModuleDecl;
+	id: AstId;
+	decls: AstDecl[];
+} & Span;
+
 export type AstDecl =
 	| AstVarDecl
 	| AstProcDecl
 	| AstTypeDecl
 	| AstStructDecl
 	| AstEnumDecl
-	| AstTestDecl;
+	| AstTestDecl
+	| AstModuleDecl;
 
 export type AstBreakStmt = {
 	tag: AstTag.BreakStmt;
@@ -386,7 +394,7 @@ export type AstTupleType = {
 
 export type AstType = AstProcType | AstTupleType | AstWildcard | AstId;
 
-export type Ast = AstModule | AstDecl | AstStmt | AstExpr | AstPattern;
+export type Ast = AstRoot | AstDecl | AstStmt | AstExpr | AstPattern;
 
 export const Ast = { print: printAst };
 

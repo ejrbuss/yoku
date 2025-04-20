@@ -14,7 +14,7 @@ import {
 	IfExpr,
 	AstLoopStmt,
 	MatchExpr,
-	AstModule,
+	AstRoot,
 	ProcExpr,
 	AstReturnStmt,
 	AstStructDecl,
@@ -38,6 +38,7 @@ import {
 	Ast,
 	AstWhileStmt,
 	AstEnumExpr,
+	AstModuleDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
 import { Scopes } from "./scopes.ts";
@@ -201,11 +202,11 @@ function unify(
 
 function interperate(
 	i: Interpreter,
-	ast: AstModule | AstDecl | AstStmt | AstExpr
+	ast: AstRoot | AstDecl | AstStmt | AstExpr
 ): unknown {
 	switch (ast.tag) {
-		case AstTag.Module:
-			return interperateModuleDecls(i, ast);
+		case AstTag.Root:
+			return interperateRoot(i, ast);
 		case AstTag.VarDecl:
 			return interperateVarDecl(i, ast);
 		case AstTag.ProcDecl:
@@ -218,6 +219,8 @@ function interperate(
 			return interperateEnumDecl(i, ast);
 		case AstTag.TestDecl:
 			return interperateTestDecl(i, ast);
+		case AstTag.ModuleDecl:
+			return interperateModuleDecl(i, ast);
 		case AstTag.BreakStmt:
 			return interperateBreakStmt(i, ast);
 		case AstTag.ContinueStmt:
@@ -270,9 +273,9 @@ function interperate(
 	unreachable(`${Ast.print(ast)}`);
 }
 
-function interperateModuleDecls(i: Interpreter, m: AstModule): unknown {
+function interperateRoot(i: Interpreter, m: AstRoot): unknown {
 	let result: unknown = Unit;
-	for (const decl of m.decls) {
+	for (const decl of m.children) {
 		result = interperate(i, decl);
 	}
 	return result;
@@ -348,6 +351,11 @@ function interperateTestDecl(i: Interpreter, t: AstTestDecl): unknown {
 			throw error;
 		}
 	}
+	return Unit;
+}
+
+function interperateModuleDecl(i: Interpreter, m: AstModuleDecl): unknown {
+	// TODO
 	return Unit;
 }
 
@@ -665,7 +673,6 @@ function interperateBinaryExpr(i: Interpreter, b: BinaryExpr): unknown {
 		case BinaryOp.Member: {
 			const left = interperate(i, b.left);
 			const type = Type.of(left);
-			// TODO normalize tuples as stucts
 			if (type.kind === Kind.Tuple) {
 				return (left as Tuple).items[
 					Number((b.right as AstLit).value as bigint)
