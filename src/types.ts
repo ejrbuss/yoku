@@ -235,7 +235,7 @@ function moduleOf(type: Type): ModuleType {
 }
 
 function isThisArg(procType: Type, thisType: Type): boolean {
-	return procType.kind === Kind.Proc && procType.params[0] === thisType;
+	return procType.kind === Kind.Proc && equal(procType.params[0], thisType);
 }
 
 function withoutThisArg(procType: Type): ProcType {

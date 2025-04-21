@@ -813,8 +813,10 @@ function checkBinaryExpr(
 		case BinaryOp.Member: {
 			const l = check(t, b.left);
 			if (l.kind === Kind.Tuple && b.right.tag === AstTag.Id) {
-				const item = assertItem(l, b.right);
-				return item;
+				const item = l.items[b.right.value as unknown as number];
+				if (item !== undefined) {
+					return item;
+				}
 			}
 			if (
 				(l.kind === Kind.Struct ||
@@ -835,9 +837,10 @@ function checkBinaryExpr(
 					return Type.withoutThisArg(field.type);
 				}
 				const lp = Type.print(l);
-				const f = b.right.value;
+				const f = l.kind == Kind.Tuple ? "item" : "field";
+				const v = b.right.value;
 				throw new TypeError(
-					`${lp} has no field or method ${f}!`,
+					`${lp} has no ${f} or method ${v}!`,
 					b.right.start,
 					b.right.end
 				);
@@ -1246,16 +1249,6 @@ function assertField(type: TypeWithFields, name: AstId): Field {
 		throw new TypeError(`${s} has no field ${f}!`, name.start, name.end);
 	}
 	return field;
-}
-
-function assertItem(type: TupleType, name: AstId): Type {
-	const item = type.items[name.value as unknown as number];
-	if (item === undefined) {
-		const t = Type.print(type);
-		const i = name.value;
-		throw new TypeError(`${t} has no item ${i}!`, name.start, name.end);
-	}
-	return item;
 }
 
 function closestTuple(type?: UnresolvedType): UnresolvedTupleType {
