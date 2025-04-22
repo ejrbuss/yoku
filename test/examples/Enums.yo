@@ -182,3 +182,35 @@ if const g: E.Struct = f {
 	cat("ignored", "")
 	g.x + g.y
 } --> 11
+
+--- skip "Anonymous Enum Destructuring" ---
+
+enum E {
+	S { var x: Int, var y: Int }
+	T(Int, Int)
+}
+
+const s = E.S { x = 1, y = 2 }
+const t = E.T(3, 4)
+
+const { x, w } = s --> ! TypeError
+const (x, y) = s --> ! TypeError
+const { x, y } = t --> ! TypeError
+const (x, y, z) = t --> ! TypeError
+
+const { x, y } = s
+x --> 1
+y --> 2
+const (z, w) = y
+z --> 3
+w --> 4
+
+const s2 as { x = x2 } = s
+s2 === s --> true
+x2 === x --> true
+
+const e: E = t
+match e {
+	{ x }: E.S => x,
+	(z, w): E.T => z + w
+} --> 7

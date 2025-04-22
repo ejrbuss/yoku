@@ -1,0 +1,88 @@
+--- mode Repl ---
+
+--- module ExampleModule ---
+
+const local_constant = "local_constant"
+var local_variable = "local_variable"
+
+export const constant = "constant"
+export var variable = "variable"
+
+proc local_p() -> Str { local_constant }
+
+export proc p() -> Str { local_p() }
+
+struct LocalS {
+	export var x: Str
+	export const y: Str
+	var z: Str
+	const w: Str
+}
+
+export struct I(Int)
+
+export struct S {
+	export var x: Str
+	export const y: Str
+	var z: Str
+	const w: Str
+}
+
+export const s = S { 
+	x = "x",
+	y = "y",
+	z = "z",
+	w = "w",
+}
+
+export proc s_w(s: S) -> Str { s.w }
+
+--- skip "Import Variables and Constants" ---
+
+import ExampleModule
+
+ExampleModule.local_constant --> ! TypeError
+ExampleModule.local_variable --> ! TypeError
+
+ExampleModule.constant --> "constant"
+ExampleModule.constant = "updated" --> ! TypeError
+
+ExampleModule.variable --> "variable"
+ExampleModule.variable = "updated"
+ExampleModule.variable --> "updated"
+
+--- skip "Import Procedures" ---
+
+ExampleModule.local_p --> ! TypeError
+ExampleModule.p() --> "local_constant"
+
+--- skip "Import Types" ---
+
+import ExampleModule
+
+ExampleModule.LocalS --> ! TypeError
+
+const i = ExampleModule.I(4)
+t.0 --> 4
+
+export const s = ExampleModule.S { 
+	x = "x",
+	y = "y",
+	z = "z",
+	w = "w",
+} --> ! TypeError
+
+ExampleModule.s.x --> "x"
+ExampleModule.s.y --> "y"
+ExampleModule.s.w --> ! TypeError
+ExampleModule.s.z --> ! TypeError
+
+--- skip "Import Renaming" ---
+import ExampleModule as Ex as { constant, variable = v }
+
+var i: ExampleModule.I = ExampleModule.I(4)
+i = Ex.I(5)
+
+constant --> "constant"
+variable --> ! TypeError
+v --> "variable"

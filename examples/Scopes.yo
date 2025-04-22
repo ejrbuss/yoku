@@ -1,0 +1,56 @@
+--- 
+Just playing around with implementing this in Yoku
+---
+
+export type Scope[T] = export Map[Id, T]
+
+export type Scopes[T] = List[Scope[T]]
+
+impl Scopes {
+
+	export proc create[T]() -> Scopes[T] {
+		List.of(Map.empty())
+	}
+
+	export proc find[T](scopes: Scopes[T], id: Id) -> Option[T] {
+		for scope in scopes.reversed() {
+			match scope.get(id) {
+				Option.None => { continue }
+				option => { return option }
+			}
+		}
+		return Option.None
+	}
+
+	export proc declare[T](scopes: Scopes[T], id: Id, value: T) {
+		assert scopes.length > 0
+		scopes[scopes.length - 1][id] = value
+	}
+
+	export proc open_scope[T](scopes: Scopes[T]) {
+		scopes.push(Map.empty())
+	}
+
+	export proc drop_scope[T](scopes: Scopes[T]) -> Option[Scope[T]] {
+		scopes.pop()
+	}
+
+	export proc copy[T](scopes: Scopes[T]) -> Scopes[T] {
+		List.collect(for scope in scopes.iter() {
+			Map.collect(scope.iter())
+		})
+	}
+
+	export proc show[T](scopes: Scopes[T]) -> Scopes[T] {
+		if scopes.is_empty() {
+			return "{}"
+		}
+		const items = List.empty[Str]()
+		for id in scopes.first().keys() {
+			items.push(id)
+		}
+		items.push(scopes.rest())
+		"{ \(", ".join(items.iter())) }"
+	}
+
+}

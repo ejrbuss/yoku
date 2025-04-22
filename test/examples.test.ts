@@ -5,9 +5,11 @@ import { assert, assertEquals, AssertionError } from "jsr:@std/assert";
 import { print } from "../src/core.ts";
 import { annotate, Fmt, highlight, tab } from "../src/reporter.ts";
 import { blue, bold, gray, red } from "@std/fmt/colors";
+import { dir } from "node:console";
 
 const ModeDirective = /^--- mode (Repl|Module) ---/;
 const TestDirective = /^--- (test|skip) "(.*)" ---/;
+const ModuleDirective = /^--- module (\w+) ---/;
 
 enum Mode {
 	Repl = "Repl",
@@ -33,38 +35,47 @@ for await (const file of Deno.readDir("./test/examples")) {
 		}
 		const mode = (content.match(ModeDirective) as RegExpMatchArray)[1] as Mode;
 		if (mode === Mode.Repl) {
-			for (let i = content.indexOf("\n"); i < content.length; i++) {
-				if (content.startsWith("--", i)) {
-					const start = i;
-					let end = start + "--".length;
-					const subContent = content.substring(start);
-					if (!TestDirective.test(subContent)) {
-						const end = subContent.indexOf("\n", start);
-						throw new Error(
-							"\n" +
-								annotate(content, {
-									path,
-									start,
-									end: start + (end < 0 ? subContent.length : end),
-									note: "Expected test directive!",
-									fmt: red,
-								})
-						);
-					}
-					const match = subContent.match(TestDirective);
+			let start = content.indexOf("\n");
+			while (start < content.length) {
+				if (!content.startsWith("---", start)) {
+					start++;
+					continue;
+				}
+				const nextLine = content.indexOf("\n", start);
+				let end = content.indexOf("\n---", nextLine);
+				if (end < 0 || nextLine < 0) {
+					end = content.length;
+				}
+				console.log({ start, nextLine, end });
+				const directive = content.substring(start, nextLine);
+				if (ModuleDirective.test(directive)) {
+					start = end;
+					continue;
+				}
+				if (TestDirective.test(directive)) {
+					const match = directive.match(TestDirective);
 					assert(match);
 					const testOrSkip = match[1];
 					const name = match[2];
-					while (end < content.length && !content.startsWith("\n--", end)) {
-						end++;
-					}
+					const span = { start, end };
 					Deno.test(
 						`${suite} - ${name}`,
 						{ ignore: testOrSkip === "skip" },
-						() => runReplTest2(content, path, { start, end })
+						() => runReplTest(content, path, span)
 					);
-					i = end;
+					start = end;
+					continue;
 				}
+				throw new Error(
+					"\n" +
+						annotate(content, {
+							path,
+							start,
+							end: nextLine,
+							note: "Uknown directive!",
+							fmt: red,
+						})
+				);
 			}
 		} else {
 			Deno.test(suite, () => runModuleTest(content, path));
@@ -72,7 +83,7 @@ for await (const file of Deno.readDir("./test/examples")) {
 	}
 }
 
-function runReplTest2(content: string, path: string, span: Span): void {
+function runReplTest(content: string, path: string, span: Span): void {
 	const rt = Runtime.create({ replMode: true });
 	const s = CodeSource.fromString("", path);
 

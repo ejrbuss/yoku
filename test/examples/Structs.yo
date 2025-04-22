@@ -121,3 +121,28 @@ struct Empty()
 var e = Empty()
 e --> Empty()
 e = Empty {} --> ! TypeError
+
+--- skip "Anonymous Struct Destructuring" ---
+
+struct S { var x: Int, var y: Int }
+struct T(Int, Int)
+
+const s = S { x = 1, y = 2 }
+const t = T(3, 4)
+
+const { x, w } = s --> ! TypeError
+const (x, y) = s --> ! TypeError
+const { x, y } = t --> ! TypeError
+const (x, y, z) = t --> ! TypeError
+
+const { x, y } = s
+x --> 1
+y --> 2
+const (z, w) = y
+z --> 3
+w --> 4
+
+const s2 as { x = x2 } = s
+s2 === s --> true
+x2 === x --> true
+

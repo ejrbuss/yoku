@@ -52,7 +52,6 @@ import {
 	Field,
 	VariantType,
 	TypeWithFields,
-	TupleType,
 } from "./types.ts";
 import { Span, zip, zipLeft } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
