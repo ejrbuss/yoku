@@ -42,7 +42,7 @@ import {
 	AstImplDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
-import { Scopes } from "./scopes.ts";
+import { Scopes } from "./scopes2.ts";
 import {
 	Kind,
 	Type,
@@ -56,9 +56,15 @@ import {
 import { Span, zip, zipLeft } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
 
+type Decl = {
+	mutable: boolean;
+	shadowable: boolean;
+	type: Type;
+};
+
 export type TypeChecker = {
 	types: Scopes<Type>;
-	values: Scopes<Type>;
+	values: Scopes<Decl>;
 	loops: Scopes<true>;
 	returns: Type[]; // TODO probably want to include source info
 };
@@ -80,42 +86,32 @@ export const TypeChecker = {
 
 function create(): TypeChecker {
 	const t: TypeChecker = {
-		types: new Scopes(),
-		values: new Scopes(),
-		loops: new Scopes(),
+		types: Scopes.create(),
+		values: Scopes.create(),
+		loops: Scopes.create(),
 		returns: [],
 	};
 	for (const [id, builtin] of Object.entries(Builtins)) {
-		assert(
-			t.values.declareGlobal(id, {
-				mutable: false,
-				allowShadow: false,
-				value: Type.of(builtin),
-			})
-		);
+		Scopes.declare(t.values, id, {
+			mutable: false,
+			shadowable: false,
+			type: Type.of(builtin),
+		});
 	}
 	for (const [id, builtinType] of Object.entries(BuiltinTypes)) {
-		assert(
-			t.types.declareGlobal(id, {
-				mutable: false,
-				allowShadow: false,
-				value: builtinType,
-			})
-		);
-		assert(
-			t.values.declareGlobal(id, {
-				mutable: false,
-				allowShadow: false,
-				value: Type.moduleOf(builtinType),
-			})
-		);
+		Scopes.declare(t.types, id, builtinType);
+		Scopes.declare(t.values, id, {
+			mutable: false,
+			shadowable: false,
+			type: Type.moduleOf(builtinType),
+		});
 	}
 	return t;
 }
 
 function checkExternal(t: TypeChecker, a: AstRoot): Type {
-	const typesSaved = t.types.copy();
-	const valuesSaved = t.values.copy();
+	const typesSaved = Scopes.copy(t.types);
+	const valuesSaved = Scopes.copy(t.values);
 	try {
 		return check(t, a);
 	} catch (error) {
@@ -126,21 +122,17 @@ function checkExternal(t: TypeChecker, a: AstRoot): Type {
 }
 
 function declareType(t: TypeChecker, id: AstId, type: Type) {
-	if (
-		!t.types.declareLocal(id.value, {
-			mutable: false,
-			allowShadow: false,
-			value: type,
-		}) ||
-		!t.values.declareLocal(id.value, {
-			mutable: false,
-			allowShadow: false,
-			value: Type.moduleOf(type),
-		})
-	) {
-		// TODO link original decl
+	const priorDecl = Scopes.find(t.types, id.value);
+	if (priorDecl !== undefined) {
+		// TODO link original decl somehow
 		throw new TypeError("Cannot redeclare type!", id.start, id.end);
 	}
+	Scopes.declare(t.types, id.value, type);
+	Scopes.declare(t.values, id.value, {
+		mutable: false,
+		shadowable: false,
+		type: Type.moduleOf(type),
+	});
 }
 
 function check(
@@ -359,22 +351,22 @@ function checkModuleDecl(
 ): Type {
 	const module = Type.module(m.id.value);
 	declareType(t, m.id, module);
-	t.types.openScope();
-	t.values.openScope();
+	Scopes.openScope(t.types);
+	Scopes.openScope(t.values);
 	for (const decl of m.decls) {
 		check(t, decl);
 	}
-	const values = t.values.dropScope();
+	const values = Scopes.dropScope(t.values);
 	for (const [name, decl] of Object.entries(values)) {
 		module.fields.push({
 			name,
 			mutable: decl.mutable,
-			type: decl.value,
+			type: decl.type,
 		});
 	}
-	const types = t.types.dropScope();
-	for (const [name, decl] of Object.entries(types)) {
-		module.types[name] = decl.value;
+	const types = Scopes.dropScope(t.types);
+	for (const [name, type] of Object.entries(types)) {
+		module.types[name] = type;
 	}
 	m.moduleType = module;
 	return Type.Any;
@@ -387,22 +379,22 @@ function checkImplDecl(
 ): Type {
 	const type = reifyType(t, i.type);
 	const module = Type.moduleOf(type);
-	t.types.openScope();
-	t.values.openScope();
+	Scopes.openScope(t.types);
+	Scopes.openScope(t.values);
 	for (const decl of i.decls) {
 		check(t, decl);
 	}
-	const values = t.values.dropScope();
+	const values = Scopes.dropScope(t.values);
 	for (const [name, decl] of Object.entries(values)) {
 		module.fields.push({
 			name,
 			mutable: decl.mutable,
-			type: decl.value,
+			type: decl.type,
 		});
 	}
-	const types = t.types.dropScope();
-	for (const [name, decl] of Object.entries(types)) {
-		module.types[name] = decl.value;
+	const types = Scopes.dropScope(t.types);
+	for (const [name, type] of Object.entries(types)) {
+		module.types[name] = type;
 	}
 	i.moduleType = module;
 	return Type.Any;
@@ -413,10 +405,13 @@ function checkBreakStmt(
 	b: AstBreakStmt,
 	_d?: UnresolvedType
 ): Type {
-	if (t.loops.inGlobalScope) {
+	if (t.loops.length === 1) {
 		throw new TypeError("Cannot break outside a loop!", b.start, b.end);
 	}
-	if (b.label !== undefined && t.loops.get(b.label.value) === undefined) {
+	if (
+		b.label !== undefined &&
+		Scopes.find(t.loops, b.label.value) === undefined
+	) {
 		throw new TypeError("Undeclared label!", b.start, b.end);
 	}
 	return Type.Unit;
@@ -427,10 +422,13 @@ function checkContinueStmt(
 	c: AstContinueStmt,
 	_d?: UnresolvedType
 ): Type {
-	if (t.loops.inGlobalScope) {
-		throw new TypeError("Cannot break continue a loop!", c.start, c.end);
+	if (t.loops.length === 1) {
+		throw new TypeError("Cannot continue outside a loop!", c.start, c.end);
 	}
-	if (c.label !== undefined && t.loops.get(c.label.value) === undefined) {
+	if (
+		c.label !== undefined &&
+		Scopes.find(t.loops, c.label.value) === undefined
+	) {
 		throw new TypeError("Undeclared label!", c.start, c.end);
 	}
 	return Type.Unit;
@@ -441,7 +439,8 @@ function checkReturnStmt(
 	r: AstReturnStmt,
 	d?: UnresolvedType
 ): Type {
-	if (t.values.inGlobalScope) {
+	// TODO this is not 100% correct example a simple block
+	if (t.values.length === 1) {
 		throw new TypeError("Cannot return outside a proc!", r.start, r.end);
 	}
 	const type = r.expr !== undefined ? check(t, r.expr, d) : Type.Unit;
@@ -463,7 +462,7 @@ function checkAssignVarStmt(
 	a: AstAssignVarStmt,
 	_d?: UnresolvedType
 ): Type {
-	const decl = t.values.getDecl(a.target.value);
+	const decl = Scopes.find(t.values, a.target.value);
 	if (decl === undefined) {
 		throw new TypeError("Undeclared variable!", a.target.start, a.target.end);
 	}
@@ -514,16 +513,12 @@ function checkLoopStmt(
 	l: AstLoopStmt,
 	_d?: UnresolvedType
 ): Type {
-	t.loops.openScope();
+	Scopes.openScope(t.loops);
 	if (l.label !== undefined) {
-		t.loops.declareLocal(l.label.value, {
-			mutable: false,
-			allowShadow: true,
-			value: true,
-		});
+		Scopes.declare(t.loops, l.label.value, true);
 	}
 	check(t, l.thenExpr);
-	t.loops.dropScope();
+	Scopes.dropScope(t.loops);
 	return Type.Unit;
 }
 
@@ -532,10 +527,10 @@ function checkWhileStmt(
 	w: AstWhileStmt,
 	_d?: UnresolvedType
 ): Type {
-	t.loops.openScope();
+	Scopes.openScope(t.loops);
 	assertAssignable(check(t, w.testExpr, Type.Bool), Type.Bool, w.testExpr);
 	check(t, w.thenExpr);
-	t.loops.dropScope();
+	Scopes.dropScope(t.loops);
 	return Type.Unit;
 }
 
@@ -553,14 +548,14 @@ function checkBlockExpr(
 	d?: UnresolvedType
 ): Type {
 	let type: Type = Type.Unit;
-	t.values.openScope();
+	Scopes.openScope(t.values);
 	for (const stmt of b.stmts) {
 		check(t, stmt);
 	}
 	if (b.stmts.length > 0) {
 		type = check(t, b.stmts[b.stmts.length - 1], d);
 	}
-	t.values.dropScope();
+	Scopes.dropScope(t.values);
 	return type;
 }
 
@@ -717,7 +712,7 @@ function checkThrowExpr(
 }
 
 function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: UnresolvedType): Type {
-	t.values.openScope();
+	Scopes.openScope(t.values);
 	const params: Type[] = [];
 	const destination = closestProc(d);
 	for (const [param, dParam] of zipLeft(p.params, destination.params)) {
@@ -765,7 +760,7 @@ function checkProcExpr(t: TypeChecker, p: ProcExpr, d?: UnresolvedType): Type {
 	const type = Type.proc(params, assertResolved(returns, p));
 	t.returns = returnsSave;
 	p.resolvedType = type;
-	t.values.dropScope();
+	Scopes.dropScope(t.values);
 	return type;
 }
 
@@ -967,11 +962,11 @@ function checkLit(_t: TypeChecker, l: AstLit, d?: UnresolvedType): Type {
 }
 
 function checkId(t: TypeChecker, i: AstId, _d?: UnresolvedType): Type {
-	const type = t.values.get(i.value);
-	if (type === undefined) {
+	const decl = Scopes.find(t.values, i.value);
+	if (decl === undefined) {
 		throw new TypeError("Undeclared variable!", i.start, i.end);
 	}
-	return type;
+	return decl.type;
 }
 
 function unify(
@@ -997,15 +992,15 @@ function unify(
 			return;
 		}
 		case AstTag.Id: {
-			if (
-				!t.values.declareLocal(p.value, {
-					mutable,
-					allowShadow: true,
-					value: type,
-				})
-			) {
-				throw new TypeError("Cannot shadow builtin!", p.start, p.end);
+			const priorDecl = Scopes.find(t.values, p.value);
+			if (priorDecl !== undefined && !priorDecl.shadowable) {
+				throw new TypeError("Cannot shadow builtin or types!", p.start, p.end);
 			}
+			Scopes.declare(t.values, p.value, {
+				mutable,
+				shadowable: true,
+				type,
+			});
 			return;
 		}
 		case AstTag.AsPattern: {
@@ -1105,7 +1100,7 @@ function reifyUnresolvedType(t: TypeChecker, at: AstType): UnresolvedType {
 			return Type._;
 		}
 		case AstTag.Id: {
-			const type = t.types.get(at.value);
+			const type = Scopes.find(t.types, at.value);
 			if (type === undefined) {
 				throw new TypeError("Undefined type!", at.start, at.end);
 			}
@@ -1139,7 +1134,7 @@ function reifyType(t: TypeChecker, at: AstType): Type {
 			throw new TypeError("Cannot use a wildcard type here!", at.start, at.end);
 		}
 		case AstTag.Id: {
-			const type = t.types.get(at.value);
+			const type = Scopes.find(t.types, at.value);
 			if (type === undefined) {
 				throw new TypeError("Undefined type!", at.start, at.end);
 			}
