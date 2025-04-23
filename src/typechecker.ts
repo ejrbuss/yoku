@@ -42,7 +42,7 @@ import {
 	AstImplDecl,
 } from "./ast.ts";
 import { BinaryOp, UnaryOp } from "./ops.ts";
-import { Scopes } from "./scopes2.ts";
+import { Scopes } from "./scopes.ts";
 import {
 	Kind,
 	Type,

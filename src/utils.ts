@@ -87,44 +87,6 @@ export function enumerate<A>(as: A[]): [number, A][] {
 	return enumerated;
 }
 
-export class ArrayIter<T> {
-	#array: T[];
-	#position: number;
-
-	constructor(array: T[]) {
-		this.#array = array;
-		this.#position = 0;
-	}
-
-	tryNext(): T | undefined {
-		return this.next();
-	}
-
-	get hasNext(): boolean {
-		return this.#position < this.#array.length;
-	}
-
-	next(): T {
-		return this.#array[this.#position++];
-	}
-
-	take(n: number): T[] {
-		const taken: T[] = [];
-		while (n-- > 0 && this.hasNext) {
-			taken.push(this.next());
-		}
-		return taken;
-	}
-
-	rest(): T[] {
-		return this.#array.slice(this.#position);
-	}
-
-	skip(n: number): void {
-		this.#position += n;
-	}
-}
-
 export type Span = {
 	start: number;
 	end: number;
@@ -181,16 +143,4 @@ export function sexpr(v: unknown, ignoreKeys: string[] = []): string {
 		return oneLine;
 	}
 	return `(${mapped.join("\n")})`.replaceAll("\n", "\n  ");
-}
-
-// TODO extend me for syntax/type problems
-export class Problem extends Error {
-	readonly start: number;
-	readonly end: number;
-
-	constructor(message: string, span: Span, options?: ErrorOptions) {
-		super(message, options);
-		this.start = span.start;
-		this.end = span.end;
-	}
 }

@@ -1,108 +1,90 @@
-import { Span } from "./utils.ts";
 import { assert } from "@std/assert/assert";
 
-export type Decl<T> = {
-	mutable: boolean;
-	allowShadow: boolean;
-	value: T;
-	sourceLocation?: Span;
-};
+export type Scope<T> = Record<string, T>;
 
-export type Scope<T> = Record<string, Decl<T>>;
+export type Scopes<T> = Scope<T>[];
 
-export class Scopes<T> {
-	// Global scope is created by default
-	private scopes: Scope<T>[] = [{}];
-
-	declareGlobal(id: string, decl: Decl<T>): boolean {
-		const priorDecl = this.getDecl(id);
-		if (priorDecl && !priorDecl.allowShadow) {
-			return false;
-		}
-		this.globalScope[id] = decl;
-		return true;
-	}
-
-	declareLocal(id: string, decl: Decl<T>): boolean {
-		const priorDecl = this.getDecl(id);
-		if (priorDecl && !priorDecl.allowShadow) {
-			return false;
-		}
-		this.localScope[id] = decl;
-		return true;
-	}
-
-	getDecl(id: string): Decl<T> | undefined {
-		for (let i = this.scopes.length - 1; i >= 0; i--) {
-			const scope = this.scopes[i];
-			const decl = scope[id];
-			if (decl !== undefined) {
-				return decl;
-			}
-		}
-		return undefined;
-	}
-
-	get(id: string): T | undefined {
-		return this.getDecl(id)?.value;
-	}
-
-	set(id: string, value: T): void {
-		const decl = this.getDecl(id);
-		assert(decl, `'${id}' is not declared!`);
-		assert(decl.mutable, `'${id}' is not mutable!`);
-		decl.value = value;
-	}
-
-	openScope(): void {
-		this.scopes.push({});
-	}
-
-	dropScope(): Scope<T> {
-		assert(this.scopes.length > 1, "You cannot pop the global scope!");
-		return this.scopes.pop() as Scope<T>;
-	}
-
-	capture(): Scopes<T> {
-		const captured = new Scopes<T>();
-		captured.globalScope = this.globalScope;
-		for (let i = 1; i < this.scopes.length; i++) {
-			const original = this.scopes[i];
-			const copy: Scope<T> = {};
-			for (const [id, decl] of Object.entries(original)) {
-				copy[id] = { ...decl };
-			}
-			captured.scopes.push(copy);
-		}
-		return captured;
-	}
-
-	copy(): Scopes<T> {
-		const copied = new Scopes<T>();
-		copied.scopes.pop();
-		for (const original of this.scopes) {
-			const copy: Scope<T> = {};
-			for (const [id, decl] of Object.entries(original)) {
-				copy[id] = { ...decl };
-			}
-			copied.scopes.push(copy);
-		}
-		return copied;
-	}
-
-	get inGlobalScope(): boolean {
-		return this.scopes.length === 1;
-	}
-
-	private get globalScope(): Scope<T> {
-		return this.scopes[0];
-	}
-
-	private set globalScope(scope: Scope<T>) {
-		this.scopes[0] = scope;
-	}
-
-	private get localScope(): Scope<T> {
-		return this.scopes[this.scopes.length - 1];
-	}
+function create<T>(): Scopes<T> {
+	return [{}];
 }
+
+function find<T>(scopes: Scopes<T>, id: string): T | undefined {
+	for (let i = scopes.length - 1; i >= 0; i--) {
+		const value = scopes[i][id];
+		if (value !== undefined) {
+			return value;
+		}
+	}
+	return undefined;
+}
+
+function update<T>(scopes: Scopes<T>, id: string, value: T): boolean {
+	for (let i = scopes.length - 1; i >= 0; i--) {
+		const scope = scopes[i];
+		if (id in scope) {
+			scope[id] = value;
+			return true;
+		}
+	}
+	return false;
+}
+
+function declare<T>(scopes: Scopes<T>, id: string, value: T): void {
+	assert(scopes.length > 0);
+	scopes[scopes.length - 1][id] = value;
+}
+
+function openScope<T>(scopes: Scopes<T>): void {
+	scopes.push({});
+}
+
+function dropScope<T>(scopes: Scopes<T>): Scope<T> {
+	const scope = scopes.pop();
+	assert(scope !== undefined);
+	return scope;
+}
+
+function capture<T>(scopes: Scopes<T>): Scopes<T> {
+	if (scopes.length === 0) {
+		return [];
+	}
+	const [first, ...rest] = scopes;
+	const copy = [first];
+	for (const scope of rest) {
+		copy.push({ ...scope });
+	}
+	return copy;
+}
+
+function copy<T>(scopes: Scopes<T>): Scopes<T> {
+	const copy = [];
+	for (const scope of scopes) {
+		copy.push({ ...scope });
+	}
+	return copy;
+}
+
+function print<T>(scopes: Scopes<T>): string {
+	if (scopes.length === 0) {
+		return "{}";
+	}
+	const [first, ...rest] = scopes;
+	const items: string[] = [];
+	for (const id in first) {
+		items.push(id);
+	}
+	items.push(print(rest));
+	return `{ ${items.join(", ")} }`;
+}
+
+export const Scopes = {
+	create,
+	find,
+	update,
+	declare,
+	openScope,
+	dropScope,
+	capture,
+	copy,
+	print,
+};

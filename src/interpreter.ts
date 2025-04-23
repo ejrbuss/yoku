@@ -46,7 +46,6 @@ import { Kind, TupleType, Type, VariantType } from "./types.ts";
 import { NonNull, enumerate, structurallyEq, zip } from "./utils.ts";
 import { unreachable } from "@std/assert/unreachable";
 import { assert } from "@std/assert/assert";
-import { types } from "node:util";
 
 export class RuntimeError {
 	constructor(
@@ -76,20 +75,13 @@ export type Interpreter = {
 export const Interpreter = { create, interperate };
 
 function create(test: boolean): Interpreter {
-	const scopes = new Scopes();
+	const scopes = Scopes.create();
 	for (const [id, builtin] of Object.entries(Builtins)) {
-		scopes.declareGlobal(id, {
-			mutable: false,
-			allowShadow: false,
-			value: builtin,
-		});
+		Scopes.declare(scopes, id, builtin);
 	}
 	for (const [id, builtinType] of Object.entries(BuiltinTypes)) {
-		scopes.declareGlobal(id, {
-			mutable: false,
-			allowShadow: false,
-			value: Module.for(Type.moduleOf(builtinType)),
-		});
+		// This is some hacky crap
+		Scopes.declare(scopes, id, Module.for(Type.moduleOf(builtinType)));
 	}
 	return { scopes, test };
 }
@@ -139,11 +131,7 @@ function unify(
 			return true;
 		}
 		case AstTag.Id: {
-			i.scopes.declareLocal(p.value, {
-				mutable: true,
-				allowShadow: true,
-				value,
-			});
+			Scopes.declare(i.scopes, p.value, value);
 			return true;
 		}
 		case AstTag.AsPattern: {
@@ -336,13 +324,13 @@ function interperateTestDecl(i: Interpreter, t: AstTestDecl): unknown {
 function interperateModuleDecl(i: Interpreter, m: AstModuleDecl): unknown {
 	assert(m.moduleType);
 	const module = Module.for(m.moduleType);
-	i.scopes.openScope();
+	Scopes.openScope(i.scopes);
 	for (const decl of m.decls) {
 		interperate(i, decl);
 	}
-	const values = i.scopes.dropScope();
-	for (const [name, decl] of Object.entries(values)) {
-		module[name] = decl.value;
+	const values = Scopes.dropScope(i.scopes);
+	for (const [name, value] of Object.entries(values)) {
+		module[name] = value;
 	}
 	unify(i, m.id, module, true);
 	return Unit;
@@ -351,13 +339,13 @@ function interperateModuleDecl(i: Interpreter, m: AstModuleDecl): unknown {
 function interperateImplDecl(i: Interpreter, d: AstImplDecl): unknown {
 	assert(d.moduleType);
 	const module = Module.for(d.moduleType);
-	i.scopes.openScope();
+	Scopes.openScope(i.scopes);
 	for (const decl of d.decls) {
 		interperate(i, decl);
 	}
-	const values = i.scopes.dropScope();
-	for (const [name, decl] of Object.entries(values)) {
-		module[name] = decl.value;
+	const values = Scopes.dropScope(i.scopes);
+	for (const [name, value] of Object.entries(values)) {
+		module[name] = value;
 	}
 	return Unit;
 }
@@ -436,7 +424,7 @@ function interperateAssignVarStmt(
 	a: AstAssignVarStmt
 ): unknown {
 	const value = interperate(i, a.expr);
-	i.scopes.set(a.target.value, value);
+	Scopes.update(i.scopes, a.target.value, value);
 	return Unit;
 }
 
@@ -455,7 +443,7 @@ function interperateExprStmt(i: Interpreter, e: AstExprStmt): unknown {
 }
 
 function interperateBlockExpr(i: Interpreter, b: BlockExpr): unknown {
-	i.scopes.openScope();
+	Scopes.openScope(i.scopes);
 	try {
 		let acc: unknown = Unit;
 		for (const stmt of b.stmts) {
@@ -463,7 +451,7 @@ function interperateBlockExpr(i: Interpreter, b: BlockExpr): unknown {
 		}
 		return acc;
 	} finally {
-		i.scopes.dropScope();
+		Scopes.dropScope(i.scopes);
 	}
 }
 
@@ -511,7 +499,6 @@ function interperateIfExpr(i: Interpreter, f: IfExpr): unknown {
 	if (f.pattern !== undefined) {
 		const value = interperate(i, f.testExpr);
 		if (unify(i, f.pattern, value, false, f.resolvedDeclType)) {
-			console.log("was true!");
 			return interperate(i, f.thenExpr);
 		} else if (f.elseExpr !== undefined) {
 			return interperate(i, f.elseExpr);
@@ -556,13 +543,13 @@ function interperateThrowExpr(i: Interpreter, t: ThrowExpr): unknown {
 }
 
 function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
-	const capture = i.scopes.capture();
+	const capture = Scopes.capture(i.scopes);
 	const procType = p.resolvedType;
 	assert(procType?.kind === Kind.Proc);
 	return Proc.create(undefined, procType, (args) => {
 		const scopesSave = i.scopes;
 		i.scopes = capture;
-		capture.openScope();
+		Scopes.openScope(capture);
 		try {
 			for (const [param, arg] of zip(p.params, args)) {
 				unify(i, param.pattern, arg, true);
@@ -575,7 +562,7 @@ function interperateProcExpr(i: Interpreter, p: ProcExpr): unknown {
 			}
 			throw e;
 		} finally {
-			capture.dropScope();
+			Scopes.dropScope(capture);
 			i.scopes = scopesSave;
 		}
 	});
@@ -733,5 +720,13 @@ function interperateLit(_i: Interpreter, l: AstLit): unknown {
 }
 
 function interperateId(i: Interpreter, id: AstId): unknown {
-	return i.scopes.get(id.value);
+	const value = Scopes.find(i.scopes, id.value);
+	if (value === undefined) {
+		console.log({
+			scopes: Scopes.print(i.scopes),
+			id,
+		});
+		throw new Error("uh oh");
+	}
+	return Scopes.find(i.scopes, id.value);
 }
