@@ -68,6 +68,9 @@ class Return {
 }
 
 export type Interpreter = {
+	// Something like
+	// modules: Map<Type, Module> // modules of types defined in this module
+	// types: Map<Ast, Type> // the type of every Ast Node
 	scopes: Scopes<unknown>;
 	test: boolean;
 };
@@ -720,13 +723,5 @@ function interperateLit(_i: Interpreter, l: AstLit): unknown {
 }
 
 function interperateId(i: Interpreter, id: AstId): unknown {
-	const value = Scopes.find(i.scopes, id.value);
-	if (value === undefined) {
-		console.log({
-			scopes: Scopes.print(i.scopes),
-			id,
-		});
-		throw new Error("uh oh");
-	}
 	return Scopes.find(i.scopes, id.value);
 }
